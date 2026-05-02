@@ -6,3 +6,7 @@ obj/
 packages/
 .DS_Store
 **/.DS_Store
+# Built binaries — distribute via GitHub Releases or out-of-band, not in repo.
+*.exe
+*.dll
+*.pdb
