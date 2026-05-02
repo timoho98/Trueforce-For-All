@@ -1,0 +1,14 @@
+		    GNU GENERAL PUBLIC LICENSE
+		       Version 2, June 1991
+
+ Copyright (C) 1989, 1991 Free Software Foundation, Inc.,
+ 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ Everyone is permitted to copy and distribute verbatim copies
+ of this license document, but changing it is not allowed.
+
+This project incorporates protocol knowledge and ported code derived from
+mescon/logitech-rs50-linux-driver (GPL-2.0-only). As a derivative work, this
+project is also licensed under GPL-2.0-only.
+
+The full text of the GNU General Public License version 2 is available at:
+  https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt
