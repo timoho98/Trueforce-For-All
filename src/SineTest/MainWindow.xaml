@@ -95,7 +95,7 @@
                     </Grid.ColumnDefinitions>
                     <Slider Grid.Column="0"
                             x:Name="FreqSlider"
-                            Minimum="1" Maximum="500" Value="50"
+                            Minimum="20" Maximum="500" Value="80"
                             TickFrequency="10" IsSnapToTickEnabled="False"
                             ValueChanged="FreqSlider_ValueChanged"/>
                     <TextBlock Grid.Column="1"
@@ -105,7 +105,7 @@
                                FontFamily="Consolas" FontSize="14"/>
                 </Grid>
                 <TextBlock Foreground="#6E7681" FontSize="11"
-                           Text="1 - 500 Hz. Drag while playing to feel the pitch sweep."/>
+                           Text="20 - 500 Hz. Below 20 Hz the motor follows the waveform like FFB instead of vibrating."/>
             </StackPanel>
         </GroupBox>
 
@@ -136,7 +136,7 @@
         <!-- Frequency sweep -->
         <GroupBox Grid.Row="5" Header="Frequency sweep">
             <StackPanel Orientation="Horizontal">
-                <Button x:Name="SweepBtn" Content="Sweep 20 → 500 Hz"
+                <Button x:Name="SweepBtn" Content="Sweep 30 → 500 Hz"
                         Click="SweepBtn_Click"/>
                 <TextBlock VerticalAlignment="Center"
                            Foreground="#6E7681" FontSize="11"

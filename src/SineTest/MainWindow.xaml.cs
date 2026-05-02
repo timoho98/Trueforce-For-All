@@ -25,14 +25,16 @@ namespace SimHubTrueforce.SineTest
         // Coarse lock; uncontended at this rate.
         private readonly object _synthLock = new object();
         private Waveform _wave  = Waveform.Sine;
-        private double   _freq  = 50.0;
+        private double   _freq  = 80.0;
         private double   _amp   = 0.3;
         private double   _phase;
         private readonly Random _rng = new Random();
 
-        // Sweep state.
+        // Sweep state — guarded by _synthLock so the synth thread sees a
+        // consistent snapshot of (active, startUtc).
         private bool _sweepActive;
         private DateTime _sweepStartUtc;
+        private long _lastSweepUiUpdateTicks;  // for UI-update throttling
 
         public MainWindow()
         {
@@ -134,8 +136,22 @@ namespace SimHubTrueforce.SineTest
             if (!_streaming) return;
             _shuttingDown = true;
             _streaming = false;
+            lock (_synthLock) _sweepActive = false;
 
+            // Wait for the synth thread to exit so it stops generating samples.
             try { _synthThread?.Join(500); } catch { }
+
+            // Flush queued audio and centre the wheel before tearing down: clear
+            // the ring (drops any buffered samples) and let a few stream ticks
+            // emit silent (0x8000) packets so the wheel doesn't hang on the last
+            // peak sample. Without this the motor can sit at full one-sided
+            // torque until the firmware self-relaxes.
+            try
+            {
+                _device?.ClearStream();
+                Thread.Sleep(60); // ~15 packets at 250 Hz; plenty to drain.
+            }
+            catch { }
 
             CleanupDevice();
 
@@ -143,7 +159,6 @@ namespace SimHubTrueforce.SineTest
             StopBtn.IsEnabled  = false;
             RefreshBtn.IsEnabled = true;
             StatusText.Text = statusMessage;
-            _sweepActive = false;
         }
 
         private void CleanupDevice()
@@ -165,10 +180,14 @@ namespace SimHubTrueforce.SineTest
 
         private void FreqSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
+            // While a sweep is active, the synth itself drives _freq and writes
+            // the readout; don't fight it. Don't update FreqText either — the
+            // synth thread is busy showing "(sweep) ..." values.
+            bool sweepActive;
+            lock (_synthLock) sweepActive = _sweepActive;
+            if (sweepActive) return;
+
             if (FreqText != null) FreqText.Text = $"{e.NewValue:F0} Hz";
-            // While a sweep is active, ignore manual freq slider changes from the user
-            // (the sweep itself drives _freq; if we wrote here we'd fight it).
-            if (_sweepActive) return;
             lock (_synthLock) _freq = e.NewValue;
         }
 
@@ -187,9 +206,12 @@ namespace SimHubTrueforce.SineTest
                 StatusText.Text = "Click Start first, then trigger the sweep.";
                 return;
             }
-            _sweepActive = true;
-            _sweepStartUtc = DateTime.UtcNow;
-            StatusText.Text = "Sweeping 20 → 500 Hz over 5 s...";
+            lock (_synthLock)
+            {
+                _sweepActive = true;
+                _sweepStartUtc = DateTime.UtcNow;
+            }
+            StatusText.Text = "Sweeping 30 → 500 Hz over 5 s...";
         }
 
         // ---------- synth thread ----------
@@ -201,29 +223,41 @@ namespace SimHubTrueforce.SineTest
             while (!_shuttingDown)
             {
                 Waveform w; double freq, amp;
-                lock (_synthLock) { w = _wave; freq = _freq; amp = _amp; }
+                bool sweepActive; DateTime sweepStartUtc;
+                lock (_synthLock)
+                {
+                    w = _wave; freq = _freq; amp = _amp;
+                    sweepActive = _sweepActive; sweepStartUtc = _sweepStartUtc;
+                }
 
                 // Sweep override.
-                if (_sweepActive)
+                if (sweepActive)
                 {
-                    double elapsed = (DateTime.UtcNow - _sweepStartUtc).TotalSeconds;
+                    double elapsed = (DateTime.UtcNow - sweepStartUtc).TotalSeconds;
                     if (elapsed >= 5.0)
                     {
-                        _sweepActive = false;
-                        // Snap back to the slider's current value; no UI marshaling needed.
+                        lock (_synthLock) _sweepActive = false;
                         Dispatcher.BeginInvoke(new Action(() =>
                         {
                             StatusText.Text = "Streaming. Drag the sliders to vary frequency / amplitude.";
+                            // Restore freq display from slider position.
+                            if (FreqText != null && FreqSlider != null)
+                                FreqText.Text = $"{FreqSlider.Value:F0} Hz";
                         }));
                     }
                     else
                     {
-                        // Logarithmic sweep, more useful than linear for haptics.
+                        // Logarithmic sweep across an audible-vibration range.
                         double t = elapsed / 5.0;
-                        freq = 20.0 * Math.Pow(500.0 / 20.0, t);
-                        // Reflect back to UI for visibility.
-                        if ((int)(elapsed * 10) % 3 == 0)
+                        freq = 30.0 * Math.Pow(500.0 / 30.0, t);
+
+                        // Throttle UI updates — every ~80 ms is plenty for a
+                        // visible readout and keeps the dispatcher quiet.
+                        long nowTicks = Environment.TickCount;
+                        long lastTicks = Interlocked.Read(ref _lastSweepUiUpdateTicks);
+                        if (nowTicks - lastTicks > 80)
                         {
+                            Interlocked.Exchange(ref _lastSweepUiUpdateTicks, nowTicks);
                             double freqShow = freq;
                             Dispatcher.BeginInvoke(new Action(() =>
                             {
