@@ -231,21 +231,14 @@ namespace SimHubTrueforce.SineTest
         private static readonly double SweepStepFactor =
             Math.Pow(SweepFreqHi / SweepFreqLo, 1.0 / (SweepDurSec * SampleRateHz));
 
-        // RMS normalisation per waveform so amp=0.3 means equal energy
-        // regardless of waveform shape. Without this, square waves feel ~40%
-        // "louder" than sine and saw/triangle feel ~18% quieter.
-        private static double WaveformGain(Waveform w)
-        {
-            switch (w)
-            {
-                case Waveform.Sine:     return 1.0;                 // sine RMS = 1/sqrt(2), reference
-                case Waveform.Square:   return 1.0 / Math.Sqrt(2);  // 0.707; brings RMS down to sine's
-                case Waveform.Saw:      return Math.Sqrt(3.0 / 2.0); // 1.225; brings RMS up to sine's
-                case Waveform.Triangle: return Math.Sqrt(3.0 / 2.0); // same as saw
-                case Waveform.Noise:    return 1.0 / Math.Sqrt(2);  // approximate match
-                default: return 1.0;
-            }
-        }
+        // No per-waveform gain compensation: all waveforms peak at the amp
+        // setting (gain = 1.0). Earlier we tried RMS-normalising so different
+        // waveforms felt equal-loudness, but that pushed saw / triangle peaks
+        // above 1.0, causing hard clipping. Clipped saw/triangle introduces a
+        // phase-dependent DC offset which the wheel motor follows as
+        // sustained torque ("FFB pulling"). Peak-normalising avoids that.
+        // Trade-off: square feels ~40% louder energy than sine at the same
+        // amp setting; user adjusts via the amp slider.
 
         private void SynthLoop()
         {
@@ -312,8 +305,7 @@ namespace SimHubTrueforce.SineTest
                     }
                 }
 
-                float waveGain = (float)WaveformGain(w);
-                float scaledAmp = (float)amp * waveGain;
+                float scaledAmp = (float)amp;
 
                 for (int i = 0; i < BatchSamples; i++)
                 {
