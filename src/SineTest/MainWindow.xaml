@@ -129,7 +129,7 @@
                                FontFamily="Consolas" FontSize="14"/>
                 </Grid>
                 <TextBlock Foreground="#6E7681" FontSize="11"
-                           Text="0.0 - 1.0. Start low and ramp up."/>
+                           Text="0.0 - 1.0. Above ~0.7 the motor can't fully snap back between cycles and net torque builds (feels like FFB)."/>
             </StackPanel>
         </GroupBox>
 
