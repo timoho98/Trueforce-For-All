@@ -13,7 +13,12 @@
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <SelfContained>true</SelfContained>
+    <!-- Framework-dependent: small exe that requires the .NET runtime
+         already installed on the target machine. Keeps the file small
+         enough to live in the repo (GitHub's per-file limit is 100 MB).
+         If the target machine lacks the runtime, install
+         "Microsoft .NET Desktop Runtime" matching the TargetFramework. -->
+    <SelfContained>false</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <UseWPF>true</UseWPF>

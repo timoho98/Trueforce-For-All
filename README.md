@@ -4,10 +4,12 @@ Drive real Logitech Trueforce haptics on G PRO / RS50 direct-drive wheels for
 any SimHub-supported game, via the documented USB protocol — no Logitech SDK
 DLLs, no G HUB integration required.
 
-**Status: Phase 1 — HID hello-world.** A standalone console app that opens the
-wheel, runs the Trueforce init sequence, and streams a sine wave. Once this
-verifies the wheel actually vibrates on command, the same code becomes the
-backbone of the SimHub plugin (Phase 2).
+**Status: Phase 1 — HID hello-world.** A standalone WPF GUI that opens the
+wheel, runs the Trueforce init sequence, and streams a user-controllable
+waveform (sine / square / saw / triangle / noise) with live frequency and
+amplitude sliders, plus a logarithmic frequency sweep. Once this verifies
+the wheel responds correctly, the same code becomes the backbone of the
+SimHub plugin (Phase 2).
 
 ## Hardware support
 
@@ -25,34 +27,32 @@ mescon against fresh G HUB captures).
 
 ## Requirements
 
+To run the prebuilt `src/SineTest/sinetest.exe`:
 - Windows 10 / 11
-- .NET Framework 4.8 SDK + MSBuild (Visual Studio 2022 or `dotnet` SDK)
+- [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0) installed
 - Logitech G HUB **closed** while running (it claims the HID interface)
 
-## Build
+To build from source:
+- The above, plus the .NET SDK (10.x) and `EnableWindowsTargeting=true` if
+  cross-compiling from macOS / Linux.
 
-```powershell
-cd SimHubTrueforce
-dotnet build src\SineTest\SineTest.csproj -c Release
-```
-
-Output: `src\SineTest\bin\x64\Release\net48\sinetest.exe`
-
-## Phase 1 smoke test
+## Run the prebuilt exe
 
 > **Safety:** a direct-drive wheel can produce significant torque. The wheel
 > may rotate during the Trueforce init sequence. **Hold the wheel or clamp it
-> down before running.** The program prints a 5-second countdown.
+> down before clicking Start.**
+
+Just double-click `src/SineTest/sinetest.exe`. The window opens, finds the
+wheel, and lets you drive it with sliders.
+
+## Build from source
 
 ```powershell
-.\sinetest.exe                      # 50 Hz, 2 s, amplitude 0.3
-.\sinetest.exe 80 3 0.4             # 80 Hz, 3 s, amplitude 0.4
+cd SimHubTrueforce
+dotnet publish src\SineTest\SineTest.csproj -c Release
 ```
 
-Args: `<freq_hz> <duration_s> <amplitude_0_to_1>`.
-
-If the wheel buzzes during the streaming phase, Phase 1 passes and we move on
-to Phase 2 (SimHub plugin scaffold).
+Published exe: `src\SineTest\bin\Release\net10.0-windows\win-x64\publish\sinetest.exe`
 
 ## License
 

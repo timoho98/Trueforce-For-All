@@ -6,7 +6,7 @@ obj/
 packages/
 .DS_Store
 **/.DS_Store
-# Built binaries — distribute via GitHub Releases or out-of-band, not in repo.
-*.exe
-*.dll
+# Build outputs go to bin/ which is already ignored. The published exe in
+# src/SineTest/sinetest.exe is intentionally tracked so it ships with the
+# repo for easy testing on Windows.
 *.pdb
