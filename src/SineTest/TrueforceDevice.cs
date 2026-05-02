@@ -265,7 +265,11 @@ namespace SimHubTrueforce.SineTest
             // Shift the window left by NewPerPacket, fill the tail with new samples
             // (or repeat the last known value on starvation).
             const int shift = NewPerPacket;
-            Buffer.BlockCopy(_window, shift * sizeof(ushort), _window, 0, (Window - shift) * sizeof(ushort));
+            // Array.Copy guarantees correct behaviour for overlapping ranges in
+            // the same array; Buffer.BlockCopy doesn't make that guarantee in
+            // its public contract (it uses memmove internally today, but that's
+            // an implementation detail).
+            Array.Copy(_window, shift, _window, 0, Window - shift);
             ushort last = _window[Window - shift - 1];
             for (int i = 0; i < shift; i++)
             {

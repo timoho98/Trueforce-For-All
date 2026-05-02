@@ -219,61 +219,109 @@ namespace SimHubTrueforce.SineTest
 
         // ---------- synth thread ----------
 
+        // Sweep parameters: log sweep from FreqLo to FreqHi over SweepDurSec.
+        private const double SweepFreqLo = 30.0;
+        private const double SweepFreqHi = 500.0;
+        private const double SweepDurSec = 5.0;
+
+        // Multiplicative per-sample frequency step for the log sweep:
+        // sample period is 1/SampleRateHz, so per-sample factor = (Hi/Lo)^(1/(dur*sr)).
+        // Pre-computed so the synth hot loop can do one mul per sample instead
+        // of Math.Pow.
+        private static readonly double SweepStepFactor =
+            Math.Pow(SweepFreqHi / SweepFreqLo, 1.0 / (SweepDurSec * SampleRateHz));
+
+        // RMS normalisation per waveform so amp=0.3 means equal energy
+        // regardless of waveform shape. Without this, square waves feel ~40%
+        // "louder" than sine and saw/triangle feel ~18% quieter.
+        private static double WaveformGain(Waveform w)
+        {
+            switch (w)
+            {
+                case Waveform.Sine:     return 1.0;                 // sine RMS = 1/sqrt(2), reference
+                case Waveform.Square:   return 1.0 / Math.Sqrt(2);  // 0.707; brings RMS down to sine's
+                case Waveform.Saw:      return Math.Sqrt(3.0 / 2.0); // 1.225; brings RMS up to sine's
+                case Waveform.Triangle: return Math.Sqrt(3.0 / 2.0); // same as saw
+                case Waveform.Noise:    return 1.0 / Math.Sqrt(2);  // approximate match
+                default: return 1.0;
+            }
+        }
+
         private void SynthLoop()
         {
             float[] buf = new float[BatchSamples];
 
             while (!_shuttingDown)
             {
-                Waveform w; double freq, amp;
+                Waveform w; double sliderFreq, amp;
                 bool sweepActive; DateTime sweepStartUtc;
                 lock (_synthLock)
                 {
-                    w = _wave; freq = _freq; amp = _amp;
+                    w = _wave; sliderFreq = _freq; amp = _amp;
                     sweepActive = _sweepActive; sweepStartUtc = _sweepStartUtc;
                 }
 
-                // Sweep override.
+                // Determine starting frequency for this batch and whether the
+                // sweep is still running. We update freq per-sample below so
+                // the sweep is smooth, not stepped at batch boundaries.
+                double freq;
+                bool sweepEnded = false;
+                double sweepShow = 0;
                 if (sweepActive)
                 {
-                    double elapsed = (DateTime.UtcNow - sweepStartUtc).TotalSeconds;
-                    if (elapsed >= 5.0)
+                    double elapsedAtStart = (DateTime.UtcNow - sweepStartUtc).TotalSeconds;
+                    if (elapsedAtStart >= SweepDurSec)
                     {
-                        lock (_synthLock) _sweepActive = false;
-                        Dispatcher.BeginInvoke(new Action(() =>
-                        {
-                            StatusText.Text = "Streaming. Drag the sliders to vary frequency / amplitude.";
-                            // Restore freq display from slider position.
-                            if (FreqText != null && FreqSlider != null)
-                                FreqText.Text = $"{FreqSlider.Value:F0} Hz";
-                        }));
+                        sweepEnded = true;
+                        freq = sliderFreq;
                     }
                     else
                     {
-                        // Logarithmic sweep across an audible-vibration range.
-                        double t = elapsed / 5.0;
-                        freq = 30.0 * Math.Pow(500.0 / 30.0, t);
+                        freq = SweepFreqLo * Math.Pow(SweepFreqHi / SweepFreqLo, elapsedAtStart / SweepDurSec);
+                        sweepShow = freq;
+                    }
+                }
+                else
+                {
+                    freq = sliderFreq;
+                }
 
-                        // Throttle UI updates — every ~80 ms is plenty for a
-                        // visible readout and keeps the dispatcher quiet.
-                        long nowTicks = Environment.TickCount;
-                        long lastTicks = Interlocked.Read(ref _lastSweepUiUpdateTicks);
-                        if (nowTicks - lastTicks > 80)
+                if (sweepEnded)
+                {
+                    lock (_synthLock) _sweepActive = false;
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        StatusText.Text = "Streaming. Drag the sliders to vary frequency / amplitude.";
+                        if (FreqText != null && FreqSlider != null)
+                            FreqText.Text = $"{FreqSlider.Value:F0} Hz";
+                    }));
+                }
+                else if (sweepActive)
+                {
+                    // Throttled UI update (~12 Hz) of the sweep readout.
+                    long nowTicks = Environment.TickCount;
+                    long lastTicks = Interlocked.Read(ref _lastSweepUiUpdateTicks);
+                    if (nowTicks - lastTicks > 80)
+                    {
+                        Interlocked.Exchange(ref _lastSweepUiUpdateTicks, nowTicks);
+                        double freqShow = sweepShow;
+                        Dispatcher.BeginInvoke(new Action(() =>
                         {
-                            Interlocked.Exchange(ref _lastSweepUiUpdateTicks, nowTicks);
-                            double freqShow = freq;
-                            Dispatcher.BeginInvoke(new Action(() =>
-                            {
-                                if (FreqText != null) FreqText.Text = $"{freqShow:F0} Hz (sweep)";
-                            }));
-                        }
+                            if (FreqText != null) FreqText.Text = $"{freqShow:F0} Hz (sweep)";
+                        }));
                     }
                 }
 
-                double phaseStep = freq / SampleRateHz;
+                float waveGain = (float)WaveformGain(w);
+                float scaledAmp = (float)amp * waveGain;
+
                 for (int i = 0; i < BatchSamples; i++)
                 {
-                    float sample = SampleAt(w, _phase) * (float)amp;
+                    // Per-sample freq update during sweep -> smooth glide.
+                    if (sweepActive && !sweepEnded) freq *= SweepStepFactor;
+                    double phaseStep = freq / SampleRateHz;
+
+                    float sample = SampleAt(w, _phase) * scaledAmp;
                     buf[i] = sample;
                     _phase += phaseStep;
                     if (_phase >= 1.0) _phase -= Math.Floor(_phase);
