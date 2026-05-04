@@ -31,6 +31,7 @@ in real time, mixing several signal sources:
 
 - **Telemetry-derived effects** synthesized from the live game data SimHub
   exposes:
+  
   - **Engine pulse** -- a rumble at the engine's firing frequency, scaled
     by RPM. The signature Trueforce sensation; idle gives a gentle hum,
     pulling toward redline gives meaningful kick.
@@ -41,10 +42,12 @@ in real time, mixing several signal sources:
   - **Traction loss** -- buzz when grip breaks (wheelspin, lockup, drift)
     derived from the difference between wheel speed and ground speed plus
     a yaw-rate / lateral-G discrepancy check.
+    
 - **Audio-derived effects** -- WASAPI loopback captures the
   game's audio output (engine, tire, impact sounds) and feeds it into the
   wheel as a low-latency buzz. Lets you feel things the telemetry doesn't
   expose.
+  
 - **FFB pass-through** -- when a game already drives the wheel via standard
   HID++ force feedback (Assetto Corsa does), the plugin transparently taps
   that signal off the USB bus and mirrors it into the Trueforce stream so
