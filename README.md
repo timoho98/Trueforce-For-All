@@ -6,7 +6,7 @@ Logitech ships Trueforce for a handful of officially-supported titles. This
 plugin makes it work everywhere SimHub does. Reverse-engineered from the
 USB wire protocol -- no Logitech SDK, no G HUB integration, no whitelist.
 
-Tested with Assetto Corsa and Wreckfest. Works in principle with any game
+Tested on a GPRO wheel with Assetto Corsa and Wreckfest 2. Works in principle with any game
 SimHub can read telemetry from.
 
 > **Status:** v0.x, actively developed. The plugin is functional today; the
@@ -34,14 +34,13 @@ in real time, mixing several signal sources:
     by RPM. The signature Trueforce sensation; idle gives a gentle hum,
     pulling toward redline gives meaningful kick.
   - **Gear shift** -- a short low-frequency thud whenever the gear changes.
-  - **ABS click** -- pulse or per-tick haptic when ABS engages, configurable
-    to match how the game reports the ABS state.
+  - **ABS click** -- configurable haptic when ABS engages.`
   - **Road bumps** -- noise gated by vertical acceleration, so curbs and
     rough terrain rumble through the wheel.
   - **Traction loss** -- buzz when grip breaks (wheelspin, lockup, drift)
     derived from the difference between wheel speed and ground speed plus
     a yaw-rate / lateral-G discrepancy check.
-- **Audio-derived effects** -- per-process WASAPI loopback captures the
+- **Audio-derived effects** -- WASAPI loopback captures the
   game's audio output (engine, tire, impact sounds) and feeds it into the
   wheel as a low-latency buzz. Lets you feel things the telemetry doesn't
   expose.
@@ -56,7 +55,7 @@ continuous and transient effects, and savable preset library.
 
 ## Auto-discovery
 
-No machine-specific configuration. On startup the plugin:
+ On startup the plugin:
 
 1. Enumerates connected HID devices, finds the wheel's Trueforce interface
    (`MI_02`, vendor usage page `0xFFFD`).
@@ -67,7 +66,7 @@ No machine-specific configuration. On startup the plugin:
 
 If the wheel isn't detected (G HUB still running, USBPcap not installed,
 wheel unplugged) the plugin logs a clear status message and disables itself
-gracefully -- it never silently hangs SimHub.
+gracefully
 
 ## Install
 
