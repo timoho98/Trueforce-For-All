@@ -1,16 +1,16 @@
-// Live test rig for the Trueforce wire path: pick a waveform, drag freq /
+﻿// Live test rig for the Trueforce wire path: pick a waveform, drag freq /
 // amplitude sliders, hear the wheel respond in real time.
 //
 // As of Phase 2b this drives a Mixer + OscillatorSource (single voice for
 // now); the SimHub plugin and any future multi-voice expansion of the GUI
-// will reuse the same Trueforce.Core abstractions.
+// will reuse the same TrueforceForAll.Core abstractions.
 
 using System;
 using System.Threading;
 using System.Windows;
-using SimHubTrueforce.Core;
+using TrueforceForAll.Core;
 
-namespace SimHubTrueforce.SineTest
+namespace TrueforceForAll.SineTest
 {
     public partial class MainWindow : Window
     {
@@ -207,7 +207,7 @@ namespace SimHubTrueforce.SineTest
             }
             _sweepStartUtc = DateTime.UtcNow;
             _sweepActive = true;
-            StatusText.Text = "Sweeping 30 → 500 Hz over 5 s...";
+            StatusText.Text = "Sweeping 30 â†’ 500 Hz over 5 s...";
         }
 
         // ---------- synth thread ----------

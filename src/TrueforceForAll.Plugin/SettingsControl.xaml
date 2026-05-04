@@ -1,0 +1,494 @@
+﻿<UserControl x:Class="TrueforceForAll.Plugin.SettingsControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             mc:Ignorable="d"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             d:DesignHeight="900" d:DesignWidth="700">
+    <UserControl.Resources>
+        <Style x:Key="SectionHeaderBorder" TargetType="Border">
+            <Setter Property="BorderBrush" Value="#444"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="Padding" Value="0,0,0,8"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+        <Style x:Key="SectionHeaderText" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+    </UserControl.Resources>
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="20">
+            <TextBlock Text="Trueforce For All" FontSize="22" FontWeight="Bold" Margin="0,0,0,4"/>
+            <TextBlock Text="Logitech Trueforce haptics for G PRO / RS50 wheels."
+                       FontSize="13" Opacity="0.7" Margin="0,0,0,12" TextWrapping="Wrap"/>
+
+            <!-- Master enable (auto-remembered per game) -->
+            <Border Background="#22FFFFFF" CornerRadius="4" Padding="10" Margin="0,0,0,16">
+                <StackPanel>
+                    <CheckBox x:Name="PluginEnabledCheck" FontSize="14" FontWeight="SemiBold"
+                              Content="Plugin enabled"
+                              Checked="PluginEnabled_Changed" Unchecked="PluginEnabled_Changed"/>
+                    <TextBlock x:Name="PluginEnabledHint" FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="22,4,0,0"
+                               Text="Choice is auto-remembered per game. Disable for games with native Trueforce (e.g. iRacing) so this plugin yields the wheel."/>
+                </StackPanel>
+            </Border>
+
+            <!-- Status -->
+            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Status" Style="{StaticResource SectionHeaderText}"/></Border>
+            <Grid Margin="0,0,0,20">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Wheel:" Opacity="0.7"/>
+                <TextBlock Grid.Row="0" Grid.Column="1" x:Name="WheelText" Text="(checking...)"/>
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Stream:" Opacity="0.7" Margin="0,4,0,0"/>
+                <TextBlock Grid.Row="1" Grid.Column="1" x:Name="StreamText" Text="(checking...)" Margin="0,4,0,0"/>
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="FFB pass-through:" Opacity="0.7" Margin="0,4,0,0"/>
+                <TextBlock Grid.Row="2" Grid.Column="1" x:Name="FfbTapText" Text="(checking...)" Margin="0,4,0,0"/>
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="Active sources:" Opacity="0.7" Margin="0,4,0,0"/>
+                <TextBlock Grid.Row="3" Grid.Column="1" x:Name="VoicesText" Text="0" Margin="0,4,0,0"/>
+            </Grid>
+
+            <!-- Live activity (collapsible â€” when collapsed, no per-tick updates) -->
+            <Expander x:Name="LiveActivityExpander" IsExpanded="False" Margin="0,0,0,16">
+                <Expander.Header>
+                    <TextBlock Text="Live activity" FontWeight="Bold" FontSize="13"/>
+                </Expander.Header>
+                <StackPanel Margin="0,8,0,0">
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Engine pulse:" VerticalAlignment="Center" Opacity="0.7"/>
+                        <Border Grid.Column="1" x:Name="EngineMeterTrack" Height="14" Background="#22FFFFFF" CornerRadius="2" HorizontalAlignment="Stretch">
+                            <Border x:Name="EngineMeterFill" HorizontalAlignment="Left" Background="#4CAF50" CornerRadius="2" Width="0"/>
+                        </Border>
+                    </Grid>
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Audio capture:" VerticalAlignment="Center" Opacity="0.7"/>
+                        <Border Grid.Column="1" x:Name="AudioCaptureMeterTrack" Height="14" Background="#22FFFFFF" CornerRadius="2" HorizontalAlignment="Stretch">
+                            <Border x:Name="AudioCaptureMeterFill" HorizontalAlignment="Left" Background="#66BB6A" CornerRadius="2" Width="0"/>
+                        </Border>
+                    </Grid>
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Road bumps:" VerticalAlignment="Center" Opacity="0.7"/>
+                        <Border Grid.Column="1" x:Name="BumpsMeterTrack" Height="14" Background="#22FFFFFF" CornerRadius="2" HorizontalAlignment="Stretch">
+                            <Border x:Name="BumpsMeterFill" HorizontalAlignment="Left" Background="#FFA726" CornerRadius="2" Width="0"/>
+                        </Border>
+                    </Grid>
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Traction loss:" VerticalAlignment="Center" Opacity="0.7"/>
+                        <Border Grid.Column="1" x:Name="TractionMeterTrack" Height="14" Background="#22FFFFFF" CornerRadius="2" HorizontalAlignment="Stretch">
+                            <Border x:Name="TractionMeterFill" HorizontalAlignment="Left" Background="#EF5350" CornerRadius="2" Width="0"/>
+                        </Border>
+                    </Grid>
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Gear shift:" VerticalAlignment="Center" Opacity="0.7"/>
+                        <Border Grid.Column="1" x:Name="GearMeterTrack" Height="14" Background="#22FFFFFF" CornerRadius="2" HorizontalAlignment="Stretch">
+                            <Border x:Name="GearMeterFill" HorizontalAlignment="Left" Background="#42A5F5" CornerRadius="2" Width="0"/>
+                        </Border>
+                    </Grid>
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="ABS:" VerticalAlignment="Center" Opacity="0.7"/>
+                        <Border Grid.Column="1" x:Name="AbsMeterTrack" Height="14" Background="#22FFFFFF" CornerRadius="2" HorizontalAlignment="Stretch">
+                            <Border x:Name="AbsMeterFill" HorizontalAlignment="Left" Background="#AB47BC" CornerRadius="2" Width="0"/>
+                        </Border>
+                    </Grid>
+                    <Grid Margin="0,0,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Ducking depth:" VerticalAlignment="Center" Opacity="0.7"/>
+                        <Border Grid.Column="1" x:Name="DuckMeterTrack" Height="14" Background="#22FFFFFF" CornerRadius="2" HorizontalAlignment="Stretch">
+                            <Border x:Name="DuckMeterFill" HorizontalAlignment="Left" Background="#9E9E9E" CornerRadius="2" Width="0"/>
+                        </Border>
+                    </Grid>
+                </StackPanel>
+            </Expander>
+
+            <!-- Master -->
+            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Master" Style="{StaticResource SectionHeaderText}"/></Border>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Master gain:" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="MasterGainSlider"
+                            Minimum="0" Maximum="2.0" SmallChange="0.05" LargeChange="0.1"
+                            TickFrequency="0.25" ValueChanged="MasterGainSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="MasterGainText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="1.00"/>
+            </Grid>
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="FFB scale:" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="FfbScaleSlider"
+                            Minimum="0" Maximum="1.5" SmallChange="0.05" LargeChange="0.1"
+                            TickFrequency="0.25" ValueChanged="FfbScaleSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="FfbScaleText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="1.00"/>
+            </Grid>
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="FFB smooth (ms):" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="FfbSmoothSlider"
+                            Minimum="0" Maximum="10" SmallChange="0.5" LargeChange="1"
+                            TickFrequency="1" ValueChanged="FfbSmoothSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="FfbSmoothText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="3.0"/>
+            </Grid>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <CheckBox Grid.Column="1" x:Name="FfbInvertCheck" Content="Invert FFB sign (uncheck if forces feel reversed)"
+                          VerticalAlignment="Center" Checked="FfbInvert_Changed" Unchecked="FfbInvert_Changed"/>
+            </Grid>
+
+            <!-- Sidechain ducking -->
+            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Sidechain ducking" Style="{StaticResource SectionHeaderText}"/></Border>
+            <TextBlock TextWrapping="Wrap" Opacity="0.6" FontSize="12" Margin="0,0,0,8"
+                Text="When transient effects (gear shift, ABS, road bumps, traction loss) fire, continuous effects (engine pulse, audio capture) duck to make room. Tune attack/release for the ducking envelope."/>
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Depth:" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="DuckDepthSlider"
+                            Minimum="0" Maximum="1.0" SmallChange="0.05" LargeChange="0.1"
+                            TickFrequency="0.1" ValueChanged="DuckDepthSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="DuckDepthText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0.50"/>
+            </Grid>
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Attack (ms):" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="DuckAttackSlider"
+                            Minimum="1" Maximum="100" SmallChange="1" LargeChange="5"
+                            TickFrequency="10" ValueChanged="DuckAttackSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="DuckAttackText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="5"/>
+            </Grid>
+            <Grid Margin="0,0,0,20">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Release (ms):" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="DuckReleaseSlider"
+                            Minimum="10" Maximum="500" SmallChange="5" LargeChange="25"
+                            TickFrequency="50" ValueChanged="DuckReleaseSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="DuckReleaseText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="80"/>
+            </Grid>
+
+            <!-- Preset library -->
+            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Preset library" Style="{StaticResource SectionHeaderText}"/></Border>
+            <TextBlock TextWrapping="Wrap" Opacity="0.6" FontSize="12" Margin="0,0,0,8"
+                Text="Presets are named, portable settings snapshots. Apply any preset to any game; bind one as the default for a game so it auto-loads. Live tuning doesn't change a saved preset â€” click Save to commit."/>
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Detected game:" VerticalAlignment="Center" Opacity="0.7"/>
+                <TextBlock Grid.Column="1" x:Name="ActiveGameText" Text="(none)" VerticalAlignment="Center"/>
+            </Grid>
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Default for this game:" VerticalAlignment="Center" Opacity="0.7"/>
+                <TextBlock Grid.Column="1" x:Name="DefaultPresetText" Text="(none)" VerticalAlignment="Center"/>
+            </Grid>
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Active preset:" VerticalAlignment="Center" Opacity="0.7"/>
+                <TextBlock Grid.Column="1" x:Name="ActivePresetText" Text="(none â€” unsaved)" VerticalAlignment="Center"/>
+            </Grid>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Preset:" VerticalAlignment="Center" Opacity="0.7"/>
+                <ComboBox  Grid.Column="1" x:Name="PresetCombo" SelectionChanged="PresetCombo_Changed"/>
+            </Grid>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                <Button x:Name="ApplyPresetButton" Content="Apply" Width="80"  Height="28" Margin="0,0,8,0" Click="ApplyPreset_Click"
+                        ToolTip="Load the selected preset (replaces current settings)."/>
+                <Button x:Name="SavePresetButton"  Content="Save"  Width="80"  Height="28" Margin="0,0,8,0" Click="SavePreset_Click"
+                        ToolTip="Overwrite the active preset with current settings."/>
+                <Button x:Name="SaveAsPresetButton" Content="Save as..." Width="100" Height="28" Margin="0,0,8,0" Click="SaveAsPreset_Click"
+                        ToolTip="Save current settings as a new named preset."/>
+                <Button x:Name="DeletePresetButton" Content="Delete" Width="80" Height="28" Click="DeletePreset_Click"
+                        ToolTip="Delete the selected preset from the library."/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                <Button x:Name="SetDefaultButton"   Content="Set selected as default for this game" Width="270" Height="28" Margin="0,0,8,0" Click="SetDefault_Click"
+                        ToolTip="When this game launches, auto-load the selected preset."/>
+                <Button x:Name="ClearDefaultButton" Content="Clear default" Width="120" Height="28" Click="ClearDefault_Click"
+                        ToolTip="Remove the auto-load binding for this game."/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
+                <Button x:Name="ExportPresetButton" Content="Export preset..." Width="160" Height="28" Margin="0,0,8,0" Click="ExportPreset_Click"
+                        ToolTip="Save the selected preset to a shareable JSON file."/>
+                <Button x:Name="ImportPresetButton" Content="Import preset..." Width="160" Height="28" Click="ImportPreset_Click"
+                        ToolTip="Load a preset file into your library. Apply it manually after import."/>
+            </StackPanel>
+
+            <!-- Active car -->
+            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Active car" Style="{StaticResource SectionHeaderText}"/></Border>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Detected:" VerticalAlignment="Center" Opacity="0.7"/>
+                <TextBlock Grid.Column="1" x:Name="ActiveCarText" Text="(none)" VerticalAlignment="Center"/>
+            </Grid>
+            <TextBlock TextWrapping="Wrap" Opacity="0.6" FontSize="12" Margin="0,0,0,8">
+                Each effect section below has its own "Override for this car" toggle. Toggle on to save
+                that section's settings just for this car; toggle off to fall back to global settings.
+            </TextBlock>
+            <Button x:Name="ResetCarOverridesButton" Content="Clear all overrides for this car"
+                    Width="240" Height="28" HorizontalAlignment="Left" Margin="0,0,0,4"
+                    Click="ResetCarOverrides_Click"/>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
+                <Button x:Name="ExportCarPresetButton" Content="Export car preset..." Width="180" Height="28" Margin="0,0,8,0" Click="ExportCarPreset_Click"
+                        ToolTip="Save the active car's settings as a shareable JSON file. If you haven't toggled 'Override for this car' yet, the file captures the current effect settings as a full per-car override."/>
+                <Button x:Name="ImportCarPresetButton" Content="Import car preset..." Width="180" Height="28" Click="ImportCarPreset_Click"
+                        ToolTip="Load a car preset file. It's stored under the car id in the file, and applied if it matches the current car."/>
+            </StackPanel>
+
+            <!-- Audio capture -->
+            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Audio capture (game audio &#x2192; wheel)" Style="{StaticResource SectionHeaderText}"/></Border>
+            <CheckBox x:Name="AudioEnabledCheck" Content="Enable audio capture"
+                      Margin="0,0,0,12" Checked="AudioEnabled_Changed" Unchecked="AudioEnabled_Changed"/>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Gain:" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="AudioGainSlider"
+                            Minimum="0" Maximum="3.0" SmallChange="0.05" LargeChange="0.25"
+                            TickFrequency="0.5" ValueChanged="AudioGainSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="AudioGainText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="1.00"/>
+            </Grid>
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Highpass (Hz):" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="AudioHighpassSlider"
+                            Minimum="0" Maximum="200" SmallChange="5" LargeChange="20"
+                            TickFrequency="20" ValueChanged="AudioHighpassSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="AudioHighpassText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="30"/>
+            </Grid>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Lowpass (Hz):" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="AudioFilterSlider"
+                            Minimum="100" Maximum="1500" SmallChange="10" LargeChange="50"
+                            TickFrequency="100" ValueChanged="AudioFilterSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="AudioFilterText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="350"/>
+            </Grid>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Level:" VerticalAlignment="Center" Opacity="0.7"/>
+                <ProgressBar Grid.Column="1" x:Name="AudioLevelMeter" Minimum="0" Maximum="1" Height="14" Foreground="#4CAF50"/>
+            </Grid>
+            <Grid Margin="0,0,0,16">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Status:" VerticalAlignment="Center" Opacity="0.7"/>
+                <TextBlock Grid.Column="1" x:Name="CaptureStatusText" Text="Idle" VerticalAlignment="Center" TextWrapping="Wrap"/>
+            </Grid>
+
+            <!-- Engine pulse -->
+            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Engine pulse (RPM-driven)" Style="{StaticResource SectionHeaderText}"/></Border>
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <CheckBox Grid.Column="0" x:Name="EngineEnabledCheck" Content="Enable engine pulse"
+                          VerticalAlignment="Center" Checked="EngineEnabled_Changed" Unchecked="EngineEnabled_Changed"/>
+                <Button   Grid.Column="1" Content="Test" Width="60" Height="22" Click="EngineTest_Click"/>
+            </Grid>
+            <CheckBox x:Name="EngineCarOverrideCheck" Content="Override for this car"
+                      Margin="0,0,0,12" Checked="EngineCarOverride_Changed" Unchecked="EngineCarOverride_Changed"/>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Gain:" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="EngineGainSlider" Minimum="0" Maximum="2.0" SmallChange="0.05" LargeChange="0.1"
+                            TickFrequency="0.25" ValueChanged="EngineGainSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="EngineGainText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="1.00"/>
+            </Grid>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Cylinders:" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="EngineCylindersSlider" Minimum="1" Maximum="12" SmallChange="1" LargeChange="2"
+                            TickFrequency="1" IsSnapToTickEnabled="True"
+                            ValueChanged="EngineCylindersSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="EngineCylindersText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="4"/>
+            </Grid>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Pitch:" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="EnginePitchSlider" Minimum="0.25" Maximum="4.0" SmallChange="0.05" LargeChange="0.25"
+                            TickFrequency="0.25" ValueChanged="EnginePitchSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="EnginePitchText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="1.00"/>
+            </Grid>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Waveform:" VerticalAlignment="Center" Opacity="0.7"/>
+                <ComboBox  Grid.Column="1" x:Name="EngineWaveformCombo" SelectionChanged="EngineWaveform_Changed">
+                    <ComboBoxItem Content="Sine"/><ComboBoxItem Content="Square"/><ComboBoxItem Content="Saw"/><ComboBoxItem Content="Triangle"/><ComboBoxItem Content="Noise"/>
+                </ComboBox>
+            </Grid>
+            <Grid Margin="0,0,0,16">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Lowpass (Hz):" VerticalAlignment="Center" Opacity="0.7" ToolTip="0 = disabled. Lowers buzzy harmonics on Square/Saw without changing pitch."/>
+                <Slider     Grid.Column="1" x:Name="EngineLowpassSlider" Minimum="0" Maximum="2000" SmallChange="10" LargeChange="50"
+                            TickFrequency="200" ValueChanged="EngineLowpassSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="EngineLowpassText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0"/>
+            </Grid>
+
+            <!-- Road bumps -->
+            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Road bumps / curbs (vertical jolts)" Style="{StaticResource SectionHeaderText}"/></Border>
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <CheckBox Grid.Column="0" x:Name="SlipEnabledCheck" Content="Enable road-bump buzz"
+                          VerticalAlignment="Center" Checked="SlipEnabled_Changed" Unchecked="SlipEnabled_Changed"/>
+                <Button   Grid.Column="1" Content="Test" Width="60" Height="22" Click="BumpsTest_Click"/>
+            </Grid>
+            <CheckBox x:Name="BumpsCarOverrideCheck" Content="Override for this car"
+                      Margin="0,0,0,12" Checked="BumpsCarOverride_Changed" Unchecked="BumpsCarOverride_Changed"/>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Gain:" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="SlipGainSlider" Minimum="0" Maximum="2.0" SmallChange="0.05" LargeChange="0.1"
+                            TickFrequency="0.25" ValueChanged="SlipGainSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="SlipGainText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="1.00"/>
+            </Grid>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Waveform:" VerticalAlignment="Center" Opacity="0.7"/>
+                <ComboBox  Grid.Column="1" x:Name="BumpsWaveformCombo" SelectionChanged="BumpsWaveform_Changed">
+                    <ComboBoxItem Content="Sine"/><ComboBoxItem Content="Square"/><ComboBoxItem Content="Saw"/><ComboBoxItem Content="Triangle"/><ComboBoxItem Content="Noise"/>
+                </ComboBox>
+            </Grid>
+            <Grid Margin="0,0,0,16">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Frequency (Hz):" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="BumpsFreqSlider" Minimum="20" Maximum="300" SmallChange="1" LargeChange="10"
+                            TickFrequency="20" ValueChanged="BumpsFreqSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="BumpsFreqText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="60"/>
+            </Grid>
+
+            <!-- Traction loss -->
+            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Traction loss (rear breaking loose / wheelspin)" Style="{StaticResource SectionHeaderText}"/></Border>
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <CheckBox Grid.Column="0" x:Name="TractionEnabledCheck" Content="Enable traction-loss buzz"
+                          VerticalAlignment="Center" Checked="TractionEnabled_Changed" Unchecked="TractionEnabled_Changed"/>
+                <Button   Grid.Column="1" Content="Test" Width="60" Height="22" Click="TractionTest_Click"/>
+            </Grid>
+            <CheckBox x:Name="TractionCarOverrideCheck" Content="Override for this car"
+                      Margin="0,0,0,12" Checked="TractionCarOverride_Changed" Unchecked="TractionCarOverride_Changed"/>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Gain:" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="TractionGainSlider" Minimum="0" Maximum="2.0" SmallChange="0.05" LargeChange="0.1"
+                            TickFrequency="0.25" ValueChanged="TractionGainSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="TractionGainText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="1.00"/>
+            </Grid>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Sensitivity:" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="TractionSensitivitySlider" Minimum="0.3" Maximum="3.0" SmallChange="0.1" LargeChange="0.25"
+                            TickFrequency="0.25" ValueChanged="TractionSensitivitySlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="TractionSensitivityText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="1.00"/>
+            </Grid>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Waveform:" VerticalAlignment="Center" Opacity="0.7"/>
+                <ComboBox  Grid.Column="1" x:Name="TractionWaveformCombo" SelectionChanged="TractionWaveform_Changed">
+                    <ComboBoxItem Content="Sine"/><ComboBoxItem Content="Square"/><ComboBoxItem Content="Saw"/><ComboBoxItem Content="Triangle"/><ComboBoxItem Content="Noise"/>
+                </ComboBox>
+            </Grid>
+            <Grid Margin="0,0,0,16">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Frequency (Hz):" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="TractionFreqSlider" Minimum="20" Maximum="300" SmallChange="1" LargeChange="10"
+                            TickFrequency="20" ValueChanged="TractionFreqSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="TractionFreqText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="100"/>
+            </Grid>
+
+            <!-- Gear shift -->
+            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Gear shift thud" Style="{StaticResource SectionHeaderText}"/></Border>
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <CheckBox Grid.Column="0" x:Name="ShiftEnabledCheck" Content="Enable gear-shift thud"
+                          VerticalAlignment="Center" Checked="ShiftEnabled_Changed" Unchecked="ShiftEnabled_Changed"/>
+                <Button   Grid.Column="1" Content="Test" Width="60" Height="22" Click="ShiftTest_Click"/>
+            </Grid>
+            <CheckBox x:Name="ShiftCarOverrideCheck" Content="Override for this car"
+                      Margin="0,0,0,12" Checked="ShiftCarOverride_Changed" Unchecked="ShiftCarOverride_Changed"/>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Gain:" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="ShiftGainSlider" Minimum="0" Maximum="2.0" SmallChange="0.05" LargeChange="0.1"
+                            TickFrequency="0.25" ValueChanged="ShiftGainSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="ShiftGainText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="1.00"/>
+            </Grid>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Waveform:" VerticalAlignment="Center" Opacity="0.7"/>
+                <ComboBox  Grid.Column="1" x:Name="ShiftWaveformCombo" SelectionChanged="ShiftWaveform_Changed">
+                    <ComboBoxItem Content="Sine"/><ComboBoxItem Content="Square"/><ComboBoxItem Content="Saw"/><ComboBoxItem Content="Triangle"/><ComboBoxItem Content="Noise"/>
+                </ComboBox>
+            </Grid>
+            <Grid Margin="0,0,0,16">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Frequency (Hz):" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="ShiftFreqSlider" Minimum="20" Maximum="100" SmallChange="1" LargeChange="5"
+                            TickFrequency="10" ValueChanged="ShiftFreqSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="ShiftFreqText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="40"/>
+            </Grid>
+
+            <!-- ABS -->
+            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="ABS pulse" Style="{StaticResource SectionHeaderText}"/></Border>
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <CheckBox Grid.Column="0" x:Name="AbsEnabledCheck" Content="Enable ABS pulse"
+                          VerticalAlignment="Center" Checked="AbsEnabled_Changed" Unchecked="AbsEnabled_Changed"/>
+                <Button   Grid.Column="1" Content="Test" Width="60" Height="22" Click="AbsTest_Click"/>
+            </Grid>
+            <CheckBox x:Name="AbsCarOverrideCheck" Content="Override for this car"
+                      Margin="0,0,0,12" Checked="AbsCarOverride_Changed" Unchecked="AbsCarOverride_Changed"/>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Gain:" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="AbsGainSlider" Minimum="0" Maximum="2.0" SmallChange="0.05" LargeChange="0.1"
+                            TickFrequency="0.25" ValueChanged="AbsGainSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="AbsGainText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="1.00"/>
+            </Grid>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Waveform:" VerticalAlignment="Center" Opacity="0.7"/>
+                <ComboBox  Grid.Column="1" x:Name="AbsWaveformCombo" SelectionChanged="AbsWaveform_Changed">
+                    <ComboBoxItem Content="Sine"/><ComboBoxItem Content="Square"/><ComboBoxItem Content="Saw"/><ComboBoxItem Content="Triangle"/><ComboBoxItem Content="Noise"/>
+                </ComboBox>
+            </Grid>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Mode:" VerticalAlignment="Center" Opacity="0.7"/>
+                <ComboBox  Grid.Column="1" x:Name="AbsModeCombo" SelectionChanged="AbsMode_Changed">
+                    <ComboBoxItem Content="Pulse (rhythmic)"/>
+                    <ComboBoxItem Content="PerTick (one click per ABS pump)"/>
+                </ComboBox>
+            </Grid>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Carrier (Hz):" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="AbsFreqSlider" Minimum="30" Maximum="150" SmallChange="1" LargeChange="5"
+                            TickFrequency="10" ValueChanged="AbsFreqSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="AbsFreqText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="80"/>
+            </Grid>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Pulse rate (Hz):" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="AbsPulseFreqSlider" Minimum="3" Maximum="30" SmallChange="0.5" LargeChange="2"
+                            TickFrequency="2" ValueChanged="AbsPulseFreqSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="AbsPulseFreqText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="12"/>
+            </Grid>
+            <Grid Margin="0,0,0,16">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Pulse duty:" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="AbsDutyCycleSlider" Minimum="0.1" Maximum="0.9" SmallChange="0.05" LargeChange="0.1"
+                            TickFrequency="0.1" ValueChanged="AbsDutyCycleSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="AbsDutyCycleText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0.40"/>
+            </Grid>
+
+            <!-- Export / Import -->
+            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Settings file" Style="{StaticResource SectionHeaderText}"/></Border>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                <Button x:Name="ExportButton" Content="Export settings..." Width="160" Height="28" Margin="0,0,8,0" Click="Export_Click"/>
+                <Button x:Name="ImportButton" Content="Import settings..." Width="160" Height="28" Click="Import_Click"/>
+            </StackPanel>
+            <TextBlock TextWrapping="Wrap" Opacity="0.6" FontSize="12" Margin="0,0,0,20">
+                Export writes a JSON file with all settings (master, audio, every effect, all per-car overrides).
+                Share the file to share your full config; import replaces current settings.
+            </TextBlock>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

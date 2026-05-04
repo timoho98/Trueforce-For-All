@@ -1,11 +1,11 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <!-- SimHub itself runs on .NET Framework 4.8; plugins must match. -->
     <TargetFramework>net48</TargetFramework>
-    <RootNamespace>SimHubTrueforce.Plugin</RootNamespace>
+    <RootNamespace>TrueforceForAll.Plugin</RootNamespace>
     <!-- "User." is the SimHub convention for community plugins. -->
-    <AssemblyName>User.SimHubTrueforce</AssemblyName>
+    <AssemblyName>User.TrueforceForAll</AssemblyName>
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
     <!-- AnyCPU: SimHub runs as 32-bit (it's installed under Program Files
@@ -28,7 +28,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Trueforce.Core\Trueforce.Core.csproj" />
+    <ProjectReference Include="..\TrueforceForAll.Core\TrueforceForAll.Core.csproj" />
   </ItemGroup>
 
   <!-- SimHub provides these at runtime; don't copy them to the output dir. -->
@@ -48,6 +48,10 @@
     <!-- SimHub.Logging.Current returns an ILog from log4net. -->
     <Reference Include="log4net">
       <HintPath>$(SimHubPath)\log4net.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(SimHubPath)\Newtonsoft.Json.dll</HintPath>
       <Private>False</Private>
     </Reference>
   </ItemGroup>

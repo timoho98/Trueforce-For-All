@@ -1,11 +1,11 @@
-// Ported from mescon/logitech-rs50-linux-driver:
+﻿// Ported from mescon/logitech-rs50-linux-driver:
 //   userspace/libtrueforce/src/tf_init_data.h
 // 68 canned init packets captured from G HUB on Windows.
 // Sent twice back-to-back, sequence counter restarted at 1 each pass.
 
 using System;
 
-namespace SimHubTrueforce.Core
+namespace TrueforceForAll.Core
 {
     public static class InitData
     {

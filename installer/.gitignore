@@ -1,0 +1,5 @@
+# Bundled USBPcap installer is downloaded by CI; don't commit (~700 KB binary).
+vendor/USBPcapSetup.exe
+
+# Inno Setup output.
+output/

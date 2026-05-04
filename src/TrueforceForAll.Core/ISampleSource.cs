@@ -1,4 +1,4 @@
-// A source of audio-haptic samples that can be additively mixed into a
+﻿// A source of audio-haptic samples that can be additively mixed into a
 // shared output buffer. The Mixer drives one or more of these per render,
 // summing their contributions before applying master gain and pushing to
 // the wheel.
@@ -8,7 +8,7 @@
 //   - (Phase 3) AudioCaptureSource: WASAPI process loopback.
 //   - (Phase 2d) Telemetry voices: engine pulse from RPM, slip, surface, etc.
 
-namespace SimHubTrueforce.Core
+namespace TrueforceForAll.Core
 {
     public interface ISampleSource
     {

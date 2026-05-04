@@ -1,10 +1,10 @@
-# SimHub Trueforce
+﻿# Trueforce For All
 
 Drive real Logitech Trueforce haptics on G PRO / RS50 direct-drive wheels for
-any SimHub-supported game, via the documented USB protocol — no Logitech SDK
+any SimHub-supported game, via the documented USB protocol â€” no Logitech SDK
 DLLs, no G HUB integration required.
 
-**Status: Phase 1 — HID hello-world.** A standalone WPF GUI that opens the
+**Status: Phase 1 â€” HID hello-world.** A standalone WPF GUI that opens the
 wheel, runs the Trueforce init sequence, and streams a user-controllable
 waveform (sine / square / saw / triangle / noise) with live frequency and
 amplitude sliders, plus a logarithmic frequency sweep. Once this verifies
@@ -48,7 +48,7 @@ wheel, and lets you drive it with sliders.
 ## Build from source
 
 ```powershell
-cd SimHubTrueforce
+cd TrueforceForAll
 dotnet publish src\SineTest\SineTest.csproj -c Release
 ```
 
@@ -64,6 +64,6 @@ their work, which is GPL-2.0.
 ## Acknowledgments
 
 - [mescon/logitech-rs50-linux-driver](https://github.com/mescon/logitech-rs50-linux-driver)
-  — protocol documentation and reference C implementation.
-- [HidSharp](https://github.com/treehopper-electronics/HIDSharp) — cross-platform
+  â€” protocol documentation and reference C implementation.
+- [HidSharp](https://github.com/treehopper-electronics/HIDSharp) â€” cross-platform
   HID library.

@@ -1,4 +1,4 @@
-// Single-oscillator audio-haptic voice: sine / square / saw / triangle / noise
+﻿// Single-oscillator audio-haptic voice: sine / square / saw / triangle / noise
 // at a controllable frequency and amplitude. Composable into a Mixer.
 //
 // Properties (Waveform / Freq / Amp / Enabled) are intentionally just fields
@@ -9,7 +9,7 @@
 
 using System;
 
-namespace SimHubTrueforce.Core
+namespace TrueforceForAll.Core
 {
     public enum Waveform
     {
@@ -34,16 +34,24 @@ namespace SimHubTrueforce.Core
 
         /// <summary>
         /// Sample rate the source is being run at. Defaults to Trueforce's
-        /// 1 kHz audio-haptic rate. Update if you wrap this in something
-        /// else.
+        /// 4 kHz audio-haptic rate (matches what AC EVO sends; mescon's
+        /// docs say 1 kHz but that produces FFB suppression on G PRO).
         /// </summary>
-        public double SampleRate { get; set; } = 1000.0;
+        public double SampleRate { get; set; } = 4000.0;
+
+        /// <summary>For Noise waveform only: 1-pole low-pass cutoff (Hz) applied
+        /// to the noise output. White noise above ~400 Hz can't be reproduced
+        /// faithfully by a wheel motor and just adds graininess; cutting it
+        /// gives a smoother rumble feel. Set â‰¤ 0 to disable. Ignored for
+        /// non-Noise waveforms.</summary>
+        public double NoiseLowpassHz { get; set; } = 400.0;
 
         public bool IsActive => Enabled && Amp > 0.0;
 
         // Synth-thread state.
         private double _phase;
         private readonly Random _rng = new Random();
+        private float _noiseLpY;
 
         public void RenderAdd(float[] buffer, int count)
         {
@@ -54,6 +62,23 @@ namespace SimHubTrueforce.Core
             double freq = Freq;
             float amp = (float)Amp;
             double phaseStep = freq / SampleRate;
+
+            // For Noise: apply a 1-pole IIR low-pass to remove high-frequency
+            // graininess that the wheel motor can't reproduce as smooth rumble.
+            // Compensate for energy loss with a small gain bump (sqrt(2/alpha)
+            // is the analytic bandwidth-energy correction; ~1.6Ã— at Î±=0.5).
+            if (w == Waveform.Noise && NoiseLowpassHz > 0 && NoiseLowpassHz < SampleRate * 0.5)
+            {
+                float alpha = (float)(1.0 - Math.Exp(-2.0 * Math.PI * NoiseLowpassHz / SampleRate));
+                float compensate = (float)Math.Sqrt(2.0 / Math.Max(0.0001, alpha));
+                for (int i = 0; i < count; i++)
+                {
+                    float x = (float)(_rng.NextDouble() * 2.0 - 1.0);
+                    _noiseLpY += alpha * (x - _noiseLpY);
+                    buffer[i] += _noiseLpY * compensate * amp;
+                }
+                return;
+            }
 
             for (int i = 0; i < count; i++)
             {

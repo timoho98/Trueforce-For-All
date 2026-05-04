@@ -1,6 +1,6 @@
-using System.Windows;
+﻿using System.Windows;
 
-namespace SimHubTrueforce.SineTest
+namespace TrueforceForAll.SineTest
 {
     public partial class App : Application
     {

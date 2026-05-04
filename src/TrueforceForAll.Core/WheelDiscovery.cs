@@ -1,4 +1,4 @@
-// Find the Logitech direct-drive wheel's Trueforce HID interface.
+﻿// Find the Logitech direct-drive wheel's Trueforce HID interface.
 //
 // On Windows, multi-interface USB devices show each interface as its own HID
 // collection. We want interface 2 specifically (the audio-haptic endpoint).
@@ -9,7 +9,7 @@ using System;
 using System.Collections.Generic;
 using HidSharp;
 
-namespace SimHubTrueforce.Core
+namespace TrueforceForAll.Core
 {
     public sealed class WheelMatch
     {
