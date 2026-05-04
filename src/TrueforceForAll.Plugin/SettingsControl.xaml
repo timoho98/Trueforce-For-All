@@ -489,6 +489,13 @@
                 Export writes a JSON file with all settings (master, audio, every effect, all per-car overrides).
                 Share the file to share your full config; import replaces current settings.
             </TextBlock>
+
+            <!-- Support development -->
+            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Support development" Style="{StaticResource SectionHeaderText}"/></Border>
+            <TextBlock TextWrapping="Wrap" Opacity="0.6" FontSize="12" Margin="0,0,0,8"
+                Text="If this plugin made your wheel feel better, a tip is appreciated but never expected. Cheers."/>
+            <Button x:Name="DonateButton" Content="Tip on Ko-fi" Width="180" Height="32"
+                    HorizontalAlignment="Left" Margin="0,0,0,8" Click="Donate_Click"/>
         </StackPanel>
     </ScrollViewer>
 </UserControl>

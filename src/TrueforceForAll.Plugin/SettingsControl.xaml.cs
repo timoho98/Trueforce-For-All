@@ -881,5 +881,25 @@ namespace TrueforceForAll.Plugin
                 MessageBox.Show($"Import failed:\n{ex.Message}", "Trueforce", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+
+        // ---------- Support ----------
+
+        private const string DonateUrl = "https://ko-fi.com/mhytee";
+
+        private void Donate_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(DonateUrl)
+                {
+                    UseShellExecute = true,  // .NET Framework 4.8 launches the URL via the default browser
+                });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Couldn't open browser:\n{ex.Message}\n\nURL: {DonateUrl}",
+                                "Trueforce", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
     }
 }
