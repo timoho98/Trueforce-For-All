@@ -46,6 +46,10 @@ namespace TrueforceForAll.Plugin
         private UsbPcapFfbTap _ffbTap;
         private Thread _producerThread;
         private volatile bool _shuttingDown;
+        // Number of TestEffect background tasks currently running. Drained at
+        // End() so they can't keep mutating effect state after the device has
+        // been disposed.
+        private int _activeTestTasks;
 
         public EnginePulseEffect  EnginePulse  { get; private set; }
         public RoadBumpsEffect    RoadBumps    { get; private set; }
@@ -184,6 +188,7 @@ namespace TrueforceForAll.Plugin
 
             long startTicks = DateTime.UtcNow.Ticks;
             long endTicks   = startTicks + durationMs * TimeSpan.TicksPerMillisecond;
+            System.Threading.Interlocked.Increment(ref _activeTestTasks);
             System.Threading.Tasks.Task.Run(() =>
             {
                 try
@@ -198,6 +203,7 @@ namespace TrueforceForAll.Plugin
                     }
                 }
                 catch { }
+                finally { System.Threading.Interlocked.Decrement(ref _activeTestTasks); }
             });
         }
 
@@ -332,6 +338,13 @@ namespace TrueforceForAll.Plugin
         {
             _shuttingDown = true;
 
+            // Drain in-flight TestEffect tasks. They poll _shuttingDown every
+            // ~16 ms, so a short bounded wait is plenty in practice; the
+            // bound just means we don't deadlock if one is hung in TestUpdate.
+            System.Threading.SpinWait.SpinUntil(
+                () => System.Threading.Volatile.Read(ref _activeTestTasks) == 0,
+                250);
+
             try { _capturePollThread?.Join(2000); } catch { }
             _capturePollThread = null;
 
@@ -347,7 +360,18 @@ namespace TrueforceForAll.Plugin
             try { _capturedProcess?.Dispose(); } catch { }
             _capturedProcess = null;
 
-            try { _producerThread?.Join(500); } catch { }
+            // Wake the producer if it's parked inside PushFloats on a full
+            // ring — the plugin's _shuttingDown flag doesn't propagate into
+            // the device's wait condition, so without this the join below can
+            // time out and leave the producer alive while CleanupDevice tears
+            // the device down underneath it.
+            try { _device?.StopAcceptingSamples(); } catch { }
+
+            try { _producerThread?.Join(2000); } catch { }
+            if (_producerThread != null && _producerThread.IsAlive)
+                SimHub.Logging.Current.Warn("[Trueforce] Producer thread did not exit cleanly.");
+            _producerThread = null;
+
             try { _device?.ClearStream(); } catch { }
             // Brief pause so the centre-wheel samples drain to the device.
             Thread.Sleep(60);

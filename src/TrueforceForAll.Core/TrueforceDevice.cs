@@ -46,6 +46,11 @@ namespace TrueforceForAll.Core
         private volatile bool _streamRunning;
         private volatile bool _shuttingDown;
         private volatile bool _paused;
+        // Set false by StopAcceptingSamples() to release blocked PushFloats /
+        // PushInt16 callers ahead of full shutdown — lets the host drain the
+        // producer without also halting the stream thread (which still needs
+        // to push centre-wheel quietness samples to the wheel before Dispose).
+        private volatile bool _acceptingSamples = true;
 
         private byte _seq;
 
@@ -199,6 +204,17 @@ namespace TrueforceForAll.Core
             _lastCurrent = 0x8000;
         }
 
+        // Stop accepting new samples and wake any producer parked in PushFloats
+        // so it can observe the application's shutdown signal. Leaves the
+        // internal stream thread running so any samples already queued — plus
+        // the centre-wheel quietness pulse a subsequent ClearStream queues —
+        // still drain to the wheel before Dispose tears the HID stream down.
+        public void StopAcceptingSamples()
+        {
+            _acceptingSamples = false;
+            lock (_ringLock) { Monitor.PulseAll(_ringLock); }
+        }
+
         public void Pause()  => _paused = true;
         public void Resume() => _paused = false;
 
@@ -223,9 +239,9 @@ namespace TrueforceForAll.Core
             {
                 for (int i = 0; i < count; i++)
                 {
-                    while (RingFreeUnlocked() == 0 && _streamRunning && !_shuttingDown)
+                    while (RingFreeUnlocked() == 0 && _streamRunning && !_shuttingDown && _acceptingSamples)
                         Monitor.Wait(_ringLock);
-                    if (_shuttingDown || !_streamRunning) return;
+                    if (_shuttingDown || !_streamRunning || !_acceptingSamples) return;
 
                     _ring[_ringHead & (RingSize - 1)] = FloatToWire(samples[i]);
                     _ringHead++;
@@ -243,9 +259,9 @@ namespace TrueforceForAll.Core
             {
                 for (int i = 0; i < count; i++)
                 {
-                    while (RingFreeUnlocked() == 0 && _streamRunning && !_shuttingDown)
+                    while (RingFreeUnlocked() == 0 && _streamRunning && !_shuttingDown && _acceptingSamples)
                         Monitor.Wait(_ringLock);
-                    if (_shuttingDown || !_streamRunning) return;
+                    if (_shuttingDown || !_streamRunning || !_acceptingSamples) return;
 
                     _ring[_ringHead & (RingSize - 1)] = S16ToWire(samples[i]);
                     _ringHead++;

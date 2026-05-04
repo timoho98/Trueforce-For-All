@@ -32,6 +32,14 @@ namespace TrueforceForAll.Core
 
         private const int DLT_USBPCAP = 249;
 
+        // _packed layout: low 16 bits = ffbTarget bit-pattern, high 48 bits =
+        // Stopwatch.ElapsedTicks masked to 48 bits. Masking on store + logical
+        // (unsigned) right shift on read + modular subtraction on age makes
+        // the freshness check wrap-safe — without the mask, a left-shift by
+        // 16 lands in the sign bit at ~162 days of QPC uptime and silently
+        // breaks FFB pass-through until reboot.
+        private const long TimestampMask = 0x0000_FFFF_FFFF_FFFFL;
+
         // Not readonly: when constructed in auto-discover mode (null/0), Start()
         // populates these from WheelUsbDiscovery before the reader loop spins up.
         private string _usbPcapInterface;
@@ -139,10 +147,10 @@ namespace TrueforceForAll.Core
             if (packed == 0) return null;
 
             short value     = (short)(packed & 0xffff);
-            long  timestamp = packed >> 16;
+            long  timestamp = (long)((ulong)packed >> 16);
 
-            long now = _sw.ElapsedTicks;
-            long ageTicks = now - timestamp;
+            long now = _sw.ElapsedTicks & TimestampMask;
+            long ageTicks = (now - timestamp) & TimestampMask;
             long maxAgeTicks = (Stopwatch.Frequency / 1000L) * maxAgeMs;
             if (ageTicks > maxAgeTicks) return null;
 
@@ -267,8 +275,8 @@ namespace TrueforceForAll.Core
                 if (reportId == 0x11 && featIdx == 0x0e && (funcByte & 0xf0) == 0x20)
                 {
                     short ffbTarget = (short)((payload[dataOffset + 10] << 8) | payload[dataOffset + 11]);
-                    long timestamp = _sw.ElapsedTicks;
-                    long packed = ((long)timestamp << 16) | (uint)(ushort)ffbTarget;
+                    long timestamp = _sw.ElapsedTicks & TimestampMask;
+                    long packed = (timestamp << 16) | (uint)(ushort)ffbTarget;
                     System.Threading.Interlocked.Exchange(ref _packed, packed);
                     FfbSamplesCaptured++;
                 }
