@@ -24,7 +24,7 @@ using TrueforceForAll.Plugin.Effects;
 
 namespace TrueforceForAll.Plugin
 {
-    [PluginDescription("Trueforce For All — Logitech Trueforce-compatible haptics for any SimHub-supported game. Reverse-engineered from the wire protocol; works on G PRO and RS50 wheels.")]
+    [PluginDescription("Logitech Trueforce-compatible haptics for any SimHub-supported game on G PRO and RS50 wheels.")]
     [PluginAuthor("Mhytee")]
     [PluginName("Trueforce For All")]
     public sealed class TrueforcePlugin : IDataPlugin, IWPFSettingsV2
