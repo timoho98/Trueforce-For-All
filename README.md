@@ -1,69 +1,170 @@
-﻿# Trueforce For All
+# Trueforce For All
 
-Drive real Logitech Trueforce haptics on G PRO / RS50 direct-drive wheels for
-any SimHub-supported game, via the documented USB protocol â€” no Logitech SDK
-DLLs, no G HUB integration required.
+**Logitech Trueforce-compatible haptics for any SimHub-supported game.**
 
-**Status: Phase 1 â€” HID hello-world.** A standalone WPF GUI that opens the
-wheel, runs the Trueforce init sequence, and streams a user-controllable
-waveform (sine / square / saw / triangle / noise) with live frequency and
-amplitude sliders, plus a logarithmic frequency sweep. Once this verifies
-the wheel responds correctly, the same code becomes the backbone of the
-SimHub plugin (Phase 2).
+Logitech ships Trueforce for a handful of officially-supported titles. This
+plugin makes it work everywhere SimHub does. Reverse-engineered from the
+USB wire protocol -- no Logitech SDK, no G HUB integration, no whitelist.
 
-## Hardware support
+Tested with Assetto Corsa and Wreckfest. Works in principle with any game
+SimHub can read telemetry from.
 
-Derived from [mescon/logitech-rs50-linux-driver](https://github.com/mescon/logitech-rs50-linux-driver)'s
-verified protocol coverage:
+> **Status:** v0.x, actively developed. The plugin is functional today; the
+> default presets are still being tuned. Feedback welcome.
+
+## Supported wheels
 
 | Wheel | USB ID |
 |---|---|
-| Logitech G PRO Racing Wheel (Xbox/PC) | 046D:C272 |
-| Logitech G PRO Racing Wheel (PS/PC) | 046D:C268 |
-| Logitech RS50 | 046D:C276 |
+| Logitech G PRO Racing Wheel (Xbox/PC) | `046D:C272` |
+| Logitech G PRO Racing Wheel (PS/PC) | `046D:C268` |
+| Logitech RS50 | `046D:C276` |
 
-The G PRO and RS50 use byte-for-byte identical Trueforce packets (verified by
-mescon against fresh G HUB captures).
+The G PRO and RS50 use byte-identical Trueforce packets (verified by the
+[mescon Linux driver project][mescon] against fresh G HUB captures).
+
+## What it does
+
+The plugin runs inside SimHub and drives the wheel's Trueforce haptic motor
+in real time, mixing several signal sources:
+
+- **Telemetry-derived effects** synthesized from the live game data SimHub
+  exposes:
+  - **Engine pulse** -- a rumble at the engine's firing frequency, scaled
+    by RPM. The signature Trueforce sensation; idle gives a gentle hum,
+    pulling toward redline gives meaningful kick.
+  - **Gear shift** -- a short low-frequency thud whenever the gear changes.
+  - **ABS click** -- pulse or per-tick haptic when ABS engages, configurable
+    to match how the game reports the ABS state.
+  - **Road bumps** -- noise gated by vertical acceleration, so curbs and
+    rough terrain rumble through the wheel.
+  - **Traction loss** -- buzz when grip breaks (wheelspin, lockup, drift)
+    derived from the difference between wheel speed and ground speed plus
+    a yaw-rate / lateral-G discrepancy check.
+- **Audio-derived effects** -- per-process WASAPI loopback captures the
+  game's audio output (engine, tire, impact sounds) and feeds it into the
+  wheel as a low-latency buzz. Lets you feel things the telemetry doesn't
+  expose.
+- **FFB pass-through** -- when a game already drives the wheel via standard
+  HID++ force feedback (Assetto Corsa does), the plugin transparently taps
+  that signal off the USB bus and mirrors it into the Trueforce stream so
+  cornering load coexists with the haptic effects above.
+
+All of it is configurable per-game, per-car, via SimHub's settings UI:
+master gain, individual effect tuning, sidechain ducking between
+continuous and transient effects, and savable preset library.
+
+## Auto-discovery
+
+No machine-specific configuration. On startup the plugin:
+
+1. Enumerates connected HID devices, finds the wheel's Trueforce interface
+   (`MI_02`, vendor usage page `0xFFFD`).
+2. Enumerates USBPcap interfaces and parses injected device descriptors to
+   find which root hub the wheel is on and what USB address the OS assigned
+   it this boot.
+3. Starts the FFB tap and Trueforce stream automatically.
+
+If the wheel isn't detected (G HUB still running, USBPcap not installed,
+wheel unplugged) the plugin logs a clear status message and disables itself
+gracefully -- it never silently hangs SimHub.
+
+## Install
+
+The easiest path is the bundled installer:
+
+1. Download `TrueforceForAll-Setup.exe` from the [latest release][releases].
+2. Close SimHub if it's running.
+3. Run the installer. It detects SimHub, copies the plugin files into the
+   SimHub install folder, and -- if USBPcap isn't already installed -- runs
+   the bundled USBPcap setup automatically.
+4. Close Logitech G HUB (it claims the wheel's HID interface).
+5. Launch SimHub. Enable "Trueforce For All" in the Plugins list.
+
+The installer is conservative on uninstall: it removes our files but leaves
+SimHub, USBPcap, and shared dependencies (HidSharp, NAudio) alone, so other
+plugins that share those keep working.
 
 ## Requirements
 
-To run the prebuilt `src/SineTest/sinetest.exe`:
 - Windows 10 / 11
-- [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0) installed
-- Logitech G HUB **closed** while running (it claims the HID interface)
-
-To build from source:
-- The above, plus the .NET SDK (10.x) and `EnableWindowsTargeting=true` if
-  cross-compiling from macOS / Linux.
-
-## Run the prebuilt exe
-
-> **Safety:** a direct-drive wheel can produce significant torque. The wheel
-> may rotate during the Trueforce init sequence. **Hold the wheel or clamp it
-> down before clicking Start.**
-
-Just double-click `src/SineTest/sinetest.exe`. The window opens, finds the
-wheel, and lets you drive it with sliders.
+- [SimHub](https://www.simhubdash.com/)
+- A supported Logitech wheel (table above)
+- [USBPcap](https://github.com/desowin/usbpcap) -- bundled with our installer
+  if you don't already have it. Used to mirror the game's existing FFB
+  signal into the Trueforce stream so the two coexist.
+- Logitech G HUB **closed** while playing (it claims the HID interface and
+  blocks us from talking to the wheel)
 
 ## Build from source
 
+You'd need .NET 8 SDK and (optionally) [Inno Setup 6][inno] to build the
+installer.
+
 ```powershell
-cd TrueforceForAll
-dotnet publish src\SineTest\SineTest.csproj -c Release
+# Plugin and helper
+dotnet build src\TrueforceForAll.Plugin\TrueforceForAll.Plugin.csproj -c Release
+dotnet publish src\TrueforceForAll.LoopbackHelper\TrueforceForAll.LoopbackHelper.csproj -c Release -r win-x64
+
+# Installer
+& "C:\Program Files (x86)\Inno Setup 6\iscc.exe" installer\TrueforceForAll.iss
 ```
 
-Published exe: `src\SineTest\bin\Release\net10.0-windows\win-x64\publish\sinetest.exe`
+Continuous integration is configured at [.github/workflows/release.yml][ci]:
+push a `v*` tag and a draft GitHub release with the installer is created
+automatically.
+
+## How it works
+
+The wire protocol used here was reverse-engineered by the
+[mescon Linux driver project][mescon] from USB captures. Their work
+documents:
+
+- The 68-packet init sequence the wheel needs before it accepts haptic
+  packets.
+- The streaming packet format on bulk endpoint 3 (ep3): an audio-rate
+  waveform stream the wheel renders directly to its motor.
+- The byte-for-byte equivalence between the G PRO and RS50 protocols.
+
+This project ports their findings into Windows-side C# and bolts on the
+SimHub plugin scaffolding plus the audio/telemetry effect synthesis that
+Trueforce-supported games normally get from G HUB.
+
+The FFB pass-through (so cornering load survives our haptic stream) is
+implemented by tapping the USB bus with USBPcap, parsing AC's outgoing
+HID++ feature `0x0e` Set_Report packets, and mirroring the 16-bit FFB
+target into bytes 6-9 of our ep3 stream. Game-agnostic; works for anything
+that uses the standard HID++ FFB protocol.
 
 ## License
 
-GPL-2.0-only. See [LICENSE](LICENSE). The wire protocol used here was
-reverse-engineered by the mescon project from USB captures; the canned
-68-packet init sequence and the streaming packet layout are derived from
-their work, which is GPL-2.0.
+GPL-2.0-only. See [LICENSE](LICENSE).
+
+The wire protocol and init sequence are derived from the
+[mescon Linux driver project][mescon], also GPL-2.0.
 
 ## Acknowledgments
 
-- [mescon/logitech-rs50-linux-driver](https://github.com/mescon/logitech-rs50-linux-driver)
-  â€” protocol documentation and reference C implementation.
-- [HidSharp](https://github.com/treehopper-electronics/HIDSharp) â€” cross-platform
-  HID library.
+- **[mescon/logitech-rs50-linux-driver][mescon]** -- the protocol research
+  this entire project rests on. The G PRO / RS50 init sequence and ep3
+  streaming format are documented and verified there.
+- **[USBPcap][usbpcap]** by Tomasz Mon -- the kernel-mode USB filter that
+  lets us tap the wheel's bus traffic for FFB pass-through.
+- **[HidSharp][hidsharp]** -- cross-platform HID library used for the
+  control-side of wheel communication.
+- **[NAudio][naudio]** -- audio I/O library used for the per-process
+  loopback capture pipeline.
+- **[SimHub][simhub]** -- the host application. This plugin is unofficial
+  and not affiliated with the SimHub project.
+
+Logitech, Trueforce, G PRO, and RS50 are trademarks of Logitech. This
+project is not affiliated with, endorsed by, or sponsored by Logitech.
+
+[mescon]: https://github.com/mescon/logitech-rs50-linux-driver
+[usbpcap]: https://github.com/desowin/usbpcap
+[hidsharp]: https://github.com/treehopper-electronics/HIDSharp
+[naudio]: https://github.com/naudio/NAudio
+[simhub]: https://www.simhubdash.com/
+[inno]: https://jrsoftware.org/isinfo.php
+[releases]: https://github.com/Mhytee/TrueforceForAll/releases
+[ci]: .github/workflows/release.yml
