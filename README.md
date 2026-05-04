@@ -3,8 +3,9 @@
 **Logitech Trueforce-compatible haptics for any SimHub-supported game.**
 
 Logitech ships Trueforce for a handful of officially-supported titles. This
-plugin makes it work everywhere SimHub does. Reverse-engineered from the
-USB wire protocol -- no Logitech SDK, no G HUB integration, no whitelist.
+plugin makes it work everywhere SimHub does. Built on top of the wire
+protocol reverse-engineered by the [mescon Linux driver project][mescon] --
+no Logitech SDK, no G HUB integration, no whitelist.
 
 Tested on a GPRO wheel with Assetto Corsa and Wreckfest 2. Works in principle with any game
 SimHub can read telemetry from.
@@ -34,7 +35,7 @@ in real time, mixing several signal sources:
     by RPM. The signature Trueforce sensation; idle gives a gentle hum,
     pulling toward redline gives meaningful kick.
   - **Gear shift** -- a short low-frequency thud whenever the gear changes.
-  - **ABS click** -- configurable haptic when ABS engages.`
+  - **ABS click** -- configurable haptic when ABS engages.
   - **Road bumps** -- noise gated by vertical acceleration, so curbs and
     rough terrain rumble through the wheel.
   - **Traction loss** -- buzz when grip breaks (wheelspin, lockup, drift)
@@ -115,25 +116,13 @@ automatically.
 
 ## How it works
 
-The wire protocol used here was reverse-engineered by the
-[mescon Linux driver project][mescon] from USB captures. Their work
-documents:
-
-- The 68-packet init sequence the wheel needs before it accepts haptic
-  packets.
-- The streaming packet format on bulk endpoint 3 (ep3): an audio-rate
-  waveform stream the wheel renders directly to its motor.
-- The byte-for-byte equivalence between the G PRO and RS50 protocols.
-
-This project ports their findings into Windows-side C# and bolts on the
-SimHub plugin scaffolding plus the audio/telemetry effect synthesis that
-Trueforce-supported games normally get from G HUB.
-
-The FFB pass-through (so cornering load survives our haptic stream) is
-implemented by tapping the USB bus with USBPcap, parsing AC's outgoing
-HID++ feature `0x0e` Set_Report packets, and mirroring the 16-bit FFB
-target into bytes 6-9 of our ep3 stream. Game-agnostic; works for anything
-that uses the standard HID++ FFB protocol.
+The wire protocol -- init sequence and ep3 streaming format -- was
+reverse-engineered by the [mescon Linux driver project][mescon]. This
+repo is the Windows-side glue on top of that: a SimHub plugin that opens
+the wheel, the telemetry- and audio-derived effect synthesis, the per-game
+tuning, and a USBPcap-based tap that reads the game's outgoing HID++ FFB
+target off the USB bus and mirrors it into bytes 6-9 of the Trueforce ep3
+stream so cornering load coexists with the synthesized effects.
 
 ## License
 
@@ -144,9 +133,9 @@ The wire protocol and init sequence are derived from the
 
 ## Acknowledgments
 
-- **[mescon/logitech-rs50-linux-driver][mescon]** -- the protocol research
-  this entire project rests on. The G PRO / RS50 init sequence and ep3
-  streaming format are documented and verified there.
+- **[mescon/logitech-rs50-linux-driver][mescon]** -- reverse-engineered
+  the wheel's driver and wire protocol. This project would not exist
+  without their work.
 - **[USBPcap][usbpcap]** by Tomasz Mon -- the kernel-mode USB filter that
   lets us tap the wheel's bus traffic for FFB pass-through.
 - **[HidSharp][hidsharp]** -- cross-platform HID library used for the
