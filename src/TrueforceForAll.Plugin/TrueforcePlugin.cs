@@ -33,7 +33,7 @@ namespace TrueforceForAll.Plugin
 
         public PluginManager PluginManager { get; set; }
 
-        public string LeftMenuTitle => "Trueforce";
+        public string LeftMenuTitle => "Trueforce For All";
         public ImageSource PictureIcon => null;
 
         public TrueforceSettings Settings { get; private set; }

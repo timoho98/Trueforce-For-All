@@ -56,6 +56,16 @@ ArchitecturesInstallIn64BitMode=x64compatible
 LicenseFile=..\LICENSE
 SetupIconFile=
 
+; Remove pre-rebrand plugin files. Pre-1.0 builds shipped under the old
+; "SimHubTrueforce" name; if a user upgrades from one of those, both old
+; and new DLLs would coexist in SimHub's folder and SimHub would load both,
+; showing two identically-functioning plugins in the UI. Strip the old set
+; before [Files] copies the new one in.
+[InstallDelete]
+Type: files; Name: "{app}\User.SimHubTrueforce.dll"
+Type: files; Name: "{app}\SimHubTrueforce.Core.dll"
+Type: files; Name: "{app}\SimHubTrueforce.LoopbackHelper.exe"
+
 [Files]
 ; Our own files — always overwrite on upgrade.
 Source: "{#PluginBin}\User.TrueforceForAll.dll"; DestDir: "{app}"; Flags: ignoreversion
