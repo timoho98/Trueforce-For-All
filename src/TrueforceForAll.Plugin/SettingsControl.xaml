@@ -38,15 +38,17 @@
             <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Status" Style="{StaticResource SectionHeaderText}"/></Border>
             <Grid Margin="0,0,0,20">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Wheel:" Opacity="0.7"/>
                 <TextBlock Grid.Row="0" Grid.Column="1" x:Name="WheelText" Text="(checking...)"/>
                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Stream:" Opacity="0.7" Margin="0,4,0,0"/>
                 <TextBlock Grid.Row="1" Grid.Column="1" x:Name="StreamText" Text="(checking...)" Margin="0,4,0,0"/>
                 <TextBlock Grid.Row="2" Grid.Column="0" Text="FFB pass-through:" Opacity="0.7" Margin="0,4,0,0"/>
                 <TextBlock Grid.Row="2" Grid.Column="1" x:Name="FfbTapText" Text="(checking...)" Margin="0,4,0,0"/>
-                <TextBlock Grid.Row="3" Grid.Column="0" Text="Active sources:" Opacity="0.7" Margin="0,4,0,0"/>
-                <TextBlock Grid.Row="3" Grid.Column="1" x:Name="VoicesText" Text="0" Margin="0,4,0,0"/>
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="Telemetry:" Opacity="0.7" Margin="0,4,0,0"/>
+                <TextBlock Grid.Row="3" Grid.Column="1" x:Name="TelemetrySourceText" Text="(checking...)" Margin="0,4,0,0"/>
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="Active sources:" Opacity="0.7" Margin="0,4,0,0"/>
+                <TextBlock Grid.Row="4" Grid.Column="1" x:Name="VoicesText" Text="0" Margin="0,4,0,0"/>
             </Grid>
 
             <!-- Live activity (collapsible — when collapsed, no per-tick updates) -->
@@ -133,6 +135,26 @@
                             TickFrequency="1" ValueChanged="FfbSmoothSlider_ValueChanged" VerticalAlignment="Center"/>
                 <TextBlock Grid.Column="2" x:Name="FfbSmoothText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="3.0"/>
             </Grid>
+            <Grid Margin="0,0,0,2">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Spike limit (LSB/ms):" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="FfbSpikeLimitSlider"
+                            Minimum="0" Maximum="10000" SmallChange="100" LargeChange="500"
+                            TickFrequency="1000" ValueChanged="FfbSpikeLimitSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="FfbSpikeLimitText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0"/>
+            </Grid>
+            <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="140,0,0,8"
+                       Text="Curb hits and collisions can be aggressive enough to yank the wheel — especially in AC. This caps the FFB rate of change so spikes feel like firm pushes instead. Sustained forces (cornering load) pass through unchanged. Works for any game. 0 = off; lower = more dampening."/>
+            <Grid Margin="0,0,0,2">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Spike cap (LSB):" VerticalAlignment="Center" Opacity="0.7"/>
+                <Slider     Grid.Column="1" x:Name="FfbPeakLimitSlider"
+                            Minimum="0" Maximum="20000" SmallChange="500" LargeChange="2000"
+                            TickFrequency="2000" ValueChanged="FfbPeakLimitSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="FfbPeakLimitText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0"/>
+            </Grid>
+            <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="140,0,0,8"
+                       Text="Attenuates FFB amplitude during spikes only. Detection triggers when the input changes faster than ~1000 LSB/ms — well above any cornering input but typical of curb hits and collisions. Attenuation persists for ~200-300 ms after each spike so AC's sustained-impact force gets reduced too, not just the rise. Sustained corner loads and steering inputs pass through at full amp. Pairs with spike limit above (which controls rate); this controls amplitude. 0 = off; lower = stronger attenuation."/>
             <Grid Margin="0,0,0,8">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                 <CheckBox Grid.Column="1" x:Name="FfbInvertCheck" Content="Invert FFB sign (uncheck if forces feel reversed)"
@@ -374,7 +396,7 @@
             <Grid Margin="0,0,0,8">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="Sensitivity:" VerticalAlignment="Center" Opacity="0.7"/>
-                <Slider     Grid.Column="1" x:Name="TractionSensitivitySlider" Minimum="0.3" Maximum="3.0" SmallChange="0.1" LargeChange="0.25"
+                <Slider     Grid.Column="1" x:Name="TractionSensitivitySlider" Minimum="0.1" Maximum="3.0" SmallChange="0.1" LargeChange="0.25"
                             TickFrequency="0.25" ValueChanged="TractionSensitivitySlider_ValueChanged" VerticalAlignment="Center"/>
                 <TextBlock Grid.Column="2" x:Name="TractionSensitivityText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="1.00"/>
             </Grid>
@@ -385,12 +407,28 @@
                     <ComboBoxItem Content="Sine"/><ComboBoxItem Content="Square"/><ComboBoxItem Content="Saw"/><ComboBoxItem Content="Triangle"/><ComboBoxItem Content="Noise"/>
                 </ComboBox>
             </Grid>
-            <Grid Margin="0,0,0,16">
+            <Grid Margin="0,0,0,8">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="Frequency (Hz):" VerticalAlignment="Center" Opacity="0.7"/>
                 <Slider     Grid.Column="1" x:Name="TractionFreqSlider" Minimum="20" Maximum="300" SmallChange="1" LargeChange="10"
                             TickFrequency="20" ValueChanged="TractionFreqSlider_ValueChanged" VerticalAlignment="Center"/>
                 <TextBlock Grid.Column="2" x:Name="TractionFreqText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="100"/>
+            </Grid>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Noise lowpass (Hz):" VerticalAlignment="Center" Opacity="0.7"
+                           ToolTip="Cut high frequencies from noise — lower = smoother rumble, higher = grittier. Only affects Noise waveform."/>
+                <Slider     Grid.Column="1" x:Name="TractionNoiseLpSlider" Minimum="50" Maximum="1000" SmallChange="10" LargeChange="50"
+                            TickFrequency="100" ValueChanged="TractionNoiseLpSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="TractionNoiseLpText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="250"/>
+            </Grid>
+            <Grid Margin="0,0,0,16">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Noise highpass (Hz):" VerticalAlignment="Center" Opacity="0.7"
+                           ToolTip="Cut sub-audible drift / DC thump from noise. 0 disables. Only affects Noise waveform."/>
+                <Slider     Grid.Column="1" x:Name="TractionNoiseHpSlider" Minimum="0" Maximum="200" SmallChange="5" LargeChange="20"
+                            TickFrequency="20" ValueChanged="TractionNoiseHpSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="TractionNoiseHpText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="30"/>
             </Grid>
 
             <!-- Gear shift -->

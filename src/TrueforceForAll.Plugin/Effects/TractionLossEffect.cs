@@ -1,26 +1,27 @@
 // Traction-loss buzz: vibrates when the car loses grip — wheelspin under
 // throttle, lockup under braking, oversteer/drift, etc.
 //
-// Detection approach (works for AC, ACC, AC EVO and any game whose SimHub
-// reader populates the standard StatusDataBase fields):
+// Two detection paths:
 //
-//   1. Wheelspin / lockup — abs(SpeedKmh - GroundSpeedKmH).
-//      SpeedKmh comes from the wheel speedometer; GroundSpeedKmH is the car's
-//      true ground speed from physics. When wheels spin faster than ground
-//      (drag-strip launch, throttle-on oversteer) or slower (lockup under
-//      braking), the difference IS the slip. Clean, unambiguous.
+//   A. Direct (preferred). When TelemetryFrame.WheelSlip is supplied — i.e.
+//      the source reads per-wheel slip ratio from the sim's shared memory
+//      directly (AC's wheelSlip[]) — we just normalize it. Cleaner, no
+//      cross-coupling between detectors, and matches what the sim itself
+//      considers a slipping tire.
 //
-//   2. Drift / oversteer — yaw rate exceeding what the lateral G implies.
-//      In steady-state cornering the centripetal balance gives
-//      lateral_g ≈ speed × yaw_rate. If actual yaw rate >> lateral_g / speed,
-//      the car is rotating faster than its grip can sustain — that's drift.
+//   B. Heuristic (fallback). When the source can't measure slip (the SimHub
+//      universal path — works for every SimHub-supported game), we infer it
+//      from two signals:
+//        1. Wheelspin: RPM rising sharply while speed isn't, gated on
+//           throttle and below-redline. Lockup under braking is the same
+//           shape with the inputs reversed.
+//        2. Drift: slip angle β = acos(lateral_g / (speed × yaw_rate)). For
+//           steady-state cornering, β=0 means tires grip; β>5° is sliding.
+//      Combined with max(); both gated on speed and gear-out-of-neutral.
 //
-// Both signals are normalized to [0, 1] and combined with max() so any one
-// path triggers the effect. EMA smoothing prevents single-frame jitter.
-//
-// Frequency scales with vehicle speed (real tire-screech pitch tracks tread
-// strike rate). Only matters for tonal waveforms (Saw/Square/Sine/Triangle);
-// Noise has no fundamental.
+// Either path produces rawTraction in [0, 1]; EMA smoothing in OnTelemetry
+// prevents single-frame jitter. Frequency scales with vehicle speed (real
+// tire-screech pitch tracks tread strike rate) for tonal waveforms only.
 
 using System;
 using TrueforceForAll.Core;
@@ -59,6 +60,23 @@ namespace TrueforceForAll.Plugin.Effects
             set => _noise.Freq = value;
         }
 
+        /// <summary>Lowpass cutoff (Hz) applied to the noise waveform. Lower
+        /// = smoother rumble, higher = grittier. Ignored for tonal waveforms.</summary>
+        public double NoiseLowpassHz
+        {
+            get => _noise.NoiseLowpassHz;
+            set => _noise.NoiseLowpassHz = value;
+        }
+
+        /// <summary>Highpass cutoff (Hz) applied to the noise waveform after
+        /// the lowpass. Removes sub-audible drift / thumping. Set 0 to
+        /// disable. Ignored for tonal waveforms.</summary>
+        public double NoiseHighpassHz
+        {
+            get => _noise.NoiseHighpassHz;
+            set => _noise.NoiseHighpassHz = value;
+        }
+
         private readonly OscillatorSource _noise = new OscillatorSource
         {
             Waveform   = Waveform.Noise,
@@ -71,6 +89,7 @@ namespace TrueforceForAll.Plugin.Effects
         private double _slipEma;
         private long   _lastDiagLogTicks;
         private double _peakSlipSinceLastLog;
+        private float[] _scratch;
 
         // RPM/speed heuristic state for wheelspin detection (AC's SpeedKmh and
         // GroundSpeedKmH are always identical, so we can't use that diff —
@@ -86,7 +105,21 @@ namespace TrueforceForAll.Plugin.Effects
         public override void RenderAdd(float[] buffer, int count)
         {
             if (!Enabled && !IsTesting) return;
-            _noise.RenderAdd(buffer, count);
+            float dm = DuckMultiplier;
+            if (dm <= 0f) return;
+            if (dm >= 0.999f)
+            {
+                _noise.RenderAdd(buffer, count);
+                return;
+            }
+            // Render to scratch and scale before mixing — same pattern as
+            // EnginePulse. We can't mutate _noise.Amp here because OnTelemetry
+            // writes to it from the producer thread and the temporary clobber
+            // would race with that writer.
+            if (_scratch == null || _scratch.Length < count) _scratch = new float[count];
+            Array.Clear(_scratch, 0, count);
+            _noise.RenderAdd(_scratch, count);
+            for (int i = 0; i < count; i++) buffer[i] += _scratch[i] * dm;
         }
 
         public override int TestPlay()
@@ -121,24 +154,70 @@ namespace TrueforceForAll.Plugin.Effects
             double speedNormForPitch = Math.Min(1.0, Math.Max(0.0, speedKmh / Math.Max(1.0, PitchMaxKmh)));
             _noise.Freq = PitchBaseHz + speedNormForPitch * (PitchMaxHz - PitchBaseHz);
 
-            // Engine free-revs in neutral; speed-based signals are still valid
-            // but RPM is not. Skip during shifts to avoid false-fires.
-            string gear = f.Gear;
-            if (string.Equals(gear, "N", StringComparison.OrdinalIgnoreCase))
+            // Engine free-revs in neutral; the heuristic's RPM-derivative path
+            // is invalid, and the direct path doesn't need haptics during a
+            // shift either. Decay and bail.
+            if (string.Equals(f.Gear, "N", StringComparison.OrdinalIgnoreCase))
             {
-                _slipEma *= 0.4;
-                _noise.Amp = (float)(_slipEma * 0.40 * Gain);
+                DecayAndEmit();
                 return;
             }
 
-            // Suppress at very low speed (math unstable, drift doesn't matter).
+            // Suppress at very low speed (heuristic math unstable, slow
+            // standing wheelspin doesn't need haptic feedback either way).
             if (speedKmh < MinSpeedKmh)
             {
-                _slipEma *= 0.4;
-                _noise.Amp = (float)(_slipEma * 0.40 * Gain);
+                DecayAndEmit();
                 return;
             }
 
+            double rawTraction = f.WheelSlip is double directSlip
+                ? NormalizeDirectSlip(directSlip)
+                : ComputeHeuristic(f, speedKmh);
+
+            // Tighter decay: when rawTraction is near zero, snap _slipEma down
+            // quickly so the buzz ends within ~100 ms of grip recovery instead
+            // of ringing on for half a second.
+            if (rawTraction < 0.05)
+            {
+                _slipEma *= 0.5;       // ~50% per tick → near-zero in 4 ticks
+                if (_slipEma < 0.01) _slipEma = 0;
+            }
+            else
+            {
+                double alpha = (rawTraction > _slipEma) ? 0.5 : 0.3;
+                _slipEma = _slipEma * (1 - alpha) + rawTraction * alpha;
+            }
+            _noise.Amp = (float)(_slipEma * 0.40 * Gain);
+        }
+
+        private void DecayAndEmit()
+        {
+            _slipEma *= 0.4;
+            _noise.Amp = (float)(_slipEma * 0.40 * Gain);
+        }
+
+        // Direct-path normalization: 5% slip = effect activates, 50% = full.
+        // Sensitivity widens both bounds (>1 makes the effect more eager,
+        // <1 stricter). Mirrors the sensitivity feel of the heuristic path
+        // so users don't need to re-tune when switching between AC and other
+        // games.
+        private double NormalizeDirectSlip(double slip)
+        {
+            // Floor at 0.1 (matches the slider's minimum). At Sensitivity=1.0
+            // the deadband is 0.05 and full effect at slip=0.50; at 0.1 those
+            // shift to 0.50 and 5.0 respectively — strict enough to ignore
+            // routine cornering on grippy tires (AC's wheelSlip[] regularly
+            // sits around 0.15-0.30 in normal driving).
+            double slipMag  = Math.Abs(slip);
+            double deadband = 0.05 / Math.Max(0.1, Sensitivity);
+            double slipFull = 0.50 / Math.Max(0.1, Sensitivity);
+            double excess   = Math.Max(0, slipMag - deadband);
+            return Math.Min(1.0, excess / Math.Max(0.05, slipFull));
+        }
+
+        private double ComputeHeuristic(TelemetryFrame f, double speedKmh)
+        {
             // ---------- Wheelspin (RPM rising faster than speed) ----------
             // AC's SpeedKmh and GroundSpeedKmH are always equal (verified from
             // diag log), so we can't use their diff. Fall back to the classic
@@ -220,21 +299,6 @@ namespace TrueforceForAll.Plugin.Effects
             double driftNorm = Math.Max(driftFromSlipAngle, driftFromExcess);
             double rawTraction = Math.Max(wheelspinNorm, driftNorm);
 
-            // Tighter decay: when rawTraction is near zero, snap _slipEma down
-            // quickly so the buzz ends within ~100 ms of grip recovery instead
-            // of ringing on for half a second.
-            if (rawTraction < 0.05)
-            {
-                _slipEma *= 0.5;       // ~50% per tick → near-zero in 4 ticks
-                if (_slipEma < 0.01) _slipEma = 0;
-            }
-            else
-            {
-                double alpha = (rawTraction > _slipEma) ? 0.5 : 0.3;
-                _slipEma = _slipEma * (1 - alpha) + rawTraction * alpha;
-            }
-            _noise.Amp = (float)(_slipEma * 0.40 * Gain);
-
             // Diagnostic — once per second, only when something interesting.
             if (rawTraction > _peakSlipSinceLastLog) _peakSlipSinceLastLog = rawTraction;
             if (now - _lastDiagLogTicks > TimeSpan.TicksPerSecond)
@@ -247,6 +311,7 @@ namespace TrueforceForAll.Plugin.Effects
                 _lastDiagLogTicks = now;
                 _peakSlipSinceLastLog = 0;
             }
+            return rawTraction;
         }
     }
 }

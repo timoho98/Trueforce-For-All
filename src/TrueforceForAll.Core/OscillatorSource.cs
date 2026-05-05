@@ -46,12 +46,21 @@ namespace TrueforceForAll.Core
         /// non-Noise waveforms.</summary>
         public double NoiseLowpassHz { get; set; } = 400.0;
 
+        /// <summary>For Noise waveform only: 1-pole high-pass cutoff (Hz)
+        /// applied AFTER the low-pass. Removes sub-audible drift / thumping
+        /// from the noise floor that the wheel motor can render as low-rate
+        /// jolts. Set ≤ 0 to disable. Typical values 20-50 Hz.</summary>
+        public double NoiseHighpassHz { get; set; } = 0.0;
+
         public bool IsActive => Enabled && Amp > 0.0;
 
         // Synth-thread state.
         private double _phase;
         private readonly Random _rng = new Random();
         private float _noiseLpY;
+        // 1-pole highpass state. y[n] = α·(y[n-1] + x[n] - x[n-1]).
+        private float _noiseHpY;
+        private float _noiseHpPrev;
 
         public void RenderAdd(float[] buffer, int count)
         {
@@ -63,19 +72,45 @@ namespace TrueforceForAll.Core
             float amp = (float)Amp;
             double phaseStep = freq / SampleRate;
 
-            // For Noise: apply a 1-pole IIR low-pass to remove high-frequency
-            // graininess that the wheel motor can't reproduce as smooth rumble.
-            // Compensate for energy loss with a small gain bump (sqrt(2/alpha)
-            // is the analytic bandwidth-energy correction; ~1.6× at α=0.5).
-            if (w == Waveform.Noise && NoiseLowpassHz > 0 && NoiseLowpassHz < SampleRate * 0.5)
+            // For Noise: apply 1-pole IIR low-pass (removes high-frequency
+            // graininess the wheel motor can't reproduce as smooth rumble),
+            // then 1-pole IIR high-pass (removes sub-audible drift / DC
+            // wander the motor renders as occasional thumps). Either filter
+            // is bypassed when its cutoff is ≤ 0.
+            if (w == Waveform.Noise)
             {
-                float alpha = (float)(1.0 - Math.Exp(-2.0 * Math.PI * NoiseLowpassHz / SampleRate));
-                float compensate = (float)Math.Sqrt(2.0 / Math.Max(0.0001, alpha));
+                bool useLp = NoiseLowpassHz  > 0 && NoiseLowpassHz  < SampleRate * 0.5;
+                bool useHp = NoiseHighpassHz > 0 && NoiseHighpassHz < SampleRate * 0.5;
+
+                float lpAlpha = useLp
+                    ? (float)(1.0 - Math.Exp(-2.0 * Math.PI * NoiseLowpassHz / SampleRate))
+                    : 1.0f;
+                // HP coefficient for y[n] = α·(y[n-1] + x[n] - x[n-1]):
+                // α near 1 = aggressive HP, α near 0 = gentle.
+                float hpAlpha = useHp
+                    ? (float)Math.Exp(-2.0 * Math.PI * NoiseHighpassHz / SampleRate)
+                    : 1.0f;
+                // Compensate for LP energy loss (sqrt(2/α) is the analytic
+                // bandwidth-energy correction; ~1.6× at α=0.5). The HP at low
+                // cutoff loses negligible energy so we don't compensate it.
+                float compensate = useLp
+                    ? (float)Math.Sqrt(2.0 / Math.Max(0.0001, lpAlpha))
+                    : 1.0f;
+
                 for (int i = 0; i < count; i++)
                 {
                     float x = (float)(_rng.NextDouble() * 2.0 - 1.0);
-                    _noiseLpY += alpha * (x - _noiseLpY);
-                    buffer[i] += _noiseLpY * compensate * amp;
+                    if (useLp) _noiseLpY += lpAlpha * (x - _noiseLpY);
+                    else       _noiseLpY = x;
+                    float y = _noiseLpY;
+                    if (useHp)
+                    {
+                        float yHp = hpAlpha * (_noiseHpY + y - _noiseHpPrev);
+                        _noiseHpY = yHp;
+                        _noiseHpPrev = y;
+                        y = yHp;
+                    }
+                    buffer[i] += y * compensate * amp;
                 }
                 return;
             }

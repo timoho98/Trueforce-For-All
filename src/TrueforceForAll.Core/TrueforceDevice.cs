@@ -102,6 +102,39 @@ namespace TrueforceForAll.Core
         public float FfbSmoothTimeConstantMs { get; set; } = 3.0f;
         private float _smoothedFfb;
 
+        // Slew-rate limit (LSB per ms) applied to the captured FFB target
+        // BEFORE the smoothing IIR. Caps how fast the input can change in
+        // either direction, so a sudden curb hit (which AC sends as a single
+        // large step) gets spread over several ms and lands as a firm push
+        // instead of a jolt that yanks the wheel out of your hands. Lets
+        // users run a higher FFB scale safely — same average force, much
+        // softer peaks. Set 0 to disable. Tick rate is ~1 kHz so the LSB/ms
+        // value also approximates max delta per tick.
+        public float FfbSpikeMaxLsbPerMs { get; set; } = 0f;
+        private float _slewLimitedFfb;
+
+        // Spike-attenuation cap. Detection sidechains off the raw input's
+        // SLEW RATE (rate of change in LSB/ms) — a curb hit changes FFB at
+        // 4000-15000+ LSB/ms while normal cornering inputs change at
+        // 100-500 LSB/ms. We only attenuate when slew exceeds the spike-
+        // threshold, so corner entries / exits are untouched. The cap
+        // controls how aggressively to attenuate per LSB/ms of slew excess:
+        // at slew = SpikeThreshold + cap, gain factor = 0.5; as slew grows,
+        // factor → 0. Set 0 to disable.
+        public float FfbPeakSoftLimitLsb { get; set; } = 0f;
+        // Below this slew rate, no attenuation regardless of cap setting.
+        // 1000 LSB/ms is well above the rates produced by even hard cornering
+        // and well below typical curb-hit slew. Hardcoded; could be exposed
+        // if a game's cornering forces exceed this baseline.
+        private const float SpikeSlewThresholdLsbPerMs = 1000f;
+        // Half-life of the spike envelope in ms. Sets how long attenuation
+        // persists after the actual slew event. AC sustains a curb-hit's
+        // elevated force for ~50-100 ms; this half-life keeps attenuation
+        // active through the whole impact rather than just the slew moment.
+        private const float SpikeEnvHalfLifeMs = 70f;
+        private float _prevRawForSlew;
+        private float _spikeSlewEnv;
+
         // Force-active override. When the deadline is in the future, StreamTick
         // emits active packets even if the FFB tap is stale — so the settings
         // UI's "Test" button can drive audio through the wheel while AC isn't
@@ -425,20 +458,80 @@ namespace TrueforceForAll.Core
                 if (ffbTargetMaybe.HasValue)
                 {
                     float raw = ffbTargetMaybe.Value;
+
+                    // Update slew-rate sidechain. Peak-follow on rise (instant
+                    // latch) + slow exponential decay (70 ms half-life) on
+                    // fall. Latching means a single-tick AC update is
+                    // captured at full magnitude; decay means the env stays
+                    // high for the duration AC actually sustains the spike's
+                    // elevated force, so attenuation covers the whole impact
+                    // rather than just the moment of change. Sidechains off
+                    // raw — has to, because the slew limiter downstream
+                    // already squashes rate of change.
+                    float slewInst = Math.Abs(raw - _prevRawForSlew);
+                    _prevRawForSlew = raw;
+                    if (slewInst > _spikeSlewEnv)
+                    {
+                        _spikeSlewEnv = slewInst;
+                    }
+                    else
+                    {
+                        // Per-tick decay factor for given half-life:
+                        // f = 0.5^(1/halfLifeMs). At HalfLife=70 ms, f ≈ 0.9902.
+                        float decay = (float)Math.Pow(0.5, 1.0 / SpikeEnvHalfLifeMs);
+                        _spikeSlewEnv *= decay;
+                    }
+
+                    // Slew-rate limit — caps the input step a curb hit can
+                    // produce. Smoothing afterwards turns the clamped step
+                    // into a soft ramp, so a violent AC curb impact lands as
+                    // a firm shove instead of a wheel-yank. 0 = pass through.
+                    float maxDelta = FfbSpikeMaxLsbPerMs;
+                    if (maxDelta > 0f)
+                    {
+                        float delta = raw - _slewLimitedFfb;
+                        if (delta >  maxDelta) delta =  maxDelta;
+                        else if (delta < -maxDelta) delta = -maxDelta;
+                        _slewLimitedFfb += delta;
+                    }
+                    else
+                    {
+                        _slewLimitedFfb = raw;
+                    }
+
                     float tau = FfbSmoothTimeConstantMs;
                     if (tau > 0f)
                     {
                         float alpha = 1f / (tau + 1f);
-                        _smoothedFfb = _smoothedFfb * (1f - alpha) + raw * alpha;
+                        _smoothedFfb = _smoothedFfb * (1f - alpha) + _slewLimitedFfb * alpha;
                     }
                     else
                     {
-                        _smoothedFfb = raw;
+                        _smoothedFfb = _slewLimitedFfb;
                     }
 
                     int t = (int)Math.Round(_smoothedFfb);
                     if (FfbInvertSign) t = -t;
                     if (FfbScale != 1.0f) t = (int)(t * FfbScale);
+
+                    // Multiplicative spike attenuation. Triggers when the
+                    // peak-followed slew envelope exceeds SpikeSlewThreshold
+                    // — anything below is normal cornering / steering input
+                    // and passes through at full amp. Above threshold,
+                    // factor = cap / (cap + slewExcess) asymptotes to 0 as
+                    // slew grows; lower cap = stronger attenuation per LSB
+                    // of slew excess. The env's slow decay extends the
+                    // attenuation window for ~200-300 ms after a spike, so
+                    // both the rise and AC's sustained "elevated force"
+                    // phase are attenuated.
+                    float spikeCap = FfbPeakSoftLimitLsb;
+                    if (spikeCap > 0f && _spikeSlewEnv > SpikeSlewThresholdLsbPerMs)
+                    {
+                        float slewExcess = _spikeSlewEnv - SpikeSlewThresholdLsbPerMs;
+                        float factor = spikeCap / (spikeCap + slewExcess);
+                        t = (int)(t * factor);
+                    }
+
                     if (t >  32767) t =  32767;
                     if (t < -32768) t = -32768;
                     ffbCur = (ushort)(t + 0x8000);

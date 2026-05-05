@@ -69,6 +69,22 @@ namespace TrueforceForAll.Plugin
         private ITelemetrySource      _telemetrySource;
         public  ITelemetrySource      TelemetrySource => _telemetrySource;
 
+        // Cached slow-rate fields from the most recent SimHub DataUpdate.
+        // When an enhanced source is active, DispatchFrame overlays these
+        // onto each frame: MaxRpm is static per car (no benefit to physics
+        // rate), and AC's `physics.abs` is the *configuration level*, not
+        // pump activity — SimHub derives a usable AbsActive signal that we
+        // inherit instead of re-implementing.
+        private double _lastSimHubMaxRpm;
+        private int    _lastSimHubAbsActive;
+
+        // Throttle for retrying enhanced-source acquisition. AC's shared memory
+        // page only appears once the game loads into a session, but SimHub
+        // reports GameName as soon as the AC process starts (often a minute
+        // before the MMF exists). Without a retry, that first-attempt failure
+        // would strand us on SimHub fallback for the whole session.
+        private long _lastEnhancedRetryTicks;
+
         // Per-car override tracking. Updated on each DataUpdate; if the CarId
         // changes we re-apply per-section overrides (or fall back to globals).
         private string _activeCarId;
@@ -174,6 +190,18 @@ namespace TrueforceForAll.Plugin
             if (Settings != null) Settings.FfbSmoothTimeConstantMs = v;
         }
 
+        public void SetFfbSpikeMaxLsbPerMs(float v)
+        {
+            if (_device != null) _device.FfbSpikeMaxLsbPerMs = v;
+            if (Settings != null) Settings.FfbSpikeMaxLsbPerMs = v;
+        }
+
+        public void SetFfbPeakSoftLimitLsb(float v)
+        {
+            if (_device != null) _device.FfbPeakSoftLimitLsb = v;
+            if (Settings != null) Settings.FfbPeakSoftLimitLsb = v;
+        }
+
         /// <summary>Trigger an effect's test playback. Forces the device into
         /// active ep3 mode for the duration so the test is audible even when
         /// AC isn't running (no FFB tap data → would otherwise be keepalive).
@@ -273,6 +301,8 @@ namespace TrueforceForAll.Plugin
                 _device.FfbScale                 = Settings.FfbScale;
                 _device.FfbInvertSign            = Settings.FfbInvertSign;
                 _device.FfbSmoothTimeConstantMs  = Settings.FfbSmoothTimeConstantMs;
+                _device.FfbSpikeMaxLsbPerMs      = Settings.FfbSpikeMaxLsbPerMs;
+                _device.FfbPeakSoftLimitLsb      = Settings.FfbPeakSoftLimitLsb;
                 _ffbTap.Start();
 
                 _device.StartStream();
@@ -337,8 +367,10 @@ namespace TrueforceForAll.Plugin
             // Pull initial values from globals (no car detected yet).
             ApplyActiveCarOverride();
 
-            // Telemetry source: SimHub fallback for now. AC enhanced source
-            // and game-keyed selection land in a follow-up commit.
+            // Telemetry source: SimHub fallback initially. The first DataUpdate
+            // tick triggers the game-change block (since _activeGame starts
+            // null) and SwapTelemetrySource picks an enhanced source if the
+            // running game has one.
             _simHubSource = new SimHubTelemetrySource { OnFrame = DispatchFrame };
             _simHubSource.Start();
             _telemetrySource = _simHubSource;
@@ -416,6 +448,7 @@ namespace TrueforceForAll.Plugin
             if (gameName != _activeGame)
             {
                 _activeGame = gameName;
+                SwapTelemetrySource(gameName);
                 if (!string.IsNullOrEmpty(gameName) && Settings?.GameDefaults != null
                     && Settings.GameDefaults.TryGetValue(gameName, out var presetName)
                     && !string.IsNullOrEmpty(presetName)
@@ -449,6 +482,34 @@ namespace TrueforceForAll.Plugin
                 ApplyActiveCarOverride();
             }
 
+            // Retry enhanced-source acquisition once per second while we have
+            // an enhanced-eligible game running but are still on the SimHub
+            // fallback. Covers the AC menu→session window (MMF not yet
+            // created), and any other source that needs to wait for the game
+            // to be fully loaded before its data surface is available.
+            if (!string.IsNullOrEmpty(_activeGame)
+                && _telemetrySource != null && !_telemetrySource.IsEnhanced
+                && IsEnhancedEligible(_activeGame))
+            {
+                long now = Stopwatch.GetTimestamp();
+                if (now - _lastEnhancedRetryTicks > Stopwatch.Frequency)
+                {
+                    _lastEnhancedRetryTicks = now;
+                    SwapTelemetrySource(_activeGame, silent: true);
+                }
+            }
+
+            // Cache slow-rate fields for the enhanced-source overlay step in
+            // DispatchFrame. Always populated from SimHub regardless of which
+            // source is currently dispatching, so the cache stays warm during
+            // an enhanced run and is immediately available when AC starts.
+            var nd = data?.NewData;
+            if (nd != null)
+            {
+                _lastSimHubMaxRpm    = nd.MaxRpm;
+                _lastSimHubAbsActive = nd.ABSActive;
+            }
+
             // Hand the GameData to the SimHub source. It builds a
             // TelemetryFrame and fires OnFrame → DispatchFrame, which is
             // where we update audio gain and fan out to effects. Done this
@@ -465,6 +526,17 @@ namespace TrueforceForAll.Plugin
         /// break the rest of the haptic pipeline.</summary>
         private void DispatchFrame(TelemetryFrame frame)
         {
+            // Enhanced sources (AC MMF, etc.) deliberately skip slow-rate
+            // fields whose physics-rate fidelity wouldn't be perceptible.
+            // Overlay them from the cached SimHub reading so effects see a
+            // complete frame regardless of which source is active.
+            var src = _telemetrySource;
+            if (src != null && src.IsEnhanced)
+            {
+                frame.MaxRpm    = _lastSimHubMaxRpm;
+                frame.AbsActive = _lastSimHubAbsActive;
+            }
+
             if (_audio != null)
                 _audio.ThrottleNormalized = (float)frame.Throttle01;
 
@@ -479,6 +551,65 @@ namespace TrueforceForAll.Plugin
                     }
                 }
             }
+        }
+
+        /// <summary>True when <paramref name="game"/> has a per-game enhanced
+        /// source we should attempt to instantiate. Used both at game-change
+        /// and as the gate for the periodic retry loop.</summary>
+        private static bool IsEnhancedEligible(string game) => game == "AssettoCorsa";
+
+        /// <summary>Pick the right ITelemetrySource for <paramref name="game"/>
+        /// (AC's MMF reader for "AssettoCorsa", SimHub fallback otherwise) and
+        /// hand-off OnFrame so exactly one source dispatches at a time. Called
+        /// from DataUpdate on the SimHub data thread; the new source's polling
+        /// thread is fully started before the old source is detached, so the
+        /// briefest possible window of "no dispatch" covers the swap.
+        /// Pass <paramref name="silent"/>=true on retry attempts so we don't
+        /// log a "fell back" message every second while AC is loading.</summary>
+        private void SwapTelemetrySource(string game, bool silent = false)
+        {
+            ITelemetrySource newSource = null;
+            if (game == "AssettoCorsa")
+            {
+                var ac = new AcSharedMemoryTelemetrySource
+                {
+                    Logger = msg => SimHub.Logging.Current.Info($"[Trueforce] {msg}"),
+                };
+                try
+                {
+                    ac.Start();
+                    newSource = ac;
+                }
+                catch (Exception ex)
+                {
+                    try { ac.Dispose(); } catch { }
+                    if (!silent)
+                    {
+                        SimHub.Logging.Current.Info(
+                            $"[Trueforce] AC enhanced source unavailable ({ex.GetType().Name}): {ex.Message}; falling back to SimHub.");
+                    }
+                }
+            }
+            if (newSource == null) newSource = _simHubSource;
+            if (newSource == _telemetrySource) return;
+
+            // Detach old's dispatch BEFORE attaching new's so DispatchFrame is
+            // never invoked from two threads concurrently. Both fields are
+            // ref-typed; .NET guarantees torn-tear-safe writes.
+            var old = _telemetrySource;
+            if (old != null) old.OnFrame = null;
+            newSource.OnFrame = DispatchFrame;
+            _telemetrySource = newSource;
+
+            // Dispose the previous enhanced source. _simHubSource is the
+            // long-lived fallback and stays alive for the plugin's lifetime.
+            if (old != null && old != _simHubSource && old != newSource)
+            {
+                try { old.Dispose(); } catch { }
+            }
+
+            SimHub.Logging.Current.Info(
+                $"[Trueforce] Telemetry source: {newSource.Name} (enhanced={newSource.IsEnhanced}).");
         }
 
         public Control GetWPFSettingsControl(PluginManager pluginManager) => new SettingsControl(this);
@@ -566,11 +697,13 @@ namespace TrueforceForAll.Plugin
         private void ApplyTractionSettings(TractionLossSettings s)
         {
             if (TractionLoss == null || s == null) return;
-            TractionLoss.Enabled     = s.Enabled;
-            TractionLoss.Gain        = s.Gain;
-            TractionLoss.Sensitivity = s.Sensitivity;
-            TractionLoss.Waveform    = s.Waveform;
-            TractionLoss.Freq        = s.Freq;
+            TractionLoss.Enabled         = s.Enabled;
+            TractionLoss.Gain            = s.Gain;
+            TractionLoss.Sensitivity     = s.Sensitivity;
+            TractionLoss.Waveform        = s.Waveform;
+            TractionLoss.Freq            = s.Freq;
+            TractionLoss.NoiseLowpassHz  = s.NoiseLowpassHz;
+            TractionLoss.NoiseHighpassHz = s.NoiseHighpassHz;
         }
         private void ApplyShiftSettings(GearShiftSettings s)
         {
@@ -599,7 +732,7 @@ namespace TrueforceForAll.Plugin
         private static RoadBumpsSettings    Clone(RoadBumpsSettings s)
             => new RoadBumpsSettings    { Enabled = s.Enabled, Gain = s.Gain, Waveform = s.Waveform, Freq = s.Freq };
         private static TractionLossSettings Clone(TractionLossSettings s)
-            => new TractionLossSettings { Enabled = s.Enabled, Gain = s.Gain, Sensitivity = s.Sensitivity, Waveform = s.Waveform, Freq = s.Freq };
+            => new TractionLossSettings { Enabled = s.Enabled, Gain = s.Gain, Sensitivity = s.Sensitivity, Waveform = s.Waveform, Freq = s.Freq, NoiseLowpassHz = s.NoiseLowpassHz, NoiseHighpassHz = s.NoiseHighpassHz };
         private static GearShiftSettings    Clone(GearShiftSettings s)
             => new GearShiftSettings    { Enabled = s.Enabled, Gain = s.Gain, Freq = s.Freq, Waveform = s.Waveform };
         private static AbsClickSettings     Clone(AbsClickSettings s)
@@ -715,6 +848,8 @@ namespace TrueforceForAll.Plugin
             Settings.FfbScale                = snap.FfbScale;
             Settings.FfbInvertSign           = snap.FfbInvertSign;
             Settings.FfbSmoothTimeConstantMs = snap.FfbSmoothTimeConstantMs;
+            Settings.FfbSpikeMaxLsbPerMs     = snap.FfbSpikeMaxLsbPerMs;
+            Settings.FfbPeakSoftLimitLsb     = snap.FfbPeakSoftLimitLsb;
             Settings.DuckDepth               = snap.DuckDepth;
             Settings.DuckAttackMs            = snap.DuckAttackMs;
             Settings.DuckReleaseMs           = snap.DuckReleaseMs;
@@ -734,6 +869,8 @@ namespace TrueforceForAll.Plugin
                 _device.FfbScale                = Settings.FfbScale;
                 _device.FfbInvertSign           = Settings.FfbInvertSign;
                 _device.FfbSmoothTimeConstantMs = Settings.FfbSmoothTimeConstantMs;
+                _device.FfbSpikeMaxLsbPerMs     = Settings.FfbSpikeMaxLsbPerMs;
+                _device.FfbPeakSoftLimitLsb     = Settings.FfbPeakSoftLimitLsb;
             }
             if (_audio != null)
             {
@@ -781,6 +918,8 @@ namespace TrueforceForAll.Plugin
                 FfbScale                = Settings.FfbScale,
                 FfbInvertSign           = Settings.FfbInvertSign,
                 FfbSmoothTimeConstantMs = Settings.FfbSmoothTimeConstantMs,
+                FfbSpikeMaxLsbPerMs     = Settings.FfbSpikeMaxLsbPerMs,
+                FfbPeakSoftLimitLsb     = Settings.FfbPeakSoftLimitLsb,
                 DuckDepth               = Settings.DuckDepth,
                 DuckAttackMs            = Settings.DuckAttackMs,
                 DuckReleaseMs           = Settings.DuckReleaseMs,
@@ -1024,32 +1163,57 @@ namespace TrueforceForAll.Plugin
         // perceptible content but above floating-point noise.
         private const float SilenceFloor = 3e-4f;
 
-        // Sidechain ducking state. Smoothed envelope tracks (1 - depth × activity).
-        private float _duckSmoothed = 1.0f;
+        // Sidechain ducking state. Two buses, both driven by max-activity of
+        // the relevant transients with the same depth/attack/release params:
+        //
+        //   _duckSmoothed         — driven by ALL transients (incl. TractionLoss);
+        //                           applied to EnginePulse + audio capture.
+        //   _duckSmoothedMomentary — driven by only the truly-momentary transients
+        //                           (RoadBumps, GearShift, AbsClick); applied to
+        //                           TractionLoss so a sustained slide doesn't
+        //                           drown out an ABS pump or curb hit happening
+        //                           on top of it. TractionLoss is excluded from
+        //                           its own bus (effects don't duck themselves).
+        private float _duckSmoothed          = 1.0f;
+        private float _duckSmoothedMomentary = 1.0f;
 
         private void UpdateDucking()
         {
-            // Take the loudest transient effect's activity level.
-            double maxTransient = 0;
-            if (RoadBumps    != null) maxTransient = Math.Max(maxTransient, RoadBumps.ActivityLevel);
-            if (TractionLoss != null) maxTransient = Math.Max(maxTransient, TractionLoss.ActivityLevel);
-            if (GearShift    != null) maxTransient = Math.Max(maxTransient, GearShift.ActivityLevel);
-            if (AbsClick     != null) maxTransient = Math.Max(maxTransient, AbsClick.ActivityLevel);
+            // Bus 1 (existing): all transients, ducks engine + audio.
+            double maxAll = 0;
+            if (RoadBumps    != null) maxAll = Math.Max(maxAll, RoadBumps.ActivityLevel);
+            if (TractionLoss != null) maxAll = Math.Max(maxAll, TractionLoss.ActivityLevel);
+            if (GearShift    != null) maxAll = Math.Max(maxAll, GearShift.ActivityLevel);
+            if (AbsClick     != null) maxAll = Math.Max(maxAll, AbsClick.ActivityLevel);
+
+            // Bus 2 (new): truly-momentary transients only — excludes
+            // TractionLoss because a sustained slide is itself a "constant
+            // effect" relative to the impulse-shaped events below.
+            double maxMomentary = 0;
+            if (RoadBumps != null) maxMomentary = Math.Max(maxMomentary, RoadBumps.ActivityLevel);
+            if (GearShift != null) maxMomentary = Math.Max(maxMomentary, GearShift.ActivityLevel);
+            if (AbsClick  != null) maxMomentary = Math.Max(maxMomentary, AbsClick.ActivityLevel);
 
             float depth     = Settings?.DuckDepth     ?? 0.5f;
             float attackMs  = Settings?.DuckAttackMs  ?? 5.0f;
             float releaseMs = Settings?.DuckReleaseMs ?? 80.0f;
 
-            float target = (float)Math.Max(0.0, 1.0 - depth * maxTransient);
-
             // IIR with attack-or-release time constant (dt ≈ 1 ms — producer
             // pushes ~1 batch per ms). alpha = 1 - exp(-dt/tau).
-            float tauMs = (target < _duckSmoothed) ? attackMs : releaseMs;
-            float alpha = (float)(1.0 - Math.Exp(-1.0 / Math.Max(0.5, tauMs)));
-            _duckSmoothed = _duckSmoothed * (1f - alpha) + target * alpha;
+            float targetAll       = (float)Math.Max(0.0, 1.0 - depth * maxAll);
+            float targetMomentary = (float)Math.Max(0.0, 1.0 - depth * maxMomentary);
 
-            if (EnginePulse != null) EnginePulse.DuckMultiplier = _duckSmoothed;
-            if (_audio      != null) _audio.DuckMultiplier      = _duckSmoothed;
+            float tauAllMs       = (targetAll       < _duckSmoothed)          ? attackMs : releaseMs;
+            float tauMomentaryMs = (targetMomentary < _duckSmoothedMomentary) ? attackMs : releaseMs;
+            float alphaAll       = (float)(1.0 - Math.Exp(-1.0 / Math.Max(0.5, tauAllMs)));
+            float alphaMomentary = (float)(1.0 - Math.Exp(-1.0 / Math.Max(0.5, tauMomentaryMs)));
+
+            _duckSmoothed          = _duckSmoothed          * (1f - alphaAll)       + targetAll       * alphaAll;
+            _duckSmoothedMomentary = _duckSmoothedMomentary * (1f - alphaMomentary) + targetMomentary * alphaMomentary;
+
+            if (EnginePulse  != null) EnginePulse.DuckMultiplier  = _duckSmoothed;
+            if (_audio       != null) _audio.DuckMultiplier       = _duckSmoothed;
+            if (TractionLoss != null) TractionLoss.DuckMultiplier = _duckSmoothedMomentary;
         }
 
         private void ProducerLoop()

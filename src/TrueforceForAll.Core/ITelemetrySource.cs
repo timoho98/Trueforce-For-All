@@ -69,6 +69,14 @@ namespace TrueforceForAll.Core
         /// <summary>0 = ABS not active, &gt;0 = active. Edge transitions drive AbsClick PerTick mode.</summary>
         public int AbsActive;
 
+        // ---- Tire grip ----
+        /// <summary>Direct slip-ratio reading from a sim that exposes one
+        /// (e.g. AC's wheelSlip[]), max-abs across all four tires. ~0 = grip,
+        /// &gt;0.05 = noticeable slip, &gt;0.5 = sliding hard. Null when the
+        /// source can't measure slip directly — TractionLossEffect falls back
+        /// to its yaw-rate / RPM-derivative heuristic in that case.</summary>
+        public double? WheelSlip;
+
         // ---- Diagnostics ----
         /// <summary>Stopwatch ticks at which the source captured this frame. Set by EmitFrame.</summary>
         public long CapturedAtTicks;

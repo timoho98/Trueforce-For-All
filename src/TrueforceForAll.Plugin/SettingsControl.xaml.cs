@@ -60,6 +60,14 @@ namespace TrueforceForAll.Plugin
                 FfbInvertCheck.IsChecked = _plugin.Settings?.FfbInvertSign ?? true;
                 FfbSmoothSlider.Value  = _plugin.Settings?.FfbSmoothTimeConstantMs ?? 3.0;
                 FfbSmoothText.Text     = FfbSmoothSlider.Value.ToString("F1");
+                FfbSpikeLimitSlider.Value = _plugin.Settings?.FfbSpikeMaxLsbPerMs ?? 0.0;
+                FfbSpikeLimitText.Text    = FfbSpikeLimitSlider.Value <= 0
+                    ? "off"
+                    : ((int)FfbSpikeLimitSlider.Value).ToString();
+                FfbPeakLimitSlider.Value  = _plugin.Settings?.FfbPeakSoftLimitLsb ?? 0.0;
+                FfbPeakLimitText.Text     = FfbPeakLimitSlider.Value <= 0
+                    ? "off"
+                    : ((int)FfbPeakLimitSlider.Value).ToString();
 
                 DuckDepthSlider.Value   = _plugin.Settings?.DuckDepth ?? 0.5;
                 DuckDepthText.Text      = DuckDepthSlider.Value.ToString("F2");
@@ -128,6 +136,10 @@ namespace TrueforceForAll.Plugin
                     SelectWaveform(TractionWaveformCombo, ts.Waveform);
                     TractionFreqSlider.Value             = ts.Freq;
                     TractionFreqText.Text                = ((int)ts.Freq).ToString();
+                    TractionNoiseLpSlider.Value          = ts.NoiseLowpassHz;
+                    TractionNoiseLpText.Text             = ((int)ts.NoiseLowpassHz).ToString();
+                    TractionNoiseHpSlider.Value          = ts.NoiseHighpassHz;
+                    TractionNoiseHpText.Text             = ((int)ts.NoiseHighpassHz).ToString();
                 }
                 // Shift
                 var ss = _plugin.ActiveShift;
@@ -185,6 +197,22 @@ namespace TrueforceForAll.Plugin
                 CaptureStatusText.Text = _plugin.CaptureStatus;
             }
             if (_plugin != null) FfbTapText.Text = _plugin.FfbTapStatus;
+
+            // Telemetry-source badge: "Enhanced Effects · NNN Hz" while a
+            // physics-rate source is feeding effects, "SimHub · NN Hz"
+            // otherwise. The Hz reading is the live measured rate (EMA on
+            // inter-frame timing) — not a hardcoded number, so curious users
+            // can verify the enhanced source is actually delivering at AC's
+            // 333 Hz physics rate.
+            var telSrc = _plugin?.TelemetrySource;
+            if (telSrc != null)
+            {
+                string label = telSrc.IsEnhanced ? "Enhanced Effects" : "SimHub";
+                double hz = telSrc.MeasuredHz;
+                TelemetrySourceText.Text = hz > 0
+                    ? $"{label} · {hz:0} Hz"
+                    : $"{label} · idle";
+            }
 
             // Live activity meters — only updated when the Expander is open.
             // Peak-hold smoothing with 25% decay per tick (~80 ms half-life)
@@ -259,6 +287,20 @@ namespace TrueforceForAll.Plugin
             float v = (float)e.NewValue;
             FfbSmoothText.Text = v.ToString("F1");
             _plugin.SetFfbSmoothMs(v);
+        }
+        private void FfbSpikeLimitSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            float v = (float)e.NewValue;
+            FfbSpikeLimitText.Text = v <= 0 ? "off" : ((int)v).ToString();
+            _plugin.SetFfbSpikeMaxLsbPerMs(v);
+        }
+        private void FfbPeakLimitSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            float v = (float)e.NewValue;
+            FfbPeakLimitText.Text = v <= 0 ? "off" : ((int)v).ToString();
+            _plugin.SetFfbPeakSoftLimitLsb(v);
         }
         private void DuckDepthSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
@@ -466,6 +508,22 @@ namespace TrueforceForAll.Plugin
             float v = (float)e.NewValue;
             TractionFreqText.Text = ((int)v).ToString();
             _plugin.ActiveTraction.Freq = v;
+            Apply();
+        }
+        private void TractionNoiseLpSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            double v = e.NewValue;
+            TractionNoiseLpText.Text = ((int)v).ToString();
+            _plugin.ActiveTraction.NoiseLowpassHz = v;
+            Apply();
+        }
+        private void TractionNoiseHpSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            double v = e.NewValue;
+            TractionNoiseHpText.Text = ((int)v).ToString();
+            _plugin.ActiveTraction.NoiseHighpassHz = v;
             Apply();
         }
 

@@ -38,6 +38,17 @@ namespace TrueforceForAll.Plugin
         public bool  FfbInvertSign            { get; set; } = true;
         public float FfbSmoothTimeConstantMs  { get; set; } = 3.0f;
 
+        // Slew-rate limit on the captured FFB target — caps how fast the
+        // signal can change per ms. Lets users run higher FFB scale safely
+        // (a 30000-LSB curb spike gets spread over 30+ ms instead of yanking
+        // the wheel). 0 = off.
+        public float FfbSpikeMaxLsbPerMs      { get; set; } = 0f;
+
+        // Soft peak cap (LSB) on the post-scale FFB target. Caps how large
+        // a spike can get rather than how fast — pairs with FfbSpikeMaxLsbPerMs
+        // to control both rate and amplitude. 0 = off.
+        public float FfbPeakSoftLimitLsb      { get; set; } = 0f;
+
         // Sidechain ducking applied to continuous effects (engine pulse, audio
         // capture) when transient effects (gear shift, ABS, road bumps,
         // traction loss) fire. Depth = max attenuation (0 = no duck, 1 = full
@@ -85,6 +96,8 @@ namespace TrueforceForAll.Plugin
         public float FfbScale                  { get; set; } = 1.0f;
         public bool  FfbInvertSign             { get; set; } = true;
         public float FfbSmoothTimeConstantMs   { get; set; } = 3.0f;
+        public float FfbSpikeMaxLsbPerMs       { get; set; } = 0f;
+        public float FfbPeakSoftLimitLsb       { get; set; } = 0f;
         public float DuckDepth                 { get; set; } = 0.5f;
         public float DuckAttackMs              { get; set; } = 5.0f;
         public float DuckReleaseMs             { get; set; } = 80.0f;
@@ -135,6 +148,12 @@ namespace TrueforceForAll.Plugin
         public float Gain        { get; set; } = 1.0f;
         public float Sensitivity { get; set; } = 1.0f;
         public float Freq        { get; set; } = 100.0f;   // unused when Waveform == Noise
+
+        // Default 250 Hz LP is on the smoother side; raise toward 600+ for a
+        // harsher tire-grit feel. 30 Hz HP cleans sub-audible drift without
+        // taking meaningful energy out of the rumble band.
+        public double NoiseLowpassHz  { get; set; } = 250.0;
+        public double NoiseHighpassHz { get; set; } = 30.0;
 
         [JsonConverter(typeof(StringEnumConverter))]
         public Waveform Waveform { get; set; } = Waveform.Noise;
