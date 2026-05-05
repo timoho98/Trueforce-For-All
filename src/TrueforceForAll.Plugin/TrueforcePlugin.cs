@@ -46,6 +46,10 @@ namespace TrueforceForAll.Plugin
         private UsbPcapFfbTap _ffbTap;
         private Thread _producerThread;
         private volatile bool _shuttingDown;
+        // Number of TestEffect background tasks currently running. Drained at
+        // End() so they can't keep mutating effect state after the device has
+        // been disposed.
+        private int _activeTestTasks;
 
         public EnginePulseEffect  EnginePulse  { get; private set; }
         public RoadBumpsEffect    RoadBumps    { get; private set; }
@@ -53,6 +57,17 @@ namespace TrueforceForAll.Plugin
         public GearShiftEffect    GearShift    { get; private set; }
         public AbsClickEffect     AbsClick     { get; private set; }
         private TelemetryEffect[] _effects;
+
+        // Active telemetry source. The plugin currently always uses
+        // SimHubTelemetrySource (universal, ~60 Hz from the SimHub data
+        // pipeline). Per-game enhanced sources (AC native MMF, etc.) will
+        // be hot-swapped here on game change. _simHubSource is held as a
+        // typed field because we feed it from DataUpdate; _telemetrySource
+        // is what the rest of the plugin treats as "the current source"
+        // for status / UI / future polymorphic dispatch.
+        private SimHubTelemetrySource _simHubSource;
+        private ITelemetrySource      _telemetrySource;
+        public  ITelemetrySource      TelemetrySource => _telemetrySource;
 
         // Per-car override tracking. Updated on each DataUpdate; if the CarId
         // changes we re-apply per-section overrides (or fall back to globals).
@@ -184,6 +199,7 @@ namespace TrueforceForAll.Plugin
 
             long startTicks = DateTime.UtcNow.Ticks;
             long endTicks   = startTicks + durationMs * TimeSpan.TicksPerMillisecond;
+            System.Threading.Interlocked.Increment(ref _activeTestTasks);
             System.Threading.Tasks.Task.Run(() =>
             {
                 try
@@ -198,6 +214,7 @@ namespace TrueforceForAll.Plugin
                     }
                 }
                 catch { }
+                finally { System.Threading.Interlocked.Decrement(ref _activeTestTasks); }
             });
         }
 
@@ -308,7 +325,8 @@ namespace TrueforceForAll.Plugin
             _mixer.Sources.Add(_audio);
 
             // Telemetry effects: instantiate from settings, register in the
-            // mixer in display order. Each effect is fed via DataUpdate dispatch.
+            // mixer in display order. Each effect is fed via the active
+            // ITelemetrySource's OnFrame callback (see DispatchFrame below).
             EnginePulse  = new EnginePulseEffect();
             RoadBumps    = new RoadBumpsEffect();
             TractionLoss = new TractionLossEffect();
@@ -318,6 +336,13 @@ namespace TrueforceForAll.Plugin
             foreach (var fx in _effects) _mixer.Sources.Add(fx);
             // Pull initial values from globals (no car detected yet).
             ApplyActiveCarOverride();
+
+            // Telemetry source: SimHub fallback for now. AC enhanced source
+            // and game-keyed selection land in a follow-up commit.
+            _simHubSource = new SimHubTelemetrySource { OnFrame = DispatchFrame };
+            _simHubSource.Start();
+            _telemetrySource = _simHubSource;
+            SimHub.Logging.Current.Info($"[Trueforce] Telemetry source: {_telemetrySource.Name}.");
 
             _capturePollThread = new Thread(CapturePollLoop)
             {
@@ -332,8 +357,21 @@ namespace TrueforceForAll.Plugin
         {
             _shuttingDown = true;
 
+            // Drain in-flight TestEffect tasks. They poll _shuttingDown every
+            // ~16 ms, so a short bounded wait is plenty in practice; the
+            // bound just means we don't deadlock if one is hung in TestUpdate.
+            System.Threading.SpinWait.SpinUntil(
+                () => System.Threading.Volatile.Read(ref _activeTestTasks) == 0,
+                250);
+
             try { _capturePollThread?.Join(2000); } catch { }
             _capturePollThread = null;
+
+            // Stop the active telemetry source so PushFromGameData becomes a
+            // no-op for any late SimHub tick that lands during teardown.
+            try { _telemetrySource?.Dispose(); } catch { }
+            _telemetrySource = null;
+            _simHubSource    = null;
 
             // UI changes are written through to Settings on the fly, so just save.
             if (Settings != null) this.SaveCommonSettings("GeneralSettings", Settings);
@@ -347,7 +385,18 @@ namespace TrueforceForAll.Plugin
             try { _capturedProcess?.Dispose(); } catch { }
             _capturedProcess = null;
 
-            try { _producerThread?.Join(500); } catch { }
+            // Wake the producer if it's parked inside PushFloats on a full
+            // ring — the plugin's _shuttingDown flag doesn't propagate into
+            // the device's wait condition, so without this the join below can
+            // time out and leave the producer alive while CleanupDevice tears
+            // the device down underneath it.
+            try { _device?.StopAcceptingSamples(); } catch { }
+
+            try { _producerThread?.Join(2000); } catch { }
+            if (_producerThread != null && _producerThread.IsAlive)
+                SimHub.Logging.Current.Warn("[Trueforce] Producer thread did not exit cleanly.");
+            _producerThread = null;
+
             try { _device?.ClearStream(); } catch { }
             // Brief pause so the centre-wheel samples drain to the device.
             Thread.Sleep(60);
@@ -400,19 +449,30 @@ namespace TrueforceForAll.Plugin
                 ApplyActiveCarOverride();
             }
 
-            // Forward throttle normalized to AudioCaptureSource so it can apply
-            // a throttle-driven gain boost (mirrors EnginePulseEffect's boost).
-            if (_audio != null && data?.NewData != null)
-                _audio.ThrottleNormalized = (float)Math.Max(0.0, Math.Min(1.0, data.NewData.Throttle / 100.0));
+            // Hand the GameData to the SimHub source. It builds a
+            // TelemetryFrame and fires OnFrame → DispatchFrame, which is
+            // where we update audio gain and fan out to effects. Done this
+            // way so an enhanced source (AC MMF, etc.) drives the same
+            // dispatch path at its native rate without forking effect code.
+            _simHubSource?.PushFromGameData(data);
+        }
 
-            // Forward telemetry to each effect. Effects are responsible for
-            // their own state; if any throws we swallow it so a single bad
-            // effect can't take down the SimHub data tick.
+        /// <summary>OnFrame handler bound to whichever ITelemetrySource is
+        /// currently active. Runs on the source's polling thread (SimHub's
+        /// data tick today; an MMF reader thread once enhanced sources land).
+        /// Updates audio-throttle modulation and dispatches to each effect;
+        /// per-effect exceptions are swallowed so one bad effect can't
+        /// break the rest of the haptic pipeline.</summary>
+        private void DispatchFrame(TelemetryFrame frame)
+        {
+            if (_audio != null)
+                _audio.ThrottleNormalized = (float)frame.Throttle01;
+
             if (_effects != null)
             {
                 for (int i = 0; i < _effects.Length; i++)
                 {
-                    try { _effects[i].OnTelemetry(data); }
+                    try { _effects[i].OnTelemetry(frame); }
                     catch (Exception ex)
                     {
                         SimHub.Logging.Current.Error($"[Trueforce] {_effects[i].Name} telemetry error", ex);

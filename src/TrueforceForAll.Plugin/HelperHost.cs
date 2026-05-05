@@ -60,8 +60,20 @@ namespace TrueforceForAll.Plugin
                 CreateNoWindow  = true,
             };
             _helper = Process.Start(psi);
+            // Order matters: subscribe before EnableRaisingEvents so that if
+            // the helper has already exited, the property setter dispatches
+            // the event to our handler synchronously. Then a HasExited check
+            // covers the residual window where the helper exited between
+            // Process.Start returning and EnableRaisingEvents being set.
+            int exitFired = 0;
+            void RaiseOnce()
+            {
+                if (System.Threading.Interlocked.Exchange(ref exitFired, 1) == 0)
+                    HelperExited?.Invoke(this, EventArgs.Empty);
+            }
+            _helper.Exited += (_, __) => RaiseOnce();
             _helper.EnableRaisingEvents = true;
-            _helper.Exited += (_, __) => HelperExited?.Invoke(this, EventArgs.Empty);
+            if (_helper.HasExited) RaiseOnce();
 
             _stdoutThread = new Thread(StdoutPumpLoop)
             {
@@ -122,12 +134,23 @@ namespace TrueforceForAll.Plugin
                 var stream = _helper.StandardOutput.BaseStream;
                 // 16 KB chunks: at 48 kHz × 2 ch × 4 bytes = 384 KB/s steady-state
                 // → ~24 reads per second. Plenty granular for haptics latency.
+                const int bytesPerFrame = 8;  // float32 stereo
                 var buf = new byte[16384];
+                int leftover = 0;
                 while (!_shuttingDown && !_helper.HasExited)
                 {
-                    int n = stream.Read(buf, 0, buf.Length);
+                    // Carry any sub-frame tail from the previous read forward —
+                    // pipe Reads can return non-frame-aligned counts, and dropping
+                    // those bytes would permanently desync L/R for the session.
+                    int n = stream.Read(buf, leftover, buf.Length - leftover);
                     if (n <= 0) break;
-                    DataAvailable?.Invoke(this, new WaveInEventArgs(buf, n));
+                    int total = leftover + n;
+                    int aligned = total - (total % bytesPerFrame);
+                    if (aligned > 0)
+                        DataAvailable?.Invoke(this, new WaveInEventArgs(buf, aligned));
+                    leftover = total - aligned;
+                    if (leftover > 0)
+                        Buffer.BlockCopy(buf, aligned, buf, 0, leftover);
                 }
             }
             catch (Exception ex)
