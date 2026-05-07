@@ -132,10 +132,16 @@ namespace TrueforceForAll.Plugin
             try
             {
                 var stream = _helper.StandardOutput.BaseStream;
-                // 16 KB chunks: at 48 kHz × 2 ch × 4 bytes = 384 KB/s steady-state
-                // → ~24 reads per second. Plenty granular for haptics latency.
+                // 2 KB chunks ≈ 5 ms of audio at 48 kHz × 2 ch × 4 bytes
+                // (= 384 bytes/ms). The previous 16 KB buffer was an UPPER
+                // bound that almost never filled — but if the plugin thread
+                // ever stalled briefly (GC pause, etc.) the next read could
+                // accumulate up to ~42 ms of audio in one chunk, which would
+                // overflow the audio ring catastrophically downstream. 2 KB
+                // caps that p99 worst case at ~5 ms, which the current ring
+                // (16+ samples = 4+ ms at 4 kHz output) can absorb cleanly.
                 const int bytesPerFrame = 8;  // float32 stereo
-                var buf = new byte[16384];
+                var buf = new byte[2048];
                 int leftover = 0;
                 while (!_shuttingDown && !_helper.HasExited)
                 {

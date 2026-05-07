@@ -160,9 +160,11 @@ namespace TrueforceForAll.Plugin
         // each sample is 0.25 ms, so 8 = 2 ms, 64 = 16 ms.
         public int TfRingSize { get; set; } = 8;
 
-        // Audio loopback ring depth (samples; pow-of-two; 16..128). At 4 kHz
-        // each sample is 0.25 ms, so 16 = 4 ms, 128 = 32 ms.
-        public int AudioRingSize { get; set; } = 32;
+        // Audio loopback ring depth (samples; pow-of-two; 8..128). At 4 kHz
+        // each sample is 0.25 ms, so 8 = 2 ms, 128 = 32 ms. Default 16 (4 ms)
+        // fits a typical 3 ms WASAPI burst (~12 samples post-decimation) with
+        // headroom; 8 is only viable on very-low-latency audio drivers.
+        public int AudioRingSize { get; set; } = 16;
     }
 
     public sealed class EnginePulseSettings

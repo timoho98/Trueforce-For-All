@@ -439,12 +439,12 @@
             <Grid Margin="0,0,0,4">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="80"/></Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="Audio ring:" VerticalAlignment="Center" Opacity="0.7"
-                           ToolTip="Sample buffer between WASAPI loopback and the audio mixer. WASAPI delivers ~40 samples per 10ms callback; smaller rings drop oldest samples (clicks) when the burst overflows."/>
+                           ToolTip="Sample buffer between WASAPI loopback and the audio mixer. WASAPI typically delivers ~12 decimated samples per ~3ms callback; 16 fits that with headroom. Setting 8 only works if your audio driver supports a ~2ms WASAPI period — uncommon. If you set 8 and hear continuous clicks, the auto-ratchet (Auto mode) will bump you back up."/>
                 <Slider     Grid.Column="1" x:Name="PerfAudioRingSlider"
-                            Minimum="16" Maximum="128" SmallChange="16" LargeChange="16"
-                            TickFrequency="16" IsSnapToTickEnabled="True"
+                            Minimum="8" Maximum="128" SmallChange="8" LargeChange="8"
+                            TickFrequency="8" IsSnapToTickEnabled="True"
                             ValueChanged="PerfAudioRingSlider_ValueChanged" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="2" x:Name="PerfAudioRingText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="32 (8ms)"/>
+                <TextBlock Grid.Column="2" x:Name="PerfAudioRingText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="16 (4ms)"/>
             </Grid>
 
             <Grid Margin="0,8,0,20">

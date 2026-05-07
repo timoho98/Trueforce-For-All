@@ -1663,7 +1663,7 @@ namespace TrueforceForAll.Plugin
 
         private void PerfAudioRingSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
-            int v = NearestPow2((int)Math.Round(e.NewValue), 16, 128);
+            int v = NearestPow2((int)Math.Round(e.NewValue), 8, 128);
             PerfAudioRingText.Text = FormatRing(v);
             if (_suppressEvents || _plugin == null) return;
             if (_plugin.Settings?.Performance?.Mode == PerformanceMode.Manual)
