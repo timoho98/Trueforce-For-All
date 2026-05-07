@@ -101,8 +101,16 @@ namespace TrueforceForAll.Plugin
             // interpolation = visibly smoother than 30 Hz + abrupt width snaps.
             _meterTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
             _meterTimer.Tick += MeterTimer_Tick;
-            Loaded   += (_, __) => _meterTimer.Start();
-            Unloaded += (_, __) => _meterTimer.Stop();
+            Loaded   += (_, __) =>
+            {
+                _meterTimer.Start();
+                if (_plugin != null) _plugin.AutoRatchetBumped += OnAutoRatchetBumped;
+            };
+            Unloaded += (_, __) =>
+            {
+                _meterTimer.Stop();
+                if (_plugin != null) _plugin.AutoRatchetBumped -= OnAutoRatchetBumped;
+            };
         }
 
         /// <summary>Pull all visible UI values from the plugin's effective settings.</summary>
@@ -135,6 +143,21 @@ namespace TrueforceForAll.Plugin
                 FfbPeakLimitText.Text     = FfbPeakLimitSlider.Value <= 0
                     ? "off"
                     : ((int)FfbPeakLimitSlider.Value).ToString();
+
+                // Performance section
+                var perf = _plugin.Settings?.Performance;
+                if (perf != null)
+                {
+                    PerfAutoRadio.IsChecked   = perf.Mode == PerformanceMode.Auto;
+                    PerfManualRadio.IsChecked = perf.Mode == PerformanceMode.Manual;
+                    bool manual = perf.Mode == PerformanceMode.Manual;
+                    PerfTfRingSlider.IsEnabled    = manual;
+                    PerfAudioRingSlider.IsEnabled = manual;
+                    PerfTfRingSlider.Value    = perf.TfRingSize;
+                    PerfAudioRingSlider.Value = perf.AudioRingSize;
+                    PerfTfRingText.Text    = FormatRing(perf.TfRingSize);
+                    PerfAudioRingText.Text = FormatRing(perf.AudioRingSize);
+                }
 
                 DuckDepthSlider.Value   = _plugin.Settings?.DuckDepth ?? 0.5;
                 DuckDepthText.Text      = DuckDepthSlider.Value.ToString("F2");
@@ -344,6 +367,10 @@ namespace TrueforceForAll.Plugin
                 double duck = 1.0 - (_plugin?.EnginePulse?.DuckMultiplier ?? 1.0);
                 UpdateMeter(DuckMeterTrack, DuckMeterFill, Math.Max(0, duck));
             }
+
+            // Performance counters update every meter tick (cheap — array sum
+            // of 60 longs). Doesn't depend on any expander being open.
+            UpdatePerfCounters();
 
             string carId = _plugin?.ActiveCarId;
             string game  = _plugin?.ActiveGame;
@@ -1599,6 +1626,186 @@ namespace TrueforceForAll.Plugin
             {
                 MessageBox.Show($"Import failed:\n{ex.Message}", "Trueforce", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        // ---------- Performance tab ----------
+
+        private static string FormatRing(int samples)
+        {
+            // Each sample at 4 kHz = 0.25 ms.
+            double ms = samples * 0.25;
+            return $"{samples} ({ms:0.#}ms)";
+        }
+
+        private void PerfMode_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            var mode = PerfManualRadio.IsChecked == true ? PerformanceMode.Manual : PerformanceMode.Auto;
+            _plugin.SetPerformanceMode(mode);
+            bool manual = mode == PerformanceMode.Manual;
+            PerfTfRingSlider.IsEnabled    = manual;
+            PerfAudioRingSlider.IsEnabled = manual;
+        }
+
+        private void PerfTfRingSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            // The slider snaps to TickFrequency=8 so e.NewValue is already
+            // {8,16,24,32,40,48,56,64} — round to nearest pow2 to avoid the
+            // 24/40/48/56 in-betweens (Apply() also sanitizes defensively).
+            int v = NearestPow2((int)Math.Round(e.NewValue), 8, 64);
+            PerfTfRingText.Text = FormatRing(v);
+            if (_suppressEvents || _plugin == null) return;
+            // Only push down to the device in Manual mode — in Auto, the
+            // ratchet owns ring sizes and slider edits would conflict.
+            if (_plugin.Settings?.Performance?.Mode == PerformanceMode.Manual)
+                _plugin.ApplyTfRingSize(v);
+        }
+
+        private void PerfAudioRingSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            int v = NearestPow2((int)Math.Round(e.NewValue), 16, 128);
+            PerfAudioRingText.Text = FormatRing(v);
+            if (_suppressEvents || _plugin == null) return;
+            if (_plugin.Settings?.Performance?.Mode == PerformanceMode.Manual)
+                _plugin.ApplyAudioRingSize(v);
+        }
+
+        private void PerfReset_Click(object sender, RoutedEventArgs e)
+        {
+            if (_plugin == null) return;
+            _plugin.ResetPerformanceToLowest();
+            RefreshFromPlugin();
+        }
+
+        private static int NearestPow2(int v, int min, int max)
+        {
+            if (v < min) v = min;
+            if (v > max) v = max;
+            int p = 1;
+            while ((p << 1) <= v) p <<= 1;
+            if (p < min) p = min;
+            return p;
+        }
+
+        // Rolling 60-second underrun / glitch counters. We sample every meter
+        // tick; a 60-bucket second-aligned ring tracks events-per-second so
+        // we can show "events in last 60 s" without long-running reset.
+        private long _perfLastTfCount, _perfLastAudioCount;
+        private long _perfLastBucketSec;
+        private readonly long[] _perfTfBucket    = new long[60];
+        private readonly long[] _perfAudioBucket = new long[60];
+
+        private void UpdatePerfCounters()
+        {
+            if (_plugin == null) return;
+            long tfNow = _plugin.TfRingUnderruns;
+            long auNow = _plugin.AudioRingGlitches;
+            long tfDelta = tfNow - _perfLastTfCount;
+            long auDelta = auNow - _perfLastAudioCount;
+            _perfLastTfCount = tfNow;
+            _perfLastAudioCount = auNow;
+
+            long sec = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            if (_perfLastBucketSec == 0) _perfLastBucketSec = sec;
+            // Advance buckets — clear any seconds we skipped (idle UI).
+            int gap = (int)Math.Min(60, sec - _perfLastBucketSec);
+            for (int i = 0; i < gap; i++)
+            {
+                int idx = (int)((_perfLastBucketSec + 1 + i) % 60);
+                _perfTfBucket[idx] = 0;
+                _perfAudioBucket[idx] = 0;
+            }
+            _perfLastBucketSec = sec;
+            int curIdx = (int)(sec % 60);
+            _perfTfBucket[curIdx]    += tfDelta;
+            _perfAudioBucket[curIdx] += auDelta;
+
+            long tfWindow = 0, auWindow = 0;
+            for (int i = 0; i < 60; i++) { tfWindow += _perfTfBucket[i]; auWindow += _perfAudioBucket[i]; }
+            string tfLabel = $" (cap {_plugin.CurrentTfRingSize})";
+            string auLabel = $" (cap {_plugin.CurrentAudioRingSize})";
+            PerfCountersText.Text =
+                $"Trueforce ring{tfLabel}: {tfWindow} underruns/min · " +
+                $"Audio ring{auLabel}: {auWindow} glitches/min";
+        }
+
+        private void OnAutoRatchetBumped(bool isTf, int oldCap, int newCap)
+        {
+            // Fired on the producer thread — marshal to UI for the modal and
+            // refresh. Don't block the producer; BeginInvoke is fire-and-forget.
+            try
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    RefreshFromPlugin();
+                    ShowAutoRatchetModal(isTf, oldCap, newCap);
+                }));
+            }
+            catch { }
+        }
+
+        /// <summary>Dismissable modal explaining the auto-bump and offering
+        /// Revert (drop back to the previous size — user takes the dropouts
+        /// back in exchange for lower latency) or OK (accept the new size).
+        /// Both options are non-destructive; either way the choice persists.</summary>
+        private void ShowAutoRatchetModal(bool isTf, int oldCap, int newCap)
+        {
+            string ringName = isTf ? "Trueforce stream" : "Audio loopback";
+            double oldMs = oldCap * 0.25;
+            double newMs = newCap * 0.25;
+
+            var win = new Window
+            {
+                Title = "Trueforce — auto-tuned ring buffer",
+                Width = 460,
+                Height = 230,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ResizeMode = ResizeMode.NoResize,
+                ShowInTaskbar = false,
+                Owner = Window.GetWindow(this),
+            };
+            if (win.Owner == null) win.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+
+            var sp = new StackPanel { Margin = new Thickness(16) };
+            sp.Children.Add(new TextBlock
+            {
+                Text = $"{ringName} ring buffer auto-tuned",
+                FontSize = 14, FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 8),
+            });
+            sp.Children.Add(new TextBlock
+            {
+                TextWrapping = TextWrapping.Wrap,
+                Text =
+                    $"The {ringName.ToLower()} ring was at {oldCap} samples ({oldMs:0.#} ms) " +
+                    $"but has had repeated dropouts. Bumped to {newCap} samples ({newMs:0.#} ms) " +
+                    $"so the wheel keeps a clean stream.\n\n" +
+                    "This setting is remembered across sessions. Click OK to keep it, or Revert " +
+                    "if you'd rather take the dropouts back in exchange for tighter latency.",
+                Margin = new Thickness(0, 0, 0, 12),
+            });
+            var btnRow = new StackPanel
+            {
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+            };
+            var revert = new Button { Content = "Revert", Width = 80, Margin = new Thickness(0, 0, 8, 0) };
+            var ok     = new Button { Content = "OK",     Width = 80, IsDefault = true, IsCancel = true };
+            btnRow.Children.Add(revert);
+            btnRow.Children.Add(ok);
+            sp.Children.Add(btnRow);
+            win.Content = sp;
+
+            revert.Click += (_, __) =>
+            {
+                if (isTf) _plugin.ApplyTfRingSize(oldCap);
+                else      _plugin.ApplyAudioRingSize(oldCap);
+                RefreshFromPlugin();
+                win.Close();
+            };
+            ok.Click += (_, __) => win.Close();
+
+            try { win.ShowDialog(); } catch { }
         }
 
         // ---------- Support ----------

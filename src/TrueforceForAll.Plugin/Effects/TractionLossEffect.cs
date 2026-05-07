@@ -24,6 +24,7 @@
 // tire-screech pitch tracks tread strike rate) for tonal waveforms only.
 
 using System;
+using System.Diagnostics;
 using TrueforceForAll.Core;
 
 namespace TrueforceForAll.Plugin.Effects
@@ -90,6 +91,21 @@ namespace TrueforceForAll.Plugin.Effects
         private long   _lastDiagLogTicks;
         private double _peakSlipSinceLastLog;
         private float[] _scratch;
+
+        // Period-aware EMA: time constants are in milliseconds, not "samples per
+        // tick". The same perceived attack/release works at SimHub's 60 Hz tick
+        // (~16 ms) and AC's 333 Hz tick (~3 ms) — without this, the old
+        // sample-counted alphas gave 5x more smoothing on the AC source than
+        // SimHub, which delayed slide onset noticeably on enhanced-source rigs.
+        // Tau values back-derived from the old alphas at SimHub's rate so users
+        // who'd tuned at SimHub-60Hz get an identical feel; AC users get the
+        // intended responsiveness for the first time.
+        private const double EmaAttackTauMs     = 23.0;  // was alpha=0.5 @ 16ms tick
+        private const double EmaReleaseTauMs    = 45.0;  // was alpha=0.3 @ 16ms tick
+        private const double EmaDecayHalfMs     = 16.0;  // was *=0.5 @ 16ms (near-zero path)
+        private const double EmaDecayBailHalfMs = 18.0;  // was *=0.4 @ 16ms (DecayAndEmit)
+        private long _prevEmaTicks;
+        private long _prevDecayTicks;
 
         // RPM/speed heuristic state for wheelspin detection (AC's SpeedKmh and
         // GroundSpeedKmH are always identical, so we can't use that diff —
@@ -159,7 +175,7 @@ namespace TrueforceForAll.Plugin.Effects
             // shift either. Decay and bail.
             if (string.Equals(f.Gear, "N", StringComparison.OrdinalIgnoreCase))
             {
-                DecayAndEmit();
+                DecayAndEmit(f.CapturedAtTicks);
                 return;
             }
 
@@ -167,7 +183,7 @@ namespace TrueforceForAll.Plugin.Effects
             // standing wheelspin doesn't need haptic feedback either way).
             if (speedKmh < MinSpeedKmh)
             {
-                DecayAndEmit();
+                DecayAndEmit(f.CapturedAtTicks);
                 return;
             }
 
@@ -175,25 +191,47 @@ namespace TrueforceForAll.Plugin.Effects
                 ? NormalizeDirectSlip(directSlip)
                 : ComputeHeuristic(f, speedKmh);
 
+            double dtMs = ComputeDtMs(f.CapturedAtTicks, ref _prevEmaTicks);
+
             // Tighter decay: when rawTraction is near zero, snap _slipEma down
             // quickly so the buzz ends within ~100 ms of grip recovery instead
-            // of ringing on for half a second.
+            // of ringing on for half a second. Half-life is in TIME (ms), so
+            // both 60 Hz SimHub and 333 Hz AC paths give the same perceived
+            // decay rate.
             if (rawTraction < 0.05)
             {
-                _slipEma *= 0.5;       // ~50% per tick → near-zero in 4 ticks
+                _slipEma *= Math.Pow(0.5, dtMs / EmaDecayHalfMs);
                 if (_slipEma < 0.01) _slipEma = 0;
             }
             else
             {
-                double alpha = (rawTraction > _slipEma) ? 0.5 : 0.3;
+                double tau = (rawTraction > _slipEma) ? EmaAttackTauMs : EmaReleaseTauMs;
+                double alpha = 1.0 - Math.Exp(-dtMs / tau);
                 _slipEma = _slipEma * (1 - alpha) + rawTraction * alpha;
             }
             _noise.Amp = (float)(_slipEma * 0.40 * Gain);
         }
 
-        private void DecayAndEmit()
+        // Frame-to-frame ms delta from CapturedAtTicks. First call returns a
+        // sane default (16 ms = SimHub's tick) so the first tick doesn't
+        // produce a runaway alpha. Long stalls (GC, game pause) clamp to
+        // 100 ms so the EMA can't snap fully on a single delayed frame.
+        private static double ComputeDtMs(long nowTicks, ref long prevTicks)
         {
-            _slipEma *= 0.4;
+            if (nowTicks == 0) return 16.0;
+            if (prevTicks == 0) { prevTicks = nowTicks; return 16.0; }
+            long deltaTicks = nowTicks - prevTicks;
+            prevTicks = nowTicks;
+            if (deltaTicks <= 0) return 0.0;
+            double ms = deltaTicks * 1000.0 / Stopwatch.Frequency;
+            if (ms > 100.0) ms = 100.0;
+            return ms;
+        }
+
+        private void DecayAndEmit(long capturedAtTicks)
+        {
+            double dtMs = ComputeDtMs(capturedAtTicks, ref _prevDecayTicks);
+            _slipEma *= Math.Pow(0.5, dtMs / EmaDecayBailHalfMs);
             _noise.Amp = (float)(_slipEma * 0.40 * Gain);
         }
 

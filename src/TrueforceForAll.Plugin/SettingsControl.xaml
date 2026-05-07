@@ -356,10 +356,12 @@
                 </Grid>
                 <Grid Margin="0,0,0,4">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="FFB smooth (ms):" Style="{StaticResource LabelText}"/>
+                    <TextBlock Grid.Column="0" Text="FFB smooth (ms):" Style="{StaticResource LabelText}"
+                               ToolTip="Low-pass on AC's incoming FFB target. AC sends FFB updates every ~7 ms; smoothing converts the staircase into a ramp. Higher = smoother feel but more lag. Lower = tighter response but possible faint mechanical tick. 0 = pure passthrough (tightest response)."/>
                     <Slider     Grid.Column="1" x:Name="FfbSmoothSlider"
                                 Minimum="0" Maximum="10" SmallChange="0.5" LargeChange="1"
-                                TickFrequency="1" ValueChanged="FfbSmoothSlider_ValueChanged" VerticalAlignment="Center"/>
+                                TickFrequency="1" ValueChanged="FfbSmoothSlider_ValueChanged" VerticalAlignment="Center"
+                                ToolTip="Low-pass on AC's incoming FFB target. AC sends FFB updates every ~7 ms; smoothing converts the staircase into a ramp. Higher = smoother feel but more lag. Lower = tighter response but possible faint mechanical tick. 0 = pure passthrough (tightest response)."/>
                     <TextBlock Grid.Column="2" x:Name="FfbSmoothText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0.0"/>
                 </Grid>
                 <Grid Margin="0,0,0,4">
@@ -397,6 +399,64 @@
                     </StackPanel>
                 </Expander>
             </StackPanel>
+
+            <!-- Performance / latency tuning. Per-machine, NOT preset-saved
+                 (a friend's CPU/scheduler is different from yours). -->
+            <Border Style="{StaticResource SectionHeaderBorder}">
+                <TextBlock Text="Performance" Style="{StaticResource SectionHeaderText}"/>
+            </Border>
+            <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
+                Text="Smaller ring buffers = less latency between game and wheel, but require Windows to wake our threads on time. Auto starts at the smallest sizes and ratchets up if dropouts occur (one-way; survived size persists across sessions). Manual locks specific sizes — useful for streamers who want guaranteed-stable behavior, or to force-test the lowest values."/>
+
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Mode:" VerticalAlignment="Center" Opacity="0.7"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <RadioButton x:Name="PerfAutoRadio"   Content="Auto" GroupName="PerfMode"
+                                 Margin="0,0,16,0" VerticalAlignment="Center"
+                                 ToolTip="Start at smallest ring sizes; ratchet up on persistent dropouts. Survived size is remembered across sessions."
+                                 Checked="PerfMode_Changed"/>
+                    <RadioButton x:Name="PerfManualRadio" Content="Manual" GroupName="PerfMode"
+                                 Margin="0,0,16,0" VerticalAlignment="Center"
+                                 ToolTip="Lock the slider values. No automatic changes. Use for streaming or force-testing."
+                                 Checked="PerfMode_Changed"/>
+                    <Button x:Name="PerfResetButton" Content="Reset to lowest" Padding="10,2" VerticalAlignment="Center"
+                            ToolTip="Drop both rings back to the smallest configured value. In Auto mode the ratchet will re-discover whether your machine can hold them."
+                            Click="PerfReset_Click"/>
+                </StackPanel>
+            </Grid>
+
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="80"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Trueforce ring:" VerticalAlignment="Center" Opacity="0.7"
+                           ToolTip="Sample buffer between the audio mixer and the USB stream. Smaller = lower wheel latency, but Windows must wake the stream thread on time."/>
+                <Slider     Grid.Column="1" x:Name="PerfTfRingSlider"
+                            Minimum="8" Maximum="64" SmallChange="8" LargeChange="8"
+                            TickFrequency="8" IsSnapToTickEnabled="True"
+                            ValueChanged="PerfTfRingSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="PerfTfRingText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="8 (2ms)"/>
+            </Grid>
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="80"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Audio ring:" VerticalAlignment="Center" Opacity="0.7"
+                           ToolTip="Sample buffer between WASAPI loopback and the audio mixer. WASAPI delivers ~40 samples per 10ms callback; smaller rings drop oldest samples (clicks) when the burst overflows."/>
+                <Slider     Grid.Column="1" x:Name="PerfAudioRingSlider"
+                            Minimum="16" Maximum="128" SmallChange="16" LargeChange="16"
+                            TickFrequency="16" IsSnapToTickEnabled="True"
+                            ValueChanged="PerfAudioRingSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="PerfAudioRingText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="32 (8ms)"/>
+            </Grid>
+
+            <Grid Margin="0,8,0,20">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Live counters:" VerticalAlignment="Top" Opacity="0.7" Margin="0,2,0,0"/>
+                <StackPanel Grid.Column="1">
+                    <TextBlock x:Name="PerfCountersText" FontSize="11" Opacity="0.8"
+                               Text="Trueforce ring: — underruns/min · Audio ring: — glitches/min"/>
+                    <TextBlock Style="{StaticResource HelpText}" FontSize="11" Margin="0,2,0,0"
+                               Text="Counters tally events in a rolling 60-second window. If they're going up, your machine is glitching at the current ring size — Auto mode will bump it up."/>
+                </StackPanel>
+            </Grid>
 
             <!-- Sidechain ducking -->
             <Border Style="{StaticResource SectionHeaderBorder}">

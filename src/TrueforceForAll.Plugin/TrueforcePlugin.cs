@@ -110,6 +110,23 @@ namespace TrueforceForAll.Plugin
         // would strand us on SimHub fallback for the whole session.
         private long _lastEnhancedRetryTicks;
 
+        // Auto-ratchet state. Snapshots the underrun/glitch counters once per
+        // second; when delta crosses RatchetThreshold, the corresponding ring
+        // is bumped one notch (one-way). The "survived" capacity is persisted
+        // to Settings so reinstalls don't re-glitch sessions; manual reset is
+        // available from the Performance tab.
+        private const int  RatchetWindowMs  = 1000;
+        private const long RatchetThreshold = 3;     // underruns/laps in 1 s to trigger
+        private long _autoRatchetLastCheckTicks;
+        private long _autoRatchetLastTfCount;
+        private long _autoRatchetLastAudioCount;
+
+        // Fired on the producer thread when auto-ratchet bumps a ring size.
+        // Args: isTfRing (true = Trueforce stream ring, false = audio ring),
+        // oldCapacity, newCapacity. SettingsControl subscribes to show the
+        // dismissable Revert/OK modal — must marshal to the UI thread.
+        public event Action<bool, int, int> AutoRatchetBumped;
+
         // Per-car override tracking. Updated on each DataUpdate; if the CarId
         // changes we re-apply per-section overrides (or fall back to globals).
         private string _activeCarId;
@@ -153,6 +170,13 @@ namespace TrueforceForAll.Plugin
         public string FfbTapStatus   => _ffbTap?.Status ?? "Not started";
         public int    ActiveVoiceCount => _mixer.Sources.Count;
         public AudioCaptureSource AudioCapture => _audio;
+
+        // Live counters surfaced to the Performance tab for the underrun
+        // readout. Pull these on the UI's polling timer.
+        public long TfRingUnderruns      => _device?.UnderrunCount ?? 0;
+        public long AudioRingGlitches    => _audio?.GlitchCount ?? 0;
+        public int  CurrentTfRingSize    => _device?.RingCapacity ?? 0;
+        public int  CurrentAudioRingSize => _audio?.RingCapacity ?? 0;
 
         public float MasterGain
         {
@@ -331,6 +355,7 @@ namespace TrueforceForAll.Plugin
             if (Settings.Presets      == null) Settings.Presets      = new Dictionary<string, GameSettingsSnapshot>();
             if (Settings.GameDefaults == null) Settings.GameDefaults = new Dictionary<string, string>();
             if (Settings.GameEnabled  == null) Settings.GameEnabled  = new Dictionary<string, bool>();
+            if (Settings.Performance  == null) Settings.Performance  = new PerformanceSettings();
             MigrateLegacyGamePresets();
             InstallBuiltinPresetsIfMissing();
 
@@ -399,6 +424,16 @@ namespace TrueforceForAll.Plugin
                 _device.FfbSmoothTimeConstantMs  = Settings.FfbSmoothTimeConstantMs;
                 _device.FfbSpikeMaxLsbPerMs      = Settings.FfbSpikeMaxLsbPerMs;
                 _device.FfbPeakSoftLimitLsb      = Settings.FfbPeakSoftLimitLsb;
+
+                // Apply persisted ring capacity. Sanitize: clamp to allowed
+                // range and force pow2 so a hand-edited settings file can't
+                // crash the plugin. Settings is updated back so the UI sees
+                // the same value the device runs on.
+                Settings.Performance.TfRingSize = SanitizePow2(
+                    Settings.Performance.TfRingSize,
+                    TrueforceDevice.MinRingSize, TrueforceDevice.MaxRingSize, TrueforceDevice.DefaultRingSize);
+                _device.SetRingCapacity(Settings.Performance.TfRingSize);
+
                 _ffbTap.Start();
 
                 _device.StartStream();
@@ -447,6 +482,10 @@ namespace TrueforceForAll.Plugin
                 Enabled = Settings.AudioCapture.Enabled,
                 Gain    = Settings.AudioCapture.Gain,
             };
+            Settings.Performance.AudioRingSize = SanitizePow2(
+                Settings.Performance.AudioRingSize,
+                AudioCaptureSource.MinRingSamples, AudioCaptureSource.MaxRingSamples, AudioCaptureSource.DefaultRingSamples);
+            _audio.SetRingCapacity(Settings.Performance.AudioRingSize);
             if (_helperHost != null) _audio.Attach(_helperHost);
             _mixer.Sources.Add(_audio);
 
@@ -648,6 +687,124 @@ namespace TrueforceForAll.Plugin
                 }
             }
         }
+
+        // ---------- Performance auto-ratchet ----------
+
+        /// <summary>Polled from ProducerLoop. Once per RatchetWindowMs, snapshots
+        /// the device + audio glitch counters and bumps the corresponding ring
+        /// capacity if the per-window delta crossed RatchetThreshold. One-way
+        /// only — never shrinks. Survived capacities are persisted to Settings
+        /// so the user doesn't re-pay the discovery glitch cost next session.
+        /// In Manual mode the ratchet is bypassed; user controls sizes directly.</summary>
+        private void CheckAutoRatchet()
+        {
+            var perf = Settings?.Performance;
+            if (perf == null || perf.Mode != PerformanceMode.Auto) return;
+            if (_device == null) return;
+
+            long now = Stopwatch.GetTimestamp();
+            long windowTicks = Stopwatch.Frequency * RatchetWindowMs / 1000L;
+            if (_autoRatchetLastCheckTicks != 0 && (now - _autoRatchetLastCheckTicks) < windowTicks) return;
+
+            long tfNow    = _device.UnderrunCount;
+            long audioNow = _audio?.GlitchCount ?? 0;
+
+            // Skip the very first tick (no baseline yet).
+            if (_autoRatchetLastCheckTicks == 0)
+            {
+                _autoRatchetLastTfCount    = tfNow;
+                _autoRatchetLastAudioCount = audioNow;
+                _autoRatchetLastCheckTicks = now;
+                return;
+            }
+
+            long tfDelta    = tfNow    - _autoRatchetLastTfCount;
+            long audioDelta = audioNow - _autoRatchetLastAudioCount;
+            _autoRatchetLastTfCount    = tfNow;
+            _autoRatchetLastAudioCount = audioNow;
+            _autoRatchetLastCheckTicks = now;
+
+            if (tfDelta >= RatchetThreshold && perf.TfRingSize < TrueforceDevice.MaxRingSize)
+            {
+                int oldCap = perf.TfRingSize;
+                int newCap = oldCap * 2;
+                if (newCap > TrueforceDevice.MaxRingSize) newCap = TrueforceDevice.MaxRingSize;
+                ApplyTfRingSize(newCap);
+                SimHub.Logging.Current.Info(
+                    $"[Trueforce] Auto-ratchet: Trueforce ring {oldCap} → {newCap} after {tfDelta} underruns/s.");
+                FireRatchetEvent(true, oldCap, newCap);
+            }
+
+            if (audioDelta >= RatchetThreshold && perf.AudioRingSize < AudioCaptureSource.MaxRingSamples)
+            {
+                int oldCap = perf.AudioRingSize;
+                int newCap = oldCap * 2;
+                if (newCap > AudioCaptureSource.MaxRingSamples) newCap = AudioCaptureSource.MaxRingSamples;
+                ApplyAudioRingSize(newCap);
+                SimHub.Logging.Current.Info(
+                    $"[Trueforce] Auto-ratchet: audio ring {oldCap} → {newCap} after {audioDelta} glitches/s.");
+                FireRatchetEvent(false, oldCap, newCap);
+            }
+        }
+
+        private void FireRatchetEvent(bool isTf, int oldCap, int newCap)
+        {
+            try { AutoRatchetBumped?.Invoke(isTf, oldCap, newCap); } catch { }
+        }
+
+        /// <summary>Apply a new Trueforce ring size to the live device and persist.
+        /// Called by both the auto-ratchet path and Manual-mode UI sliders.</summary>
+        public void ApplyTfRingSize(int newCapacity)
+        {
+            if (Settings?.Performance == null || _device == null) return;
+            int sane = SanitizePow2(newCapacity, TrueforceDevice.MinRingSize, TrueforceDevice.MaxRingSize,
+                                    TrueforceDevice.DefaultRingSize);
+            Settings.Performance.TfRingSize = sane;
+            _device.SetRingCapacity(sane);
+            this.SaveCommonSettings("GeneralSettings", Settings);
+        }
+
+        /// <summary>Apply a new audio ring size to the live capture source and persist.</summary>
+        public void ApplyAudioRingSize(int newCapacity)
+        {
+            if (Settings?.Performance == null || _audio == null) return;
+            int sane = SanitizePow2(newCapacity, AudioCaptureSource.MinRingSamples,
+                                    AudioCaptureSource.MaxRingSamples, AudioCaptureSource.DefaultRingSamples);
+            Settings.Performance.AudioRingSize = sane;
+            _audio.SetRingCapacity(sane);
+            this.SaveCommonSettings("GeneralSettings", Settings);
+        }
+
+        /// <summary>Reset both rings to the smallest configured value. Auto mode
+        /// will re-discover whether the machine can hold them; Manual mode
+        /// keeps the small value until the user changes it.</summary>
+        public void ResetPerformanceToLowest()
+        {
+            ApplyTfRingSize(TrueforceDevice.MinRingSize);
+            ApplyAudioRingSize(AudioCaptureSource.MinRingSamples);
+        }
+
+        public void SetPerformanceMode(PerformanceMode mode)
+        {
+            if (Settings?.Performance == null) return;
+            Settings.Performance.Mode = mode;
+            this.SaveCommonSettings("GeneralSettings", Settings);
+        }
+
+        /// <summary>Clamp <paramref name="value"/> to [min, max] and round down
+        /// to the nearest power of two. Used to defensively sanitize a value
+        /// pulled from settings (which a hand-edited file could set to anything).</summary>
+        private static int SanitizePow2(int value, int min, int max, int fallback)
+        {
+            if (value < min || value > max) return fallback;
+            int p = 1;
+            while ((p << 1) <= value) p <<= 1;
+            if (p < min) p = min;
+            if (p > max) p = max;
+            return p;
+        }
+
+        // ---------- enhanced source selection ----------
 
         /// <summary>True when <paramref name="game"/> has a per-game enhanced
         /// source we should attempt to instantiate. Used both at game-change
@@ -2029,6 +2186,11 @@ namespace TrueforceForAll.Plugin
                     Thread.Sleep(20);
                     continue;
                 }
+
+                // Auto-ratchet check (cheap when the per-second window hasn't
+                // elapsed). Fires the ring-bumped event on this thread; UI
+                // marshals to its own thread for the modal.
+                try { CheckAutoRatchet(); } catch { }
 
                 UpdateDucking();
                 _mixer.Render(buf, BatchSamples);

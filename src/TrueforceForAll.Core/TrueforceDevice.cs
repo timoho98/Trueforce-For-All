@@ -35,8 +35,16 @@ namespace TrueforceForAll.Core
         // StreamTick is reliable to <1 ms, so 2 ms gives ~1 ms of jitter
         // headroom — aggressive but appropriate for high-bandwidth haptics.
         // If underruns appear (audible clicks during heavy GC / system load),
-        // bump to 16 or 32.
-        public const int RingSize = 8;         // power of two
+        // the auto-ratchet bumps capacity up one notch to 16, 32, or 64.
+        // Backing array is sized to MaxRingSize so SetRingCapacity can resize
+        // live; only `_ringCapacity` slots are in use at any moment. Capacity
+        // must be a power of two (head/tail wrap with `& (cap - 1)`).
+        public const int MaxRingSize     = 64;       // power of two
+        public const int MinRingSize     = 8;        // power of two
+        public const int DefaultRingSize = 8;        // matches Performance defaults
+
+        private int _ringCapacity = DefaultRingSize;
+        public int RingCapacity => System.Threading.Volatile.Read(ref _ringCapacity);
 
         private const int InitInterPacketUs = 2000; // 2 ms between init packets
 
@@ -60,12 +68,22 @@ namespace TrueforceForAll.Core
         private readonly ushort[] _window = new ushort[Window];
         private ushort _lastCurrent = 0x8000;
 
-        // Single-producer / single-consumer ring buffer. Indices wrap mod RingSize
-        // (which is a power of two). Samples are stored as offset-binary u16.
-        private readonly ushort[] _ring = new ushort[RingSize];
+        // Single-producer / single-consumer ring buffer. Indices wrap mod
+        // _ringCapacity (always a power of two). Backing array is always
+        // MaxRingSize so SetRingCapacity can resize live without reallocating.
+        // Samples are stored as offset-binary u16.
+        private readonly ushort[] _ring = new ushort[MaxRingSize];
         private int _ringHead;  // producer index
         private int _ringTail;  // consumer index
         private readonly object _ringLock = new object();
+
+        // Underrun = StreamTick wanted NewPerPacket samples but got 0. Counted
+        // only after the producer has ever delivered a sample (so initial
+        // startup ticks before any audio is queued don't count). Used by the
+        // plugin's auto-ratchet to bump _ringCapacity up on persistent loss.
+        private long _underrunCount;
+        private bool _everReceivedSample;
+        public long UnderrunCount => System.Threading.Interlocked.Read(ref _underrunCount);
 
         // Reusable packet buffer (re-zeroed on each tick).
         private readonly byte[] _packetBuf = new byte[PacketLen];
@@ -244,6 +262,31 @@ namespace TrueforceForAll.Core
             _lastCurrent = 0x8000;
         }
 
+        /// <summary>Live-resize the ring buffer. <paramref name="newCapacity"/>
+        /// must be a power of two in [MinRingSize, MaxRingSize]; the backing
+        /// array is already sized to MaxRingSize so no allocation occurs.
+        /// Drains any in-flight samples (head/tail reset to 0) — produces
+        /// at most ~1 ms of audible silence at the wheel, vs. needing to
+        /// stop and restart the stream which would be ~50 ms of silence.
+        /// Wakes blocked producers so they observe the new free count.</summary>
+        public void SetRingCapacity(int newCapacity)
+        {
+            if (newCapacity < MinRingSize || newCapacity > MaxRingSize)
+                throw new ArgumentOutOfRangeException(nameof(newCapacity),
+                    $"must be in [{MinRingSize}, {MaxRingSize}]");
+            if ((newCapacity & (newCapacity - 1)) != 0)
+                throw new ArgumentException("must be a power of two", nameof(newCapacity));
+
+            lock (_ringLock)
+            {
+                if (_ringCapacity == newCapacity) return;
+                _ringCapacity = newCapacity;
+                _ringHead = 0;
+                _ringTail = 0;
+                Monitor.PulseAll(_ringLock);
+            }
+        }
+
         // Stop accepting new samples and wake any producer parked in PushFloats
         // so it can observe the application's shutdown signal. Leaves the
         // internal stream thread running so any samples already queued — plus
@@ -283,7 +326,7 @@ namespace TrueforceForAll.Core
                         Monitor.Wait(_ringLock);
                     if (_shuttingDown || !_streamRunning || !_acceptingSamples) return;
 
-                    _ring[_ringHead & (RingSize - 1)] = FloatToWire(samples[i]);
+                    _ring[_ringHead & (_ringCapacity - 1)] = FloatToWire(samples[i]);
                     _ringHead++;
                 }
                 Monitor.PulseAll(_ringLock);
@@ -303,7 +346,7 @@ namespace TrueforceForAll.Core
                         Monitor.Wait(_ringLock);
                     if (_shuttingDown || !_streamRunning || !_acceptingSamples) return;
 
-                    _ring[_ringHead & (RingSize - 1)] = S16ToWire(samples[i]);
+                    _ring[_ringHead & (_ringCapacity - 1)] = S16ToWire(samples[i]);
                     _ringHead++;
                 }
                 Monitor.PulseAll(_ringLock);
@@ -312,8 +355,8 @@ namespace TrueforceForAll.Core
 
         // ---------- internals ----------
 
-        private int RingOccupiedUnlocked() => (_ringHead - _ringTail) & (RingSize - 1);
-        private int RingFreeUnlocked()     => RingSize - 1 - RingOccupiedUnlocked();
+        private int RingOccupiedUnlocked() => (_ringHead - _ringTail) & (_ringCapacity - 1);
+        private int RingFreeUnlocked()     => _ringCapacity - 1 - RingOccupiedUnlocked();
 
         private static ushort FloatToWire(float v)
         {
@@ -390,11 +433,19 @@ namespace TrueforceForAll.Core
             {
                 while (n < NewPerPacket && _ringTail != _ringHead)
                 {
-                    newSamples[n++] = _ring[_ringTail & (RingSize - 1)];
+                    newSamples[n++] = _ring[_ringTail & (_ringCapacity - 1)];
                     _ringTail++;
                 }
                 if (n > 0) Monitor.PulseAll(_ringLock);
             }
+
+            // Underrun bookkeeping. Only counted once the producer has ever
+            // delivered a sample (so cold-start ticks before the first push
+            // don't inflate the counter), and only when the stream is
+            // actually expecting to play (not paused / shutting down).
+            if (n > 0) _everReceivedSample = true;
+            else if (_everReceivedSample && _streamRunning && !_paused && !_shuttingDown)
+                System.Threading.Interlocked.Increment(ref _underrunCount);
 
             // Two packet shapes the wheel firmware distinguishes (observed empirically
             // by diffing AC EVO's stream vs ours):

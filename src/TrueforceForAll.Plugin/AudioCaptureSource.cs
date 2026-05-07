@@ -26,15 +26,29 @@ namespace TrueforceForAll.Plugin
     {
         public const double TargetRateHz = 4000.0;
 
-        // 8 ms of buffering at 4 kHz mono. WASAPI callback fires every ~10 ms
-        // delivering ~40 samples post-decimation; consumer drains 4 samples per
-        // 1 ms. 32-sample ring fits ~31 samples at peak, slightly less than one
-        // full callback's worth — so a callback-aligned burst overflows by ~9
-        // samples (lapping logic drops oldest). The trade is: small periodic
-        // sample loss for max latency capped at 8 ms, vs slightly higher
-        // latency with no lapping. We pick latency since the ear (and motor)
-        // doesn't perceive a 9-sample drop at 4 kHz.
-        private const int RingSamples = 32;
+        // Backing array sized to the maximum so SetRingCapacity can resize
+        // live without reallocating; only `_ringCapacity` slots are in use.
+        // Capacity must be a power of two (the head/tail wrap with `& (cap-1)`).
+        // At 4 kHz each sample is 0.25 ms, so 16=4ms, 32=8ms, 64=16ms, 128=32ms.
+        // WASAPI loopback fires its callback every ~10 ms with ~40 decimated
+        // samples per burst. At capacity 32 a burst overflows by ~8 samples
+        // (lapping drops oldest); at 16 lapping is heavier; at 64 latency
+        // grows. The Performance tab's auto-ratchet bumps capacity up when
+        // either underruns or lap events cross threshold.
+        public const int MaxRingSamples     = 128;     // power of two
+        public const int MinRingSamples     = 16;      // power of two
+        public const int DefaultRingSamples = 32;      // matches Performance defaults
+
+        private int _ringCapacity = DefaultRingSamples;
+        public int RingCapacity => System.Threading.Volatile.Read(ref _ringCapacity);
+
+        // Combined "ring stress" counter: incremented when WASAPI delivers
+        // more samples than fit (lap = drop oldest, audible click) OR when
+        // the producer asks for samples the ring doesn't have (underrun =
+        // partial silence). Either signal means the ring is too small for
+        // the current scheduling load.
+        private long _glitchCount;
+        public long GlitchCount => System.Threading.Interlocked.Read(ref _glitchCount);
 
         // Default lowpass cutoff. 350 Hz keeps the haptic-relevant rumble
         // band (0-300 Hz feels good through the wheel) while stripping
@@ -91,10 +105,14 @@ namespace TrueforceForAll.Plugin
         private double _phase;       // fractional input-sample position
         private double _phaseStep;   // srIn / TargetRateHz, so we emit one output every this many input samples
 
-        private readonly float[] _ring = new float[RingSamples];
+        private readonly float[] _ring = new float[MaxRingSamples];
         private int _ringHead;       // producer index (capture)
         private int _ringTail;       // consumer index (RenderAdd)
         private readonly object _ringLock = new object();
+        // Tracks whether RenderAdd has ever pulled at least one sample, so we
+        // don't count "underrun" during the cold-start period before the
+        // capture callback has fired.
+        private bool _everPulledSample;
 
         private volatile bool _captureActive;
         private float _peakSinceLastRead;
@@ -184,6 +202,28 @@ namespace TrueforceForAll.Plugin
 
         public void Dispose() { Stop(); Detach(); }
 
+        /// <summary>Live-resize the ring. <paramref name="newCapacity"/> must
+        /// be a power of two in [MinRingSamples, MaxRingSamples]; backing
+        /// array is already at MaxRingSamples so no allocation. Drops any
+        /// in-flight samples (head/tail reset) — at most a single ~10 ms
+        /// audio gap, vs. needing to stop/restart the capture chain.</summary>
+        public void SetRingCapacity(int newCapacity)
+        {
+            if (newCapacity < MinRingSamples || newCapacity > MaxRingSamples)
+                throw new ArgumentOutOfRangeException(nameof(newCapacity),
+                    $"must be in [{MinRingSamples}, {MaxRingSamples}]");
+            if ((newCapacity & (newCapacity - 1)) != 0)
+                throw new ArgumentException("must be a power of two", nameof(newCapacity));
+
+            lock (_ringLock)
+            {
+                if (_ringCapacity == newCapacity) return;
+                _ringCapacity = newCapacity;
+                _ringHead = 0;
+                _ringTail = 0;
+            }
+        }
+
         // ---------- ISampleSource ----------
 
         public void RenderAdd(float[] buffer, int count)
@@ -198,13 +238,22 @@ namespace TrueforceForAll.Plugin
             {
                 // Pull up to `count` samples from the ring; if short, contribute
                 // only what we have (additive zero for the rest is harmless).
-                int avail = (_ringHead - _ringTail) & (RingSamples - 1);
+                int cap   = _ringCapacity;
+                int avail = (_ringHead - _ringTail) & (cap - 1);
                 int n = Math.Min(count, avail);
                 for (int i = 0; i < n; i++)
                 {
-                    buffer[i] += _ring[_ringTail & (RingSamples - 1)] * gain;
+                    buffer[i] += _ring[_ringTail & (cap - 1)] * gain;
                     _ringTail++;
                 }
+                // Underrun: capture is active but ring didn't have enough
+                // samples to satisfy the producer's request. Only counted
+                // after the capture has ever delivered any samples (so the
+                // gap before the first WASAPI callback doesn't inflate the
+                // count). avail < count is the trigger.
+                if (n > 0) _everPulledSample = true;
+                else if (_everPulledSample && _captureActive && count > 0)
+                    System.Threading.Interlocked.Increment(ref _glitchCount);
             }
         }
 
@@ -304,14 +353,21 @@ namespace TrueforceForAll.Plugin
             {
                 lock (_ringLock)
                 {
+                    int cap = _ringCapacity;
+                    int laps = 0;
                     for (int i = 0; i < outIdx; i++)
                     {
-                        _ring[_ringHead & (RingSamples - 1)] = outBuf[i];
+                        _ring[_ringHead & (cap - 1)] = outBuf[i];
                         _ringHead++;
                         // If we lap the consumer, drop the oldest sample (advance tail).
-                        if (((_ringHead - _ringTail) & (RingSamples - 1)) == 0)
+                        if (((_ringHead - _ringTail) & (cap - 1)) == 0)
+                        {
                             _ringTail++;
+                            laps++;
+                        }
                     }
+                    if (laps > 0)
+                        System.Threading.Interlocked.Increment(ref _glitchCount);
                 }
             }
 

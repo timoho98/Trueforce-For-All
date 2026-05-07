@@ -81,6 +81,12 @@ namespace TrueforceForAll.Plugin
         public GearShiftSettings    GearShift    { get; set; } = new GearShiftSettings();
         public AbsClickSettings     AbsClick     { get; set; } = new AbsClickSettings();
 
+        // Per-machine performance tuning. Lives outside GameSettingsSnapshot
+        // because ring sizes are a property of the machine (CPU, scheduler
+        // load), not of the game/preset — sharing a preset shouldn't override
+        // a friend's tuned ring sizes.
+        public PerformanceSettings Performance { get; set; } = new PerformanceSettings();
+
         // Keyed by GameData.NewData.CarId. Override entries supersede the
         // global engine settings whenever that car is the active one.
         public Dictionary<string, CarOverride> CarOverrides { get; set; } = new Dictionary<string, CarOverride>();
@@ -135,6 +141,28 @@ namespace TrueforceForAll.Plugin
         public float  Gain             { get; set; } = 1.0f;
         public double LowpassCutoffHz  { get; set; } = 350.0;
         public double HighpassCutoffHz { get; set; } =  30.0;
+    }
+
+    /// <summary>Mode for the Performance tab. In Auto, the plugin starts at
+    /// the smallest ring sizes and ratchets them up (one-way) when underruns
+    /// or audio-ring lapping cross a 1-second threshold; the survived value
+    /// is persisted across sessions. In Manual, ring sizes are user-fixed —
+    /// no automatic changes — for users who want guaranteed-stable behavior
+    /// (streamers) or to force-test lower values.</summary>
+    public enum PerformanceMode { Auto, Manual }
+
+    public sealed class PerformanceSettings
+    {
+        [JsonConverter(typeof(StringEnumConverter))]
+        public PerformanceMode Mode { get; set; } = PerformanceMode.Auto;
+
+        // Trueforce stream ring depth (samples; pow-of-two; 8..64). At 4 kHz
+        // each sample is 0.25 ms, so 8 = 2 ms, 64 = 16 ms.
+        public int TfRingSize { get; set; } = 8;
+
+        // Audio loopback ring depth (samples; pow-of-two; 16..128). At 4 kHz
+        // each sample is 0.25 ms, so 16 = 4 ms, 128 = 32 ms.
+        public int AudioRingSize { get; set; } = 32;
     }
 
     public sealed class EnginePulseSettings
