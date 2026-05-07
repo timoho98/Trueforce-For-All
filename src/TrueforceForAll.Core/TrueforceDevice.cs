@@ -21,12 +21,13 @@ namespace TrueforceForAll.Core
         public const int PacketLen = 64;
         public const int Window = 13;          // total slots in rolling window
         public const int NewPerPacket = 4;     // new samples shifted in per packet
-        // 1000 packet/s × 4 new samples = 4 kHz audio-haptic rate. This is what
-        // AC EVO empirically does on this wheel; at that rate the wheel firmware
-        // allows our content to coexist with DirectInput FFB provided per-sample
-        // amplitudes are small (≈ ±0.6% of full scale). mescon's docs claim
-        // 250 pps / 1 kHz, but at that rate any audibly-felt amplitude trips
-        // the wheel into Trueforce-dominant mode and FFB attenuates.
+        // 1000 packet/s × 4 new samples = 4 kHz audio-haptic rate. AC EVO
+        // empirically streams at this rate; we match it. mescon's docs note
+        // 250 pps / 1 kHz. Separately, we observed that audibly-felt
+        // Trueforce amplitudes coexist with ep0 DirectInput FFB at small
+        // per-sample amplitudes (≈ ±0.6% of full scale) but override ep0
+        // FFB at higher amplitudes — we have not isolated whether packet
+        // rate, amplitude, or both determine the coexistence regime.
         public const int PacketHz = 1000;
         // 8 samples = 2 ms at 4 kHz. The ring naturally stays near-full in
         // steady state (producer back-pressures on PushFloats), so its depth
@@ -447,14 +448,16 @@ namespace TrueforceForAll.Core
             else if (_everReceivedSample && _streamRunning && !_paused && !_shuttingDown)
                 System.Threading.Interlocked.Increment(ref _underrunCount);
 
-            // Two packet shapes the wheel firmware distinguishes (observed empirically
-            // by diffing AC EVO's stream vs ours):
-            //   "active"  bytes[10..11] = 04 0d, cur (bytes 6-9) drives the motor
-            //             directly, window carries 4 new audio samples for overlay.
-            //             While streaming active packets, the wheel uses cur as the
-            //             motor torque target — overriding AC's ep0 HID++ FFB.
+            // Two packet shapes we send (observed by diffing AC EVO's stream vs
+            // silent baselines — these three things change together; we have not
+            // isolated which the wheel actually keys off):
+            //   "active"  bytes[10..11] = 04 0d, cur (bytes 6-9) carries the
+            //             FFB target, window carries 4 new audio samples.
+            //             When streaming this shape, the wheel uses cur as the
+            //             motor torque target and ep0 HID++ FFB has no effect.
             //   "keepalive" bytes[10..11] = 00 00, window all zeros, cur=0x8000.
-            //             The wheel ignores us and uses its normal ep0 HID++ FFB path.
+            //             When streaming this shape, the wheel uses its normal
+            //             ep0 HID++ FFB path.
             //
             // Decision: send "active" whenever the FFB tap has a fresh value. We
             // STAY in active mode continuously while AC is running, regardless of
@@ -619,8 +622,9 @@ namespace TrueforceForAll.Core
         }
 
         // EVO-style silent keepalive: NewPerPacket=0, window literal zeros, cur=0x8000.
-        // The wheel reads bytes[10..11] = 00 00 as "no audio in this packet, stay
-        // available for DirectInput FFB on ep1."
+        // When we send this shape the wheel uses its normal ep0 HID++ FFB path
+        // (we haven't isolated which of bytes 10-11 / cur=0x8000 / zero window
+        // is the actual trigger — they covary in EVO's captures).
         private static void BuildSilentPacket(byte[] pkt, byte seq)
         {
             Array.Clear(pkt, 0, PacketLen);

@@ -33,9 +33,10 @@ namespace TrueforceForAll.Core
         public bool Enabled { get; set; } = true;
 
         /// <summary>
-        /// Sample rate the source is being run at. Defaults to Trueforce's
-        /// 4 kHz audio-haptic rate (matches what AC EVO sends; mescon's
-        /// docs say 1 kHz but that produces FFB suppression on G PRO).
+        /// Sample rate the source is being run at. Defaults to 4 kHz to match
+        /// what AC EVO empirically streams. mescon's docs note 1 kHz; we have
+        /// not isolated whether the rate matters functionally or it's just
+        /// what AC EVO happens to send.
         /// </summary>
         public double SampleRate { get; set; } = 4000.0;
 
