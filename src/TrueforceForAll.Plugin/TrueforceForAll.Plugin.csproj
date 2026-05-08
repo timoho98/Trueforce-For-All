@@ -6,6 +6,10 @@
     <RootNamespace>TrueforceForAll.Plugin</RootNamespace>
     <!-- "User." is the SimHub convention for community plugins. -->
     <AssemblyName>User.TrueforceForAll</AssemblyName>
+    <!-- Plugin version is read at runtime by UpdateChecker to compare against
+         the latest GitHub release tag. CI can override via -p:Version=X.Y.Z;
+         local builds default to the value below. Bump this on every release. -->
+    <Version Condition="'$(Version)' == ''">0.1.0</Version>
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
     <!-- AnyCPU: SimHub runs as 32-bit (it's installed under Program Files
@@ -54,6 +58,9 @@
       <HintPath>$(SimHubPath)\Newtonsoft.Json.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <!-- System.Net.Http ships in net48's BCL but isn't auto-referenced by
+         SDK-style projects targeting net48. UpdateChecker uses HttpClient. -->
+    <Reference Include="System.Net.Http" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />

@@ -59,6 +59,12 @@ namespace TrueforceForAll.Plugin
         private AudioCaptureSource _audio;
         private HelperHost _helperHost;
         private UsbPcapFfbTap _ffbTap;
+
+        // Background GitHub-releases check. Kicked off async in Init; the
+        // settings panel polls IsUpdateAvailable in its timer tick to decide
+        // whether to surface the update banner. Network failures are silent.
+        private UpdateChecker _updateChecker;
+        public UpdateChecker UpdateChecker => _updateChecker;
         private Thread _producerThread;
         private volatile bool _shuttingDown;
         // Number of TestEffect background tasks currently running. Drained at
@@ -528,6 +534,23 @@ namespace TrueforceForAll.Plugin
             };
             _capturePollThread.Start();
             SimHub.Logging.Current.Info("[Trueforce] Audio capture armed; waiting for a supported game to start.");
+
+            // Background GitHub-releases check. One-shot, fire-and-forget.
+            // Result is stored on the UpdateChecker; the settings panel timer
+            // tick reads IsUpdateAvailable and surfaces a banner. Failures
+            // are silent — no banner if we can't reach GitHub.
+            _updateChecker = new UpdateChecker
+            {
+                Logger = msg => SimHub.Logging.Current.Info($"[Trueforce] {msg}"),
+            };
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                try { await _updateChecker.CheckAsync(); }
+                catch (Exception ex)
+                {
+                    SimHub.Logging.Current.Info($"[Trueforce] Update check task crashed: {ex.Message}");
+                }
+            });
         }
 
         public void End(PluginManager pluginManager)

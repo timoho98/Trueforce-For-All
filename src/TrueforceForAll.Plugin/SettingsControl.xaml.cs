@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Threading;
 using TrueforceForAll.Core;
 using TrueforceForAll.Plugin.Effects;
@@ -362,6 +364,21 @@ namespace TrueforceForAll.Plugin
                         ? System.Windows.Visibility.Visible
                         : System.Windows.Visibility.Collapsed;
                     if (ForzaSection.Visibility != want) ForzaSection.Visibility = want;
+                }
+
+                // Update banner. Hidden until UpdateChecker confirms a newer
+                // GitHub release, then surfaces the version in its label.
+                var upd = _plugin.UpdateChecker;
+                if (UpdateBanner != null)
+                {
+                    bool show = upd != null && upd.IsUpdateAvailable;
+                    var want = show ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+                    if (UpdateBanner.Visibility != want) UpdateBanner.Visibility = want;
+                    if (show && UpdateBannerText != null)
+                    {
+                        string desired = $"Update available: v{upd.LatestVersionDisplay}";
+                        if (UpdateBannerText.Text != desired) UpdateBannerText.Text = desired;
+                    }
                 }
 
                 // Forza listener status: the source object exposes packet
@@ -2415,6 +2432,164 @@ namespace TrueforceForAll.Plugin
                 MessageBox.Show($"Couldn't open browser:\n{ex.Message}\n\nURL: {DonateUrl}",
                                 "Trueforce", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        // ---------- Update banner / modal ----------
+
+        private void UpdateBanner_Click(object sender, MouseButtonEventArgs e)
+        {
+            ShowUpdateModal();
+        }
+
+        /// <summary>Modal showing the latest release notes plus an "Update now"
+        /// button that downloads the installer to %TEMP% with a progress bar
+        /// and ShellExecutes it. The installer's IsSimHubRunning loop handles
+        /// the "close SimHub first" case once the user clicks Run.</summary>
+        private void ShowUpdateModal()
+        {
+            var upd = _plugin?.UpdateChecker;
+            if (upd == null || !upd.IsUpdateAvailable) return;
+
+            var win = new Window
+            {
+                Title = "Trueforce For All — Update available",
+                Width = 600,
+                Height = 520,
+                ResizeMode = ResizeMode.NoResize,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ShowInTaskbar = false,
+                Owner = Window.GetWindow(this),
+            };
+            if (win.Owner == null) win.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+
+            var root = new DockPanel { Margin = new Thickness(16) };
+
+            // Header: version transition
+            var header = new TextBlock
+            {
+                Text = $"v{upd.CurrentVersion.ToString(3)}  →  v{upd.LatestVersionDisplay}",
+                FontSize = 18,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 12),
+            };
+            DockPanel.SetDock(header, Dock.Top);
+            root.Children.Add(header);
+
+            // Footer area (buttons + progress) docked to bottom.
+            var footer = new StackPanel { Margin = new Thickness(0, 12, 0, 0) };
+            DockPanel.SetDock(footer, Dock.Bottom);
+
+            var status = new TextBlock
+            {
+                FontSize = 11,
+                Opacity = 0.7,
+                Margin = new Thickness(0, 0, 0, 4),
+                Text = "",
+            };
+            footer.Children.Add(status);
+
+            var progress = new ProgressBar
+            {
+                Height = 6,
+                Visibility = Visibility.Collapsed,
+                Margin = new Thickness(0, 0, 0, 8),
+            };
+            footer.Children.Add(progress);
+
+            var btnRow = new StackPanel
+            {
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+            };
+            var dismissBtn = new System.Windows.Controls.Button
+            {
+                Content = "Dismiss",
+                Width = 90,
+                Height = 28,
+                Margin = new Thickness(0, 0, 8, 0),
+                IsCancel = true,
+            };
+            var updateBtn = new System.Windows.Controls.Button
+            {
+                Content = "Update now",
+                Width = 120,
+                Height = 28,
+                IsDefault = true,
+            };
+            btnRow.Children.Add(dismissBtn);
+            btnRow.Children.Add(updateBtn);
+            footer.Children.Add(btnRow);
+
+            root.Children.Add(footer);
+
+            // Center: scrollable release notes. body is markdown; render as
+            // plain text for now since proper markdown rendering in WPF needs
+            // a dependency we don't otherwise have.
+            var notesScroll = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                BorderThickness = new Thickness(1),
+                BorderBrush = System.Windows.Media.Brushes.Gray,
+                Padding = new Thickness(10),
+            };
+            var notesText = new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(upd.ReleaseNotes)
+                    ? "(No release notes published.)"
+                    : upd.ReleaseNotes,
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 12,
+            };
+            notesScroll.Content = notesText;
+            root.Children.Add(notesScroll);
+
+            win.Content = root;
+
+            dismissBtn.Click += (_, __) => win.Close();
+            updateBtn.Click += async (_, __) =>
+            {
+                updateBtn.IsEnabled = false;
+                dismissBtn.IsEnabled = false;
+                progress.Visibility = Visibility.Visible;
+                progress.IsIndeterminate = true;
+                status.Text = "Downloading installer...";
+
+                try
+                {
+                    string path = await upd.DownloadInstallerAsync((received, total) =>
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            if (total > 0)
+                            {
+                                progress.IsIndeterminate = false;
+                                progress.Maximum = total;
+                                progress.Value = received;
+                                status.Text = $"Downloading installer... {(received / 1024.0 / 1024.0):F1} / {(total / 1024.0 / 1024.0):F1} MB";
+                            }
+                            else
+                            {
+                                status.Text = $"Downloading installer... {(received / 1024.0 / 1024.0):F1} MB";
+                            }
+                        });
+                    });
+                    status.Text = "Launching installer...";
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path)
+                    {
+                        UseShellExecute = true,
+                    });
+                    win.Close();
+                }
+                catch (Exception ex)
+                {
+                    status.Text = $"Update failed: {ex.Message}";
+                    progress.Visibility = Visibility.Collapsed;
+                    updateBtn.IsEnabled = true;
+                    dismissBtn.IsEnabled = true;
+                }
+            };
+
+            win.ShowDialog();
         }
     }
 }
