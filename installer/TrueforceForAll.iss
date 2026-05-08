@@ -95,6 +95,12 @@ Source: "{#PluginBin}\NAudio.WinForms.dll";   DestDir: "{app}"; Flags: ignorever
 ; Bundled USBPcap installer (runs only if USBPcap not already installed).
 Source: "{#UsbPcapSetup}"; DestDir: "{tmp}"; DestName: "USBPcapSetup.exe"; Flags: deleteafterinstall
 
+; PowerShell helper that registers our plugin in SimHub's
+; PluginsActivation.json so it's enabled and pinned to the sidebar on
+; first launch. Idempotent: a no-op when the user has already set their
+; own choice (preserves disable/hide on upgrade installs).
+Source: "RegisterPlugin.ps1"; DestDir: "{tmp}"; Flags: deleteafterinstall
+
 ; License redistribution for the bundled USBPcap.
 Source: "USBPcap-LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion uninsneveruninstall
 
@@ -114,6 +120,16 @@ Filename: "{code:GetUSBPcapCmdPath}"; \
     StatusMsg: "Configuring USBPcap for USB 3.0 ports..."; \
     Flags: runhidden; \
     Check: HasUSBPcapCmd
+
+; Auto-register the plugin in SimHub's PluginsActivation.json so a fresh
+; install lands enabled + sidebar-visible without the user having to
+; click "Add/remove feature". The PowerShell script is idempotent: it
+; respects an existing entry, so a user who previously disabled or hid
+; the plugin won't get their choice overridden on upgrade.
+Filename: "powershell.exe"; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{tmp}\RegisterPlugin.ps1"" -ConfigPath ""{app}\PluginsData\PluginsActivation.json"""; \
+    StatusMsg: "Registering Trueforce For All with SimHub..."; \
+    Flags: runhidden waituntilterminated
 
 ; Postinstall checkbox on the Finished page: launch SimHub when the user
 ; clicks Finish (default checked). runasoriginaluser drops elevation so
@@ -337,6 +353,7 @@ begin
       'Trueforce For All is installed';
     WizardForm.FinishedLabel.Caption :=
       'Make sure Logitech G HUB is closed before launching SimHub. G HUB claims the wheel''s HID interface and will block this plugin.' + #13#10 + #13#10 +
-      'When SimHub starts, click "Add/remove feature" at the bottom left of the SimHub window. Find "Trueforce For All" in the list and enable it. Then drive a supported game and tune via the plugin''s settings panel.';
+      'Trueforce For All has been enabled and pinned to SimHub''s sidebar automatically. Click "Launch SimHub now" below, then drive a supported game and tune via the plugin''s settings panel.' + #13#10 + #13#10 +
+      'If the plugin doesn''t appear in the sidebar, click "Add/remove feature" at the bottom left of the SimHub window and enable Trueforce For All from the list.';
   end;
 end;
