@@ -18,3 +18,10 @@ captures/
 __*
 *.pcap
 *.pcapng
+
+# Local-only dev/test harnesses. Useful while developing on a real wheel,
+# but not part of the user-facing product, so kept out of the public repo.
+# Files stay on disk locally; just untracked.
+/src/SineTest/
+/src/DiscoveryTest/
+/src/UsbPcapTest/
