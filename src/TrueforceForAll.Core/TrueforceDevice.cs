@@ -123,26 +123,36 @@ namespace TrueforceForAll.Core
         public float FfbSmoothTimeConstantMs { get; set; } = 0.0f;
         private float _smoothedFfb;
 
+        // FFB spike taming: gates both the slew-rate limiter
+        // (FfbSpikeMaxLsbPerMs) and the spike-attenuation cap
+        // (FfbPeakSoftLimitLsb). When the gate is off, both are bypassed
+        // regardless of their stored values, so users can flip the feature
+        // off without losing their tuning. Default off; turned on per-game
+        // via the AC built-in preset, or by the user via the UI checkbox.
+        public bool FfbSpikeTamingEnabled { get; set; } = false;
+
         // Slew-rate limit (LSB per ms) applied to the captured FFB target
         // BEFORE the smoothing IIR. Caps how fast the input can change in
         // either direction, so a sudden curb hit (which AC sends as a single
         // large step) gets spread over several ms and lands as a firm push
         // instead of a jolt that yanks the wheel out of your hands. Lets
-        // users run a higher FFB scale safely — same average force, much
-        // softer peaks. Set 0 to disable. Tick rate is ~1 kHz so the LSB/ms
-        // value also approximates max delta per tick.
-        public float FfbSpikeMaxLsbPerMs { get; set; } = 0f;
+        // users run a higher FFB scale safely (same average force, much
+        // softer peaks). Active only when FfbSpikeTamingEnabled is true.
+        // Tick rate is ~1 kHz so the LSB/ms value also approximates max
+        // delta per tick.
+        public float FfbSpikeMaxLsbPerMs { get; set; } = 2060.923f;
         private float _slewLimitedFfb;
 
         // Spike-attenuation cap. Detection sidechains off the raw input's
-        // SLEW RATE (rate of change in LSB/ms) — a curb hit changes FFB at
+        // SLEW RATE (rate of change in LSB/ms): a curb hit changes FFB at
         // 4000-15000+ LSB/ms while normal cornering inputs change at
         // 100-500 LSB/ms. We only attenuate when slew exceeds the spike-
         // threshold, so corner entries / exits are untouched. The cap
         // controls how aggressively to attenuate per LSB/ms of slew excess:
         // at slew = SpikeThreshold + cap, gain factor = 0.5; as slew grows,
-        // factor → 0. Set 0 to disable.
-        public float FfbPeakSoftLimitLsb { get; set; } = 0f;
+        // factor approaches 0. Active only when FfbSpikeTamingEnabled is
+        // true.
+        public float FfbPeakSoftLimitLsb { get; set; } = 1561.78564f;
         // Below this slew rate, no attenuation regardless of cap setting.
         // 1000 LSB/ms is well above the rates produced by even hard cornering
         // and well below typical curb-hit slew. Hardcoded; could be exposed
@@ -543,11 +553,12 @@ namespace TrueforceForAll.Core
                         _spikeSlewEnv *= decay;
                     }
 
-                    // Slew-rate limit — caps the input step a curb hit can
+                    // Slew-rate limit: caps the input step a curb hit can
                     // produce. Smoothing afterwards turns the clamped step
                     // into a soft ramp, so a violent AC curb impact lands as
-                    // a firm shove instead of a wheel-yank. 0 = pass through.
-                    float maxDelta = FfbSpikeMaxLsbPerMs;
+                    // a firm shove instead of a wheel-yank. Bypassed when the
+                    // spike-taming gate is off, regardless of stored value.
+                    float maxDelta = FfbSpikeTamingEnabled ? FfbSpikeMaxLsbPerMs : 0f;
                     if (maxDelta > 0f)
                     {
                         float delta = raw - _slewLimitedFfb;
@@ -585,7 +596,7 @@ namespace TrueforceForAll.Core
                     // attenuation window for ~200-300 ms after a spike, so
                     // both the rise and AC's sustained "elevated force"
                     // phase are attenuated.
-                    float spikeCap = FfbPeakSoftLimitLsb;
+                    float spikeCap = FfbSpikeTamingEnabled ? FfbPeakSoftLimitLsb : 0f;
                     if (spikeCap > 0f && _spikeSlewEnv > SpikeSlewThresholdLsbPerMs)
                     {
                         float slewExcess = _spikeSlewEnv - SpikeSlewThresholdLsbPerMs;

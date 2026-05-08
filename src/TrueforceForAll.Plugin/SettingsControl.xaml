@@ -370,32 +370,45 @@
                               VerticalAlignment="Center" Checked="FfbInvert_Changed" Unchecked="FfbInvert_Changed"/>
                 </Grid>
 
-                <!-- Advanced FFB safety — spike rate + amplitude limiters. -->
-                <Expander x:Name="AdvancedFfbExpander" IsExpanded="False" Margin="0,8,0,16">
+                <!-- FFB spike taming: comfort filter for AC's over-the-top
+                     curb / collision FFB. Toggle gates both rate and
+                     amplitude limiters; rate limit lives in the nested
+                     Advanced section since it rarely needs adjustment. -->
+                <Expander x:Name="SpikeTamingExpander" IsExpanded="False" Margin="0,8,0,16">
                     <Expander.Header>
-                        <TextBlock Text="Advanced FFB safety" FontSize="12"/>
+                        <CheckBox x:Name="SpikeTamingEnabledCheck" Content="FFB spike taming (recommended for Assetto Corsa)"
+                                  FontWeight="SemiBold" VerticalAlignment="Center"
+                                  Checked="SpikeTamingEnabled_Changed" Unchecked="SpikeTamingEnabled_Changed"/>
                     </Expander.Header>
-                    <StackPanel Margin="0,8,0,0">
+                    <StackPanel x:Name="SpikeTamingBody" Margin="0,8,0,0"
+                                IsEnabled="{Binding IsChecked, ElementName=SpikeTamingEnabledCheck}">
+                        <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8"
+                                   Text="AC's curb and collision FFB delivers spikes well beyond what's safe or comfortable on stronger wheelbases. Hits can be sharp enough to wrench the wheel against your grip, ruin a racing line, or strain your wrists on a long session. This attenuates spikes only; sustained cornering load is untouched. Lower values = stronger taming."/>
                         <Grid Margin="0,0,0,2">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="Spike limit (LSB/ms):" Style="{StaticResource LabelText}"/>
-                            <Slider     Grid.Column="1" x:Name="FfbSpikeLimitSlider"
-                                        Minimum="0" Maximum="10000" SmallChange="100" LargeChange="500"
-                                        TickFrequency="1000" ValueChanged="FfbSpikeLimitSlider_ValueChanged" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="2" x:Name="FfbSpikeLimitText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0"/>
-                        </Grid>
-                        <TextBlock Style="{StaticResource HelpText}" Margin="140,0,0,8"
-                                   Text="Curb hits and collisions can be aggressive enough to yank the wheel — especially in AC. This caps the FFB rate of change so spikes feel like firm pushes instead. Sustained forces (cornering load) pass through unchanged. 0 = off; lower = more dampening."/>
-                        <Grid Margin="0,0,0,2">
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="Spike cap (LSB):" Style="{StaticResource LabelText}"/>
+                            <TextBlock Grid.Column="0" Text="Spike attenuation:" Style="{StaticResource LabelText}"/>
                             <Slider     Grid.Column="1" x:Name="FfbPeakLimitSlider"
                                         Minimum="0" Maximum="20000" SmallChange="500" LargeChange="2000"
                                         TickFrequency="2000" ValueChanged="FfbPeakLimitSlider_ValueChanged" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="2" x:Name="FfbPeakLimitText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0"/>
+                            <TextBlock Grid.Column="2" x:Name="FfbPeakLimitText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="1562"/>
                         </Grid>
-                        <TextBlock Style="{StaticResource HelpText}" Margin="140,0,0,0"
-                                   Text="Attenuates FFB amplitude during spikes only. Detection triggers when input changes faster than ~1000 LSB/ms — typical of curb hits. Pairs with Spike limit (which controls rate); this controls amplitude. 0 = off; lower = stronger attenuation."/>
+                        <Expander x:Name="SpikeTamingAdvancedExpander" IsExpanded="False" Margin="0,12,0,0">
+                            <Expander.Header>
+                                <TextBlock Text="Advanced" FontSize="11" Opacity="0.7"/>
+                            </Expander.Header>
+                            <StackPanel Margin="0,8,0,0">
+                                <Grid Margin="0,0,0,2">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Rate limit (LSB/ms):" Style="{StaticResource LabelText}"/>
+                                    <Slider     Grid.Column="1" x:Name="FfbSpikeLimitSlider"
+                                                Minimum="0" Maximum="10000" SmallChange="100" LargeChange="500"
+                                                TickFrequency="1000" ValueChanged="FfbSpikeLimitSlider_ValueChanged" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="2" x:Name="FfbSpikeLimitText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="2061"/>
+                                </Grid>
+                                <TextBlock Style="{StaticResource HelpText}" Margin="140,4,0,0"
+                                           Text="Caps how fast FFB can change in either direction. Pairs with Spike attenuation (which controls how much spikes are reduced); this controls how fast they're allowed to ramp. The default value rarely needs adjustment."/>
+                            </StackPanel>
+                        </Expander>
                     </StackPanel>
                 </Expander>
             </StackPanel>

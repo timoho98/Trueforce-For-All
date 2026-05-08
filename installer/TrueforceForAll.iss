@@ -13,7 +13,7 @@
 
 #define AppName       "Trueforce For All"
 #define AppPublisher  "Mhytee"
-#define AppURL        "https://github.com/Mhytee/TrueforceForAll"
+#define AppURL        "https://github.com/Mhytee/Trueforce-For-All"
 #define AppVersion    GetEnv("TRUEFORCEFORALL_VERSION")
 #if AppVersion == ""
   #define AppVersion "0.1.0-dev"

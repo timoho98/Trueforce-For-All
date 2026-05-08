@@ -6,11 +6,15 @@ obj/
 packages/
 .DS_Store
 **/.DS_Store
-# Build outputs go to bin/ which is already ignored. The published exe in
-# src/SineTest/sinetest.exe is intentionally tracked so it ships with the
-# repo for easy testing on Windows.
 *.pdb
 
-# Working notes — USB captures, parser experiments, ad-hoc analysis scripts.
+# Working notes: USB captures, parser experiments, ad-hoc analysis scripts.
 # Big binary pcaps (~120 MB) live here; never commit.
 captures/
+
+# Ad-hoc working artifacts. Convention: throwaway scratch files get a __
+# prefix so they're easy to ignore in bulk. pcap/pcapng captures anywhere
+# should never be committed even if they escape captures/.
+__*
+*.pcap
+*.pcapng

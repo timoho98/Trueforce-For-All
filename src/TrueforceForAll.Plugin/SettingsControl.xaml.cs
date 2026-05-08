@@ -135,6 +135,7 @@ namespace TrueforceForAll.Plugin
                 FfbSkipPassthroughCheck.IsChecked = _plugin.Settings?.SkipFfbPassthrough ?? false;
                 FfbSmoothSlider.Value  = _plugin.Settings?.FfbSmoothTimeConstantMs ?? 0.0;
                 FfbSmoothText.Text     = FfbSmoothSlider.Value.ToString("F1");
+                SpikeTamingEnabledCheck.IsChecked = _plugin.Settings?.FfbSpikeTamingEnabled ?? false;
                 FfbSpikeLimitSlider.Value = _plugin.Settings?.FfbSpikeMaxLsbPerMs ?? 0.0;
                 FfbSpikeLimitText.Text    = FfbSpikeLimitSlider.Value <= 0
                     ? "off"
@@ -678,6 +679,12 @@ namespace TrueforceForAll.Plugin
             _plugin.SetSkipFfbPassthrough(skip);
             // Grey/ungrey the passthrough-only controls live, without a full Refresh.
             FfbPassthroughControls.IsEnabled = !skip;
+            MarkEffectDirty(EffectKind.Master);
+        }
+        private void SpikeTamingEnabled_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            _plugin.SetFfbSpikeTamingEnabled(SpikeTamingEnabledCheck.IsChecked == true);
             MarkEffectDirty(EffectKind.Master);
         }
 

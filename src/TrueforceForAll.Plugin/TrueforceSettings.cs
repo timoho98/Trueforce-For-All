@@ -46,24 +46,28 @@ namespace TrueforceForAll.Plugin
         public bool  FfbInvertSign            { get; set; } = true;
         public float FfbSmoothTimeConstantMs  { get; set; } = 0.0f;
 
-        // Slew-rate limit on the captured FFB target — caps how fast the
-        // signal can change per ms. Lets users run higher FFB scale safely
-        // (a 30000-LSB curb spike gets spread over 30+ ms instead of yanking
-        // the wheel). 0 = off.
-        public float FfbSpikeMaxLsbPerMs      { get; set; } = 0f;
+        // FFB spike taming: tames AC's over-the-top curb / collision FFB so
+        // it lands as a firm shove instead of a wheel-yanking jolt. Two
+        // knobs: FfbSpikeMaxLsbPerMs caps slew rate (LSB/ms); FfbPeakSoftLimitLsb
+        // sets attenuation strength when slew exceeds the spike-detect
+        // threshold. Defaults are the values that feel right on a GPRO; users
+        // can fine-tune attenuation in the UI. The rate cap rarely needs to
+        // change so it lives behind an Advanced section.
+        // Enabled flag gates both: when false, runtime treats them as 0
+        // regardless of stored values, so users can flip the feature off
+        // without losing their tuning.
+        public bool  FfbSpikeTamingEnabled    { get; set; } = false;
+        public float FfbSpikeMaxLsbPerMs      { get; set; } = 2060.923f;
 
-        // For games with native Trueforce support (AC Rally, iRacing, etc.)
-        // — when on, the plugin still streams audio-haptic effects on ep3
+        // For games with native Trueforce support (AC Rally, iRacing, etc.):
+        // when on, the plugin still streams audio-haptic effects on ep3
         // but leaves bytes 6-9 (cur) at center so the wheel's actual force
         // comes from the game's own FFB path rather than our captured /
         // mirrored value. Avoids fighting with the game's native ep3 cur
         // writes. Default off.
         public bool  SkipFfbPassthrough       { get; set; } = false;
 
-        // Soft peak cap (LSB) on the post-scale FFB target. Caps how large
-        // a spike can get rather than how fast — pairs with FfbSpikeMaxLsbPerMs
-        // to control both rate and amplitude. 0 = off.
-        public float FfbPeakSoftLimitLsb      { get; set; } = 0f;
+        public float FfbPeakSoftLimitLsb      { get; set; } = 1561.78564f;
 
         // Sidechain ducking applied to continuous effects (engine pulse, audio
         // capture) when transient effects (gear shift, ABS, road bumps,
@@ -118,8 +122,9 @@ namespace TrueforceForAll.Plugin
         public float FfbScale                  { get; set; } = 1.0f;
         public bool  FfbInvertSign             { get; set; } = true;
         public float FfbSmoothTimeConstantMs   { get; set; } = 0.0f;
-        public float FfbSpikeMaxLsbPerMs       { get; set; } = 0f;
-        public float FfbPeakSoftLimitLsb       { get; set; } = 0f;
+        public bool  FfbSpikeTamingEnabled     { get; set; } = false;
+        public float FfbSpikeMaxLsbPerMs       { get; set; } = 2060.923f;
+        public float FfbPeakSoftLimitLsb       { get; set; } = 1561.78564f;
         public bool  SkipFfbPassthrough        { get; set; } = false;
         public float DuckDepth                 { get; set; } = 0.5f;
         public float DuckAttackMs              { get; set; } = 5.0f;

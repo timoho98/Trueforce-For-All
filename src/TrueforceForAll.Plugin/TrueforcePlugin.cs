@@ -251,6 +251,12 @@ namespace TrueforceForAll.Plugin
             if (Settings != null) Settings.FfbPeakSoftLimitLsb = v;
         }
 
+        public void SetFfbSpikeTamingEnabled(bool v)
+        {
+            if (_device != null) _device.FfbSpikeTamingEnabled = v;
+            if (Settings != null) Settings.FfbSpikeTamingEnabled = v;
+        }
+
         public void SetSkipFfbPassthrough(bool v)
         {
             // Stored on Settings only; the FfbTargetProvider lambda reads it
@@ -357,6 +363,7 @@ namespace TrueforceForAll.Plugin
             if (Settings.GameEnabled  == null) Settings.GameEnabled  = new Dictionary<string, bool>();
             if (Settings.Performance  == null) Settings.Performance  = new PerformanceSettings();
             MigrateLegacyGamePresets();
+            MigrateSpikeTamingFlag();
             InstallBuiltinPresetsIfMissing();
 
             // Per-car file store: load files into Settings.CarOverrides
@@ -422,6 +429,7 @@ namespace TrueforceForAll.Plugin
                 _device.FfbScale                 = Settings.FfbScale;
                 _device.FfbInvertSign            = Settings.FfbInvertSign;
                 _device.FfbSmoothTimeConstantMs  = Settings.FfbSmoothTimeConstantMs;
+                _device.FfbSpikeTamingEnabled    = Settings.FfbSpikeTamingEnabled;
                 _device.FfbSpikeMaxLsbPerMs      = Settings.FfbSpikeMaxLsbPerMs;
                 _device.FfbPeakSoftLimitLsb      = Settings.FfbPeakSoftLimitLsb;
 
@@ -1238,6 +1246,43 @@ namespace TrueforceForAll.Plugin
             }
         }
 
+        // FfbSpikeTamingEnabled was added after FfbSpikeMaxLsbPerMs /
+        // FfbPeakSoftLimitLsb were already in the wild. Pre-flag versions had
+        // either non-zero value mean "active". On upgrade, persisted settings
+        // and saved presets carry the tuned values but no flag, so the flag
+        // would default false and silently disable spike taming for users
+        // who'd already tuned it. Infer the flag from the legacy values: if
+        // either is non-zero, treat the user as having opted in.
+        private void MigrateSpikeTamingFlag()
+        {
+            if (Settings == null) return;
+            bool changed = false;
+            if (!Settings.FfbSpikeTamingEnabled &&
+                (Settings.FfbSpikeMaxLsbPerMs > 0f || Settings.FfbPeakSoftLimitLsb > 0f))
+            {
+                Settings.FfbSpikeTamingEnabled = true;
+                changed = true;
+            }
+            if (Settings.Presets != null)
+            {
+                foreach (var snap in Settings.Presets.Values)
+                {
+                    if (snap == null) continue;
+                    if (!snap.FfbSpikeTamingEnabled &&
+                        (snap.FfbSpikeMaxLsbPerMs > 0f || snap.FfbPeakSoftLimitLsb > 0f))
+                    {
+                        snap.FfbSpikeTamingEnabled = true;
+                        changed = true;
+                    }
+                }
+            }
+            if (changed)
+            {
+                this.SaveCommonSettings("GeneralSettings", Settings);
+                SimHub.Logging.Current.Info("[Trueforce] Migrated FFB spike taming flag from legacy values.");
+            }
+        }
+
         // ---------- per-section dirty check (vs active preset) ----------
 
         /// <summary>True iff the current values for this section differ from
@@ -1270,6 +1315,7 @@ namespace TrueforceForAll.Plugin
                 && EqF2(Settings.FfbScale,                snap.FfbScale)
                 &&     Settings.FfbInvertSign          == snap.FfbInvertSign
                 && EqF1(Settings.FfbSmoothTimeConstantMs, snap.FfbSmoothTimeConstantMs)
+                &&     Settings.FfbSpikeTamingEnabled  == snap.FfbSpikeTamingEnabled
                 && EqI (Settings.FfbSpikeMaxLsbPerMs,     snap.FfbSpikeMaxLsbPerMs)
                 && EqI (Settings.FfbPeakSoftLimitLsb,     snap.FfbPeakSoftLimitLsb)
                 &&     Settings.SkipFfbPassthrough     == snap.SkipFfbPassthrough;
@@ -1416,6 +1462,7 @@ namespace TrueforceForAll.Plugin
                     Settings.FfbScale                = snap.FfbScale;
                     Settings.FfbInvertSign           = snap.FfbInvertSign;
                     Settings.FfbSmoothTimeConstantMs = snap.FfbSmoothTimeConstantMs;
+                    Settings.FfbSpikeTamingEnabled   = snap.FfbSpikeTamingEnabled;
                     Settings.FfbSpikeMaxLsbPerMs     = snap.FfbSpikeMaxLsbPerMs;
                     Settings.FfbPeakSoftLimitLsb     = snap.FfbPeakSoftLimitLsb;
                     Settings.SkipFfbPassthrough      = snap.SkipFfbPassthrough;
@@ -1425,6 +1472,7 @@ namespace TrueforceForAll.Plugin
                         _device.FfbScale                = Settings.FfbScale;
                         _device.FfbInvertSign           = Settings.FfbInvertSign;
                         _device.FfbSmoothTimeConstantMs = Settings.FfbSmoothTimeConstantMs;
+                        _device.FfbSpikeTamingEnabled   = Settings.FfbSpikeTamingEnabled;
                         _device.FfbSpikeMaxLsbPerMs     = Settings.FfbSpikeMaxLsbPerMs;
                         _device.FfbPeakSoftLimitLsb     = Settings.FfbPeakSoftLimitLsb;
                     }
@@ -1639,6 +1687,7 @@ namespace TrueforceForAll.Plugin
             Settings.FfbScale                = snap.FfbScale;
             Settings.FfbInvertSign           = snap.FfbInvertSign;
             Settings.FfbSmoothTimeConstantMs = snap.FfbSmoothTimeConstantMs;
+            Settings.FfbSpikeTamingEnabled   = snap.FfbSpikeTamingEnabled;
             Settings.FfbSpikeMaxLsbPerMs     = snap.FfbSpikeMaxLsbPerMs;
             Settings.FfbPeakSoftLimitLsb     = snap.FfbPeakSoftLimitLsb;
             Settings.SkipFfbPassthrough      = snap.SkipFfbPassthrough;
@@ -1666,6 +1715,7 @@ namespace TrueforceForAll.Plugin
                 _device.FfbScale                = Settings.FfbScale;
                 _device.FfbInvertSign           = Settings.FfbInvertSign;
                 _device.FfbSmoothTimeConstantMs = Settings.FfbSmoothTimeConstantMs;
+                _device.FfbSpikeTamingEnabled   = Settings.FfbSpikeTamingEnabled;
                 _device.FfbSpikeMaxLsbPerMs     = Settings.FfbSpikeMaxLsbPerMs;
                 _device.FfbPeakSoftLimitLsb     = Settings.FfbPeakSoftLimitLsb;
             }
@@ -1718,6 +1768,7 @@ namespace TrueforceForAll.Plugin
                 FfbScale                = Settings.FfbScale,
                 FfbInvertSign           = Settings.FfbInvertSign,
                 FfbSmoothTimeConstantMs = Settings.FfbSmoothTimeConstantMs,
+                FfbSpikeTamingEnabled   = Settings.FfbSpikeTamingEnabled,
                 FfbSpikeMaxLsbPerMs     = Settings.FfbSpikeMaxLsbPerMs,
                 FfbPeakSoftLimitLsb     = Settings.FfbPeakSoftLimitLsb,
                 SkipFfbPassthrough      = Settings.SkipFfbPassthrough,

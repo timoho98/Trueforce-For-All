@@ -10,6 +10,21 @@ no Logitech SDK, no G HUB integration, no whitelist.
 Tested on a GPRO wheel with Assetto Corsa and Wreckfest 2. Works in principle with any game
 SimHub can read telemetry from.
 
+**Bonus for Assetto Corsa users:** the plugin includes optional FFB spike
+taming that's useful on its own, even with the Trueforce effects all
+turned off. AC delivers curb and collision FFB spikes wildly out of
+proportion to what's safe or comfortable. On a strong wheelbase they can
+be sharp enough to wrench the wheel against your grip, ruin a racing
+line, or cause real wrist strain over a session. iRacing has a built-in
+option to soften this; AC doesn't. The plugin taps the game's outgoing
+FFB on the USB bus and attenuates spikes only, so curbs become something
+you can drive over confidently. Sustained forces (cornering load, weight
+transfer) pass through untouched. This still requires one of the
+supported Logitech Trueforce wheels in the table below, since the
+modified FFB reaches the wheel through the Trueforce endpoint; support
+for non-Trueforce wheels would need a different attenuation point and
+isn't implemented yet.
+
 > **Status:** v0.x, actively developed. The plugin is functional today; the
 > default presets are still being tuned. Feedback welcome.
 
@@ -49,10 +64,13 @@ in real time, mixing several signal sources:
   wheel as a low-latency buzz. Lets you feel things the telemetry doesn't
   expose.
   
-- **FFB pass-through** -- when a game already drives the wheel via standard
-  HID++ force feedback (Assetto Corsa does), the plugin transparently taps
-  that signal off the USB bus and mirrors it into the Trueforce stream so
-  cornering load coexists with the haptic effects above.
+- **FFB pass-through with spike taming.** When a game already drives the
+  wheel via standard HID++ force feedback (Assetto Corsa does), the
+  plugin transparently taps that signal off the USB bus and mirrors it
+  into the Trueforce stream so cornering load coexists with the haptic
+  effects above. An optional spike-taming filter brings AC's notoriously
+  over-the-top curb and collision FFB down to comfortable levels (see
+  the AC note above).
 
 All of it is configurable per-game, per-car, via SimHub's settings UI:
 master gain, individual effect tuning, sidechain ducking between
@@ -158,5 +176,5 @@ project is not affiliated with, endorsed by, or sponsored by Logitech.
 [naudio]: https://github.com/naudio/NAudio
 [simhub]: https://www.simhubdash.com/
 [inno]: https://jrsoftware.org/isinfo.php
-[releases]: https://github.com/Mhytee/TrueforceForAll/releases
+[releases]: https://github.com/Mhytee/Trueforce-For-All/releases
 [ci]: .github/workflows/release.yml
