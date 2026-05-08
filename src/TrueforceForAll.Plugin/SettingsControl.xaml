@@ -413,121 +413,6 @@
                 </Expander>
             </StackPanel>
 
-            <!-- Performance / latency tuning. Per-machine, NOT preset-saved
-                 (a friend's CPU/scheduler is different from yours). -->
-            <Border Style="{StaticResource SectionHeaderBorder}">
-                <TextBlock Text="Performance" Style="{StaticResource SectionHeaderText}"/>
-            </Border>
-            <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
-                Text="Smaller ring buffers = less latency between game and wheel, but require Windows to wake our threads on time. Auto starts at the smallest sizes and ratchets up if dropouts occur (one-way; survived size persists across sessions). Manual locks specific sizes — useful for streamers who want guaranteed-stable behavior, or to force-test the lowest values."/>
-
-            <Grid Margin="0,0,0,8">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Mode:" VerticalAlignment="Center" Opacity="0.7"/>
-                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                    <RadioButton x:Name="PerfAutoRadio"   Content="Auto" GroupName="PerfMode"
-                                 Margin="0,0,16,0" VerticalAlignment="Center"
-                                 ToolTip="Start at smallest ring sizes; ratchet up on persistent dropouts. Survived size is remembered across sessions."
-                                 Checked="PerfMode_Changed"/>
-                    <RadioButton x:Name="PerfManualRadio" Content="Manual" GroupName="PerfMode"
-                                 Margin="0,0,16,0" VerticalAlignment="Center"
-                                 ToolTip="Lock the slider values. No automatic changes. Use for streaming or force-testing."
-                                 Checked="PerfMode_Changed"/>
-                    <Button x:Name="PerfResetButton" Content="Reset to lowest" Padding="10,2" VerticalAlignment="Center"
-                            ToolTip="Drop both rings back to the smallest configured value. In Auto mode the ratchet will re-discover whether your machine can hold them."
-                            Click="PerfReset_Click"/>
-                </StackPanel>
-            </Grid>
-
-            <Grid Margin="0,0,0,4">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="80"/></Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Trueforce ring:" VerticalAlignment="Center" Opacity="0.7"
-                           ToolTip="Sample buffer between the audio mixer and the USB stream. Smaller = lower wheel latency, but Windows must wake the stream thread on time."/>
-                <Slider     Grid.Column="1" x:Name="PerfTfRingSlider"
-                            Minimum="8" Maximum="64" SmallChange="8" LargeChange="8"
-                            TickFrequency="8" IsSnapToTickEnabled="True"
-                            ValueChanged="PerfTfRingSlider_ValueChanged" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="2" x:Name="PerfTfRingText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="8 (2ms)"/>
-            </Grid>
-            <Grid Margin="0,0,0,4">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="80"/></Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Audio ring:" VerticalAlignment="Center" Opacity="0.7"
-                           ToolTip="Sample buffer between WASAPI loopback and the audio mixer. WASAPI typically delivers ~12 decimated samples per ~3ms callback; 16 fits that with headroom. Setting 8 only works if your audio driver supports a ~2ms WASAPI period — uncommon. If you set 8 and hear continuous clicks, the auto-ratchet (Auto mode) will bump you back up."/>
-                <Slider     Grid.Column="1" x:Name="PerfAudioRingSlider"
-                            Minimum="8" Maximum="128" SmallChange="8" LargeChange="8"
-                            TickFrequency="8" IsSnapToTickEnabled="True"
-                            ValueChanged="PerfAudioRingSlider_ValueChanged" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="2" x:Name="PerfAudioRingText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="16 (4ms)"/>
-            </Grid>
-
-            <Grid Margin="0,8,0,20">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Live counters:" VerticalAlignment="Top" Opacity="0.7" Margin="0,2,0,0"/>
-                <StackPanel Grid.Column="1">
-                    <TextBlock x:Name="PerfCountersText" FontSize="11" Opacity="0.8"
-                               Text="Trueforce ring: — underruns/min · Audio ring: — glitches/min"/>
-                    <TextBlock Style="{StaticResource HelpText}" FontSize="11" Margin="0,2,0,0"
-                               Text="Counters tally events in a rolling 60-second window. If they're going up, your machine is glitching at the current ring size — Auto mode will bump it up."/>
-                </StackPanel>
-            </Grid>
-
-            <!-- Presets -->
-            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Presets" Style="{StaticResource SectionHeaderText}"/></Border>
-            <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
-                Text="A preset is a named snapshot of your master tuning + every per-car override. Live tuning auto-saves to disk, but never changes the named preset on its own — the '★ unsaved' indicator next to the active preset means tuning has drifted from the saved snapshot. Click Save preset to commit, Save as… for a new name."/>
-            <Grid Margin="0,0,0,6">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <ComboBox Grid.Column="0" x:Name="PresetCombo" SelectionChanged="PresetCombo_Changed" VerticalAlignment="Center"/>
-                <Button   Grid.Column="1" x:Name="ApplyPresetButton" Content="Apply" Width="70" Height="28" Margin="8,0,0,0" Click="ApplyPreset_Click"
-                          ToolTip="Load the selected preset, replacing current tuning. Confirms first if you have unsaved changes."/>
-                <Button   Grid.Column="2" x:Name="SavePresetButton" Content="Save preset"
-                          Style="{StaticResource SaveAllPresetButton}" Click="SavePreset_Click"
-                          ToolTip="Overwrite the active preset with your current tuning. Glows amber when changes are unsaved."/>
-            </Grid>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                <Button x:Name="SaveAsPresetButton" Content="Save as new..." Width="110" Height="24" FontSize="11" Margin="0,0,6,0" Click="SaveAsPreset_Click"
-                        ToolTip="Save current tuning under a new preset name (doesn't overwrite the active one)."/>
-                <Button x:Name="DeletePresetButton" Content="Delete" Width="70" Height="24" FontSize="11" Click="DeletePreset_Click"
-                        ToolTip="Delete the selected preset from the library."/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                <Button x:Name="SetDefaultButton"   Content="Set as default for this game" Width="220" Height="24" FontSize="11" Margin="0,0,6,0" Click="SetDefault_Click"
-                        ToolTip="When this game launches, auto-load the selected preset."/>
-                <Button x:Name="ClearDefaultButton" Content="Clear default" Width="100" Height="24" FontSize="11" Click="ClearDefault_Click"
-                        ToolTip="Remove the auto-load binding for this game."/>
-            </StackPanel>
-            <Expander x:Name="BackupShareExpander" IsExpanded="False" Margin="0,4,0,20">
-                <Expander.Header>
-                    <TextBlock Text="Backup &amp; share" FontSize="12"/>
-                </Expander.Header>
-                <StackPanel Margin="0,8,0,0">
-                    <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8"
-                               Text="Share single presets, per-car overrides, or your full Trueforce config as JSON files."/>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                        <Button x:Name="ExportPresetButton" Content="Export preset..." Width="160" Height="26" Margin="0,0,6,0" Click="ExportPreset_Click"
-                                ToolTip="Save the selected preset to a shareable JSON file."/>
-                        <Button x:Name="ImportPresetButton" Content="Import preset..." Width="160" Height="26" Click="ImportPreset_Click"
-                                ToolTip="Load a preset file into your library."/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                        <Button x:Name="ExportCarPresetButton" Content="Export car preset..." Width="180" Height="26" Margin="0,0,6,0" Click="ExportCarPreset_Click"
-                                ToolTip="Save the active car's settings as a shareable JSON file."/>
-                        <Button x:Name="ImportCarPresetButton" Content="Import car preset..." Width="180" Height="26" Click="ImportCarPreset_Click"
-                                ToolTip="Load a car preset file. Stored under its car id; applied if it matches the current car."/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                        <Button x:Name="ExportButton" Content="Export all settings..." Width="180" Height="26" Margin="0,0,6,0" Click="Export_Click"
-                                ToolTip="Export master, audio, every effect, and all per-car overrides as one JSON file."/>
-                        <Button x:Name="ImportButton" Content="Import all settings..." Width="180" Height="26" Click="Import_Click"
-                                ToolTip="Replace all current Trueforce settings from a JSON file."/>
-                    </StackPanel>
-                </StackPanel>
-            </Expander>
-
             <!-- Active car -->
             <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Active car" Style="{StaticResource SectionHeaderText}"/></Border>
             <Grid Margin="0,0,0,4">
@@ -625,55 +510,6 @@
                             </Grid>
                         </StackPanel>
                     </Expander>
-                </StackPanel>
-            </Expander>
-
-            <!-- Sidechain ducking — sits between audio capture and the
-                 telemetry effects because it controls how those mix together
-                 (transients duck the continuous voices for clarity). -->
-            <Border Style="{StaticResource SectionHeaderBorder}">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="Sidechain ducking" Style="{StaticResource SectionHeaderText}" VerticalAlignment="Center"/>
-                    <Button Grid.Column="1" x:Name="DuckingRevertBtn" Content="↶" Tag="Ducking" Style="{StaticResource EffectRevertButton}" Click="EffectRevert_Click"/>
-                    <Button Grid.Column="2" x:Name="DuckingSaveBtn"   Content="Save…" Tag="Ducking" Style="{StaticResource EffectSaveButton}" Click="EffectSave_Click"/>
-                </Grid>
-            </Border>
-            <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
-                Text="When transient effects (gear shift, ABS, road bumps, traction loss) fire, continuous effects (engine pulse, audio capture) duck to make room."/>
-            <Grid Margin="0,0,0,4">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Depth:" Style="{StaticResource LabelText}"/>
-                <Slider     Grid.Column="1" x:Name="DuckDepthSlider"
-                            Minimum="0" Maximum="1.0" SmallChange="0.05" LargeChange="0.1"
-                            TickFrequency="0.1" ValueChanged="DuckDepthSlider_ValueChanged" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="2" x:Name="DuckDepthText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0.50"/>
-            </Grid>
-            <Expander x:Name="AdvancedDuckingExpander" IsExpanded="False" Margin="0,4,0,20">
-                <Expander.Header>
-                    <TextBlock Text="Advanced (envelope)" FontSize="12"/>
-                </Expander.Header>
-                <StackPanel Margin="0,8,0,0">
-                    <Grid Margin="0,0,0,4">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="Attack (ms):" Style="{StaticResource LabelText}"/>
-                        <Slider     Grid.Column="1" x:Name="DuckAttackSlider"
-                                    Minimum="1" Maximum="100" SmallChange="1" LargeChange="5"
-                                    TickFrequency="10" ValueChanged="DuckAttackSlider_ValueChanged" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="2" x:Name="DuckAttackText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="5"/>
-                    </Grid>
-                    <Grid Margin="0,0,0,0">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="Release (ms):" Style="{StaticResource LabelText}"/>
-                        <Slider     Grid.Column="1" x:Name="DuckReleaseSlider"
-                                    Minimum="10" Maximum="500" SmallChange="5" LargeChange="25"
-                                    TickFrequency="50" ValueChanged="DuckReleaseSlider_ValueChanged" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="2" x:Name="DuckReleaseText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="80"/>
-                    </Grid>
                 </StackPanel>
             </Expander>
 
@@ -943,6 +779,178 @@
                 </Expander>
 
             </StackPanel> <!-- /TelemetryEffectsPanel -->
+
+            <!-- Sidechain ducking. Collapsed Expander, sits below the
+                 telemetry effects with Performance and Presets so it groups
+                 with other "global mixing / system" knobs rather than
+                 visually splitting Audio from the telemetry voices. -->
+            <Expander x:Name="DuckingExpander" IsExpanded="False" Margin="0,0,0,4">
+                <Expander.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Sidechain ducking" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <Button x:Name="DuckingRevertBtn" Content="↶" Tag="Ducking" Style="{StaticResource EffectRevertButton}" Click="EffectRevert_Click"/>
+                        <Button x:Name="DuckingSaveBtn"   Content="Save…" Tag="Ducking" Style="{StaticResource EffectSaveButton}" Click="EffectSave_Click"/>
+                    </StackPanel>
+                </Expander.Header>
+                <StackPanel Margin="0,8,0,0">
+                    <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
+                        Text="When transient effects (gear shift, ABS, road bumps, traction loss) fire, continuous effects (engine pulse, audio capture) duck to make room."/>
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Depth:" Style="{StaticResource LabelText}"/>
+                        <Slider     Grid.Column="1" x:Name="DuckDepthSlider"
+                                    Minimum="0" Maximum="1.0" SmallChange="0.05" LargeChange="0.1"
+                                    TickFrequency="0.1" ValueChanged="DuckDepthSlider_ValueChanged" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" x:Name="DuckDepthText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0.50"/>
+                    </Grid>
+                    <Expander x:Name="AdvancedDuckingExpander" IsExpanded="False" Margin="0,4,0,0">
+                        <Expander.Header>
+                            <TextBlock Text="Advanced (envelope)" FontSize="12"/>
+                        </Expander.Header>
+                        <StackPanel Margin="0,8,0,0">
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Attack (ms):" Style="{StaticResource LabelText}"/>
+                                <Slider     Grid.Column="1" x:Name="DuckAttackSlider"
+                                            Minimum="1" Maximum="100" SmallChange="1" LargeChange="5"
+                                            TickFrequency="10" ValueChanged="DuckAttackSlider_ValueChanged" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" x:Name="DuckAttackText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="5"/>
+                            </Grid>
+                            <Grid Margin="0,0,0,0">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Release (ms):" Style="{StaticResource LabelText}"/>
+                                <Slider     Grid.Column="1" x:Name="DuckReleaseSlider"
+                                            Minimum="10" Maximum="500" SmallChange="5" LargeChange="25"
+                                            TickFrequency="50" ValueChanged="DuckReleaseSlider_ValueChanged" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" x:Name="DuckReleaseText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="80"/>
+                            </Grid>
+                        </StackPanel>
+                    </Expander>
+                </StackPanel>
+            </Expander>
+
+            <!-- Performance / latency tuning. Per-machine, NOT preset-saved
+                 (a friend's CPU/scheduler is different from yours). Collapsed
+                 Expander since most users never need to touch it. -->
+            <Expander x:Name="PerformanceExpander" IsExpanded="False" Margin="0,0,0,16">
+                <Expander.Header>
+                    <TextBlock Text="Performance" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                </Expander.Header>
+                <StackPanel Margin="0,8,0,0">
+                    <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
+                        Text="Smaller ring buffers = less latency between game and wheel, but require Windows to wake our threads on time. Auto starts at the smallest sizes and ratchets up if dropouts occur (one-way; survived size persists across sessions). Manual locks specific sizes — useful for streamers who want guaranteed-stable behavior, or to force-test the lowest values."/>
+
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Mode:" VerticalAlignment="Center" Opacity="0.7"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <RadioButton x:Name="PerfAutoRadio"   Content="Auto" GroupName="PerfMode"
+                                         Margin="0,0,16,0" VerticalAlignment="Center"
+                                         ToolTip="Start at smallest ring sizes; ratchet up on persistent dropouts. Survived size is remembered across sessions."
+                                         Checked="PerfMode_Changed"/>
+                            <RadioButton x:Name="PerfManualRadio" Content="Manual" GroupName="PerfMode"
+                                         Margin="0,0,16,0" VerticalAlignment="Center"
+                                         ToolTip="Lock the slider values. No automatic changes. Use for streaming or force-testing."
+                                         Checked="PerfMode_Changed"/>
+                            <Button x:Name="PerfResetButton" Content="Reset to lowest" Padding="10,2" VerticalAlignment="Center"
+                                    ToolTip="Drop both rings back to the smallest configured value. In Auto mode the ratchet will re-discover whether your machine can hold them."
+                                    Click="PerfReset_Click"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="80"/></Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Trueforce ring:" VerticalAlignment="Center" Opacity="0.7"
+                                   ToolTip="Sample buffer between the audio mixer and the USB stream. Smaller = lower wheel latency, but Windows must wake the stream thread on time."/>
+                        <Slider     Grid.Column="1" x:Name="PerfTfRingSlider"
+                                    Minimum="8" Maximum="64" SmallChange="8" LargeChange="8"
+                                    TickFrequency="8" IsSnapToTickEnabled="True"
+                                    ValueChanged="PerfTfRingSlider_ValueChanged" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" x:Name="PerfTfRingText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="8 (2ms)"/>
+                    </Grid>
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="80"/></Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Audio ring:" VerticalAlignment="Center" Opacity="0.7"
+                                   ToolTip="Sample buffer between WASAPI loopback and the audio mixer. WASAPI typically delivers ~12 decimated samples per ~3ms callback; 16 fits that with headroom. Setting 8 only works if your audio driver supports a ~2ms WASAPI period — uncommon. If you set 8 and hear continuous clicks, the auto-ratchet (Auto mode) will bump you back up."/>
+                        <Slider     Grid.Column="1" x:Name="PerfAudioRingSlider"
+                                    Minimum="8" Maximum="128" SmallChange="8" LargeChange="8"
+                                    TickFrequency="8" IsSnapToTickEnabled="True"
+                                    ValueChanged="PerfAudioRingSlider_ValueChanged" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" x:Name="PerfAudioRingText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="16 (4ms)"/>
+                    </Grid>
+
+                    <Grid Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Live counters:" VerticalAlignment="Top" Opacity="0.7" Margin="0,2,0,0"/>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock x:Name="PerfCountersText" FontSize="11" Opacity="0.8"
+                                       Text="Trueforce ring: — underruns/min · Audio ring: — glitches/min"/>
+                            <TextBlock Style="{StaticResource HelpText}" FontSize="11" Margin="0,2,0,0"
+                                       Text="Counters tally events in a rolling 60-second window. If they're going up, your machine is glitching at the current ring size — Auto mode will bump it up."/>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Expander>
+
+            <!-- Presets. Moved to the bottom: the preset library, default-
+                 binding, and import/export are infrequent flows. The active
+                 preset dropdown + ★ Save preset button at the very top of
+                 the panel handles the day-to-day cases. -->
+            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Presets" Style="{StaticResource SectionHeaderText}"/></Border>
+            <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
+                Text="A preset is a named snapshot of your master tuning + every per-car override. Live tuning auto-saves to disk, but never changes the named preset on its own — the '★ unsaved' indicator next to the active preset means tuning has drifted from the saved snapshot. Click Save preset to commit, Save as… for a new name."/>
+            <Grid Margin="0,0,0,6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <ComboBox Grid.Column="0" x:Name="PresetCombo" SelectionChanged="PresetCombo_Changed" VerticalAlignment="Center"/>
+                <Button   Grid.Column="1" x:Name="ApplyPresetButton" Content="Apply" Width="70" Height="28" Margin="8,0,0,0" Click="ApplyPreset_Click"
+                          ToolTip="Load the selected preset, replacing current tuning. Confirms first if you have unsaved changes."/>
+                <Button   Grid.Column="2" x:Name="SavePresetButton" Content="Save preset"
+                          Style="{StaticResource SaveAllPresetButton}" Click="SavePreset_Click"
+                          ToolTip="Overwrite the active preset with your current tuning. Glows amber when changes are unsaved."/>
+            </Grid>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                <Button x:Name="SaveAsPresetButton" Content="Save as new..." Width="110" Height="24" FontSize="11" Margin="0,0,6,0" Click="SaveAsPreset_Click"
+                        ToolTip="Save current tuning under a new preset name (doesn't overwrite the active one)."/>
+                <Button x:Name="DeletePresetButton" Content="Delete" Width="70" Height="24" FontSize="11" Click="DeletePreset_Click"
+                        ToolTip="Delete the selected preset from the library."/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                <Button x:Name="SetDefaultButton"   Content="Set as default for this game" Width="220" Height="24" FontSize="11" Margin="0,0,6,0" Click="SetDefault_Click"
+                        ToolTip="When this game launches, auto-load the selected preset."/>
+                <Button x:Name="ClearDefaultButton" Content="Clear default" Width="100" Height="24" FontSize="11" Click="ClearDefault_Click"
+                        ToolTip="Remove the auto-load binding for this game."/>
+            </StackPanel>
+            <Expander x:Name="BackupShareExpander" IsExpanded="False" Margin="0,4,0,20">
+                <Expander.Header>
+                    <TextBlock Text="Backup &amp; share" FontSize="12"/>
+                </Expander.Header>
+                <StackPanel Margin="0,8,0,0">
+                    <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8"
+                               Text="Share single presets, per-car overrides, or your full Trueforce config as JSON files."/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <Button x:Name="ExportPresetButton" Content="Export preset..." Width="160" Height="26" Margin="0,0,6,0" Click="ExportPreset_Click"
+                                ToolTip="Save the selected preset to a shareable JSON file."/>
+                        <Button x:Name="ImportPresetButton" Content="Import preset..." Width="160" Height="26" Click="ImportPreset_Click"
+                                ToolTip="Load a preset file into your library."/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <Button x:Name="ExportCarPresetButton" Content="Export car preset..." Width="180" Height="26" Margin="0,0,6,0" Click="ExportCarPreset_Click"
+                                ToolTip="Save the active car's settings as a shareable JSON file."/>
+                        <Button x:Name="ImportCarPresetButton" Content="Import car preset..." Width="180" Height="26" Click="ImportCarPreset_Click"
+                                ToolTip="Load a car preset file. Stored under its car id; applied if it matches the current car."/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
+                        <Button x:Name="ExportButton" Content="Export all settings..." Width="180" Height="26" Margin="0,0,6,0" Click="Export_Click"
+                                ToolTip="Export master, audio, every effect, and all per-car overrides as one JSON file."/>
+                        <Button x:Name="ImportButton" Content="Import all settings..." Width="180" Height="26" Click="Import_Click"
+                                ToolTip="Replace all current Trueforce settings from a JSON file."/>
+                    </StackPanel>
+                </StackPanel>
+            </Expander>
 
             <!-- Support development -->
             <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Support development" Style="{StaticResource SectionHeaderText}"/></Border>
