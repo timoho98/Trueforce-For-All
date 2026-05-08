@@ -9,14 +9,15 @@ no Logitech SDK, no G HUB integration, no whitelist.
 
 Tested on a GPRO wheel with Assetto Corsa and Wreckfest 2.
 
-The telemetry-driven effects work in any game SimHub can read.
-Assetto Corsa gets an enhanced path that reads physics directly from
-the game's shared memory at 1 kHz, bypassing SimHub for sharper curb
-edges and direct wheel-slip readings; adding more games to that path
-is on the roadmap. Games SimHub can't read still work for audio-based
-haptics and the FFB spike-reduction filter, just without the
-telemetry-derived effect set.
+## Telemetry
 
+By default the plugin runs on SimHub's universal 60 Hz telemetry feed, which carries the standard fields all the core effects need.
+
+**Assetto Corsa** has a dedicated path: shared memory is read directly at AC's native 333 Hz physics rate (polled at 1 kHz so events are seen within 1 ms of being written). The higher rate makes curb collisions, road-bumps, traction-loss and other haptic effects noticeably sharper and more responsive than the 60 Hz feed can deliver.
+
+**Forza Horizon 4/5/6 and Forza Motorsport** also have a direct UDP Data Out reader that picks up per-tire fields for the surface-texture, rumble strips, and curb collision effects. This additional surface information is updated at 60hz but allows for more depth in surface detail effects than some other titles may offer.  
+
+Additional per-title enhancements will be added over time. 
 **Bonus: optional FFB spike reduction.**  Some games deliver curb and
 collision FFB spikes wildly out of proportion to what's safe or
 comfortable. On a strong wheelbase they can be sharp enough to ruin a racing line, or cause real wrist
