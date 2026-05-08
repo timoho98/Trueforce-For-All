@@ -35,8 +35,6 @@ endpoint; support for non-Trueforce wheels would need a different
 attenuation point and isn't implemented yet. Useful on its own, even with
 all Trueforce effects turned off.
 
-> **Status:** v0.x, actively developed. The plugin is functional today; the
-> default presets are still being tuned. Feedback welcome.
 
 ## Supported wheels
 
@@ -49,6 +47,9 @@ all Trueforce effects turned off.
 The G PRO and RS50 use byte-identical Trueforce packets (verified by the
 [mescon Linux driver project][mescon]). 
 G923 support may come in the future.
+
+> **Status:** v0.x, actively developed. The plugin is functional today; the
+> default presets are still being tuned. Feedback welcome.
 
 ## What it does
 
