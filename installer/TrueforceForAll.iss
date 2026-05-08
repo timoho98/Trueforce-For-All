@@ -115,6 +115,16 @@ Filename: "{code:GetUSBPcapCmdPath}"; \
     Flags: runhidden; \
     Check: HasUSBPcapCmd
 
+; Postinstall checkbox on the Finished page: launch SimHub when the user
+; clicks Finish (default checked). runasoriginaluser drops elevation so
+; SimHub doesn't end up running as admin just because the installer was;
+; nowait + skipifsilent make this a no-op for /SILENT installs and let
+; the installer exit immediately rather than blocking on SimHub's
+; startup.
+Filename: "{app}\SimHubWPF.exe"; \
+    Description: "Launch SimHub now"; \
+    Flags: postinstall nowait skipifsilent runasoriginaluser
+
 [Code]
 const
   // SimHub's Inno Setup AppId. Stable across SimHub versions.
@@ -326,10 +336,7 @@ begin
     WizardForm.FinishedHeadingLabel.Caption :=
       'Trueforce For All is installed';
     WizardForm.FinishedLabel.Caption :=
-      'Next steps:' + #13#10 + #13#10 +
-      '1. Make sure Logitech G HUB is closed (it claims the wheel''s HID interface and blocks this plugin).' + #13#10 + #13#10 +
-      '2. Launch SimHub.' + #13#10 + #13#10 +
-      '3. Click "Add/remove feature" at the bottom left of the SimHub window. Find "Trueforce For All" in the list and enable it.' + #13#10 + #13#10 +
-      'Then drive a supported game and tune via the plugin''s settings panel.';
+      'Make sure Logitech G HUB is closed before launching SimHub. G HUB claims the wheel''s HID interface and will block this plugin.' + #13#10 + #13#10 +
+      'When SimHub starts, click "Add/remove feature" at the bottom left of the SimHub window. Find "Trueforce For All" in the list and enable it. Then drive a supported game and tune via the plugin''s settings panel.';
   end;
 end;
