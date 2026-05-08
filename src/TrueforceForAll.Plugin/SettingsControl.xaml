@@ -376,14 +376,14 @@
                      Advanced section since it rarely needs adjustment. -->
                 <Expander x:Name="SpikeTamingExpander" IsExpanded="False" Margin="0,8,0,16">
                     <Expander.Header>
-                        <CheckBox x:Name="SpikeTamingEnabledCheck" Content="FFB spike taming (recommended for Assetto Corsa)"
+                        <CheckBox x:Name="SpikeTamingEnabledCheck" Content="FFB spike reduction (recommended for Assetto Corsa)"
                                   FontWeight="SemiBold" VerticalAlignment="Center"
                                   Checked="SpikeTamingEnabled_Changed" Unchecked="SpikeTamingEnabled_Changed"/>
                     </Expander.Header>
                     <StackPanel x:Name="SpikeTamingBody" Margin="0,8,0,0"
                                 IsEnabled="{Binding IsChecked, ElementName=SpikeTamingEnabledCheck}">
                         <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8"
-                                   Text="AC's curb and collision FFB delivers spikes well beyond what's safe or comfortable on stronger wheelbases. Hits can be sharp enough to wrench the wheel against your grip, ruin a racing line, or strain your wrists on a long session. This attenuates spikes only; sustained cornering load is untouched. Lower values = stronger taming."/>
+                                   Text="Some games deliver curb and collision FFB spikes well beyond what's safe or comfortable on stronger wheelbases (Assetto Corsa is the worst offender we've seen). Hits can be sharp enough to wrench the wheel against your grip, ruin a racing line, or strain your wrists on a long session. This attenuates spikes only; sustained cornering load is untouched. Lower values = stronger reduction."/>
                         <Grid Margin="0,0,0,2">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Spike attenuation:" Style="{StaticResource LabelText}"/>

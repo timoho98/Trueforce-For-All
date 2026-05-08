@@ -66,13 +66,13 @@ in real time, mixing several signal sources:
   wheel as a low-latency buzz. Lets you feel things the telemetry doesn't
   expose.
   
-- **FFB pass-through with spike taming.** When a game already drives the
-  wheel via standard HID++ force feedback (Assetto Corsa does), the
+- **FFB pass-through with spike reduction.** When a game already drives
+  the wheel via standard HID++ force feedback (Assetto Corsa does), the
   plugin transparently taps that signal off the USB bus and mirrors it
   into the Trueforce stream so cornering load coexists with the haptic
-  effects above. An optional spike-taming filter brings AC's notoriously
-  over-the-top curb and collision FFB down to comfortable levels (see
-  the AC note above).
+  effects above. An optional spike-reduction filter brings AC's
+  notoriously over-the-top curb and collision FFB down to comfortable
+  levels (see the bonus note above).
 
 All of it is configurable per-game, per-car, via SimHub's settings UI:
 master gain, individual effect tuning, sidechain ducking between
