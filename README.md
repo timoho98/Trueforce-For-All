@@ -10,20 +10,22 @@ no Logitech SDK, no G HUB integration, no whitelist.
 Tested on a GPRO wheel with Assetto Corsa and Wreckfest 2. Works in principle with any game
 SimHub can read telemetry from.
 
-**Bonus for Assetto Corsa users:** the plugin includes optional FFB spike
-taming that's useful on its own, even with the Trueforce effects all
-turned off. AC delivers curb and collision FFB spikes wildly out of
-proportion to what's safe or comfortable. On a strong wheelbase they can
-be sharp enough to wrench the wheel against your grip, ruin a racing
-line, or cause real wrist strain over a session. iRacing has a built-in
-option to soften this; AC doesn't. The plugin taps the game's outgoing
-FFB on the USB bus and attenuates spikes only, so curbs become something
-you can drive over confidently. Sustained forces (cornering load, weight
-transfer) pass through untouched. This still requires one of the
-supported Logitech Trueforce wheels in the table below, since the
-modified FFB reaches the wheel through the Trueforce endpoint; support
-for non-Trueforce wheels would need a different attenuation point and
-isn't implemented yet.
+**Bonus: optional FFB spike reduction.** Useful on its own, even with
+the Trueforce effects all turned off. Some games deliver curb and
+collision FFB spikes wildly out of proportion to what's safe or
+comfortable. On a strong wheelbase they can be sharp enough to wrench
+the wheel against your grip, ruin a racing line, or cause real wrist
+strain over a session. Assetto Corsa is the worst offender we've seen
+and was the original motivation, but the feature works in any game
+whose FFB goes through standard HID++ force feedback. iRacing has a
+built-in option to soften this; most other games don't. The plugin
+taps the game's outgoing FFB on the USB bus and attenuates spikes only,
+so curbs land as confident pushes instead of yanks; sustained cornering
+load and weight transfer pass through untouched. This still requires
+one of the supported Logitech Trueforce wheels in the table below,
+since the modified FFB reaches the wheel through the Trueforce
+endpoint; support for non-Trueforce wheels would need a different
+attenuation point and isn't implemented yet.
 
 > **Status:** v0.x, actively developed. The plugin is functional today; the
 > default presets are still being tuned. Feedback welcome.
@@ -117,6 +119,22 @@ plugins that share those keep working.
   signal into the Trueforce stream so the two coexist.
 - Logitech G HUB **closed** while playing (it claims the HID interface and
   blocks us from talking to the wheel)
+
+## Known limitations
+
+- **Logitech G HUB must stay closed** the entire time the plugin is in
+  use, not just at launch. G HUB claims the wheel's HID interface and
+  blocks us from talking to it. If G HUB is opened mid-session, close
+  it and reload the SimHub plugin to reattach.
+- **The Trueforce level dial on the wheel doesn't apply** while this
+  plugin is driving Trueforce. Once we take over the ep3 stream, the
+  wheel's own Trueforce intensity scaling stops responding to the dial.
+  Use the in-plugin Master Gain and per-effect Gain controls to set
+  intensity instead; the [mescon Linux driver project][mescon] hit the
+  same limitation and works around it the same way.
+- **Validated only on G PRO + AC + Wreckfest 2** so far. Other supported
+  wheels (RS50) and other SimHub-supported games should work but
+  haven't been tested by us yet. Feedback welcome.
 
 ## Build from source
 
