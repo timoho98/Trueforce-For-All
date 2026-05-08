@@ -18,6 +18,7 @@ By default the plugin runs on SimHub's universal 60 Hz telemetry feed, which car
 **Forza Horizon 4/5/6 and Forza Motorsport** also have a direct UDP Data Out reader that picks up per-tire fields for the surface-texture, rumble strips, and curb collision effects. This additional surface information is updated at 60hz but allows for more depth in surface detail effects than some other titles may offer.  
 
 Additional per-title enhancements will be added over time. 
+
 **Bonus: optional FFB spike reduction.**  Some games deliver curb and
 collision FFB spikes wildly out of proportion to what's safe or
 comfortable. On a strong wheelbase they can be sharp enough to ruin a racing line, or cause real wrist
