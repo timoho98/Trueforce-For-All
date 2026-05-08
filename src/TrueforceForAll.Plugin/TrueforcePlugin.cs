@@ -47,11 +47,11 @@ namespace TrueforceForAll.Plugin
         // per-car values.
         private CarPresetStore _carStore;
 
-        // Snapshot of each car's override AS OF its last save. Used by
-        // IsSectionDirty to tell whether an override section has been
-        // edited since the last "For this car" save, without re-reading
-        // the file. Updated on every PersistActiveCarOverride; invalidated
-        // by ResetCarToGameDefaults.
+        // Snapshot of each car's override AS OF its last save / load. Used
+        // by IsSectionDirty to tell whether an override section has been
+        // edited since the last save, without re-reading the file. Updated
+        // by PersistActiveCarOverride / SaveActiveCarPresetAs / preset
+        // switch; invalidated by DeleteCarPreset.
         private Dictionary<string, CarOverride> _lastPersistedCarOverrides = new Dictionary<string, CarOverride>();
 
         private TrueforceDevice _device;
@@ -1059,26 +1059,40 @@ namespace TrueforceForAll.Plugin
         }
 
         /// <summary>One-shot migration + initial load for per-car preset files.
-        /// Files are the canonical store post-Model-G; this routine seeds
-        /// the store from any existing Settings.CarOverrides / preset.CarOverrides
-        /// data on first run after upgrade, then loads files back into the
-        /// in-memory cache (Settings.CarOverrides) so reads are fast.
+        /// Files are the canonical store post-Model-G. Steps, in order:
         ///
-        /// File-wins-on-conflict ordering: pre-existing files are authoritative,
-        /// so re-running migration won't clobber files the user has already
-        /// edited.</summary>
+        ///   1. Seed file store from legacy data sources (in-Settings
+        ///      CarOverrides, preset-nested CarOverrides) for upgrades from
+        ///      pre-files versions. File-wins-on-conflict so re-runs don't
+        ///      clobber files the user has already edited.
+        ///   2. Migrate v1 single-preset-per-car files to the v2
+        ///      multi-preset naming (<c>&lt;carId&gt;~&lt;presetName&gt;.tfcar.json</c>)
+        ///      with PresetName=CarId. Each migrated car gets a CarDefaults
+        ///      entry pointing at its migrated user preset, so the active
+        ///      override doesn't change.
+        ///   3. Install / refresh built-in factory car presets shipped via
+        ///      BuiltinCarPresets. Always rewrites factory files so a future
+        ///      release that updates a default just lands.
+        ///   4. Load every preset back into memory and resolve the active
+        ///      preset for each car into Settings.CarOverrides (the live
+        ///      cache the effects read from).</summary>
         private void LoadAndMigrateCarPresets()
         {
             if (Settings == null || _carStore == null) return;
             if (Settings.CarOverrides == null) Settings.CarOverrides = new Dictionary<string, CarOverride>();
+            if (Settings.CarDefaults  == null) Settings.CarDefaults  = new Dictionary<string, string>();
 
             // 1) Migrate Settings.CarOverrides → files (only if no file yet).
+            //    Use carId as the preset name so the migrated entry has a
+            //    stable identity in the new multi-preset model.
             int migrated = 0;
             foreach (var kv in new Dictionary<string, CarOverride>(Settings.CarOverrides))
             {
                 if (kv.Value == null || kv.Value.IsEmpty) continue;
-                if (_carStore.Exists(kv.Key)) continue;
-                _carStore.Save(kv.Key, _activeGame ?? "", kv.Value);
+                if (_carStore.Exists(kv.Key, kv.Key)) continue;
+                _carStore.Save(kv.Key, kv.Key, _activeGame ?? "", kv.Value, isBuiltin: false);
+                if (!Settings.CarDefaults.ContainsKey(kv.Key))
+                    Settings.CarDefaults[kv.Key] = kv.Key;
                 migrated++;
             }
             // 2) Migrate each preset's CarOverrides → files (file-wins).
@@ -1093,22 +1107,73 @@ namespace TrueforceForAll.Plugin
                     foreach (var carKv in snap.CarOverrides)
                     {
                         if (carKv.Value == null || carKv.Value.IsEmpty) continue;
-                        if (_carStore.Exists(carKv.Key)) continue;
-                        _carStore.Save(carKv.Key, "", carKv.Value);
+                        if (_carStore.Exists(carKv.Key, carKv.Key)) continue;
+                        _carStore.Save(carKv.Key, carKv.Key, "", carKv.Value, isBuiltin: false);
+                        if (!Settings.CarDefaults.ContainsKey(carKv.Key))
+                            Settings.CarDefaults[carKv.Key] = carKv.Key;
                         migrated++;
                     }
                 }
             }
-            // 3) Load all files back into the in-memory cache AND seed the
-            //    last-persisted snapshot so freshly-loaded cars start clean.
-            var loaded = _carStore.LoadAll();
-            foreach (var kv in loaded)
+
+            // 3) Migrate v1 single-preset files to v2 multi-preset naming
+            //    (<carId>.tfcar.json → <carId>~<carId>.tfcar.json with
+            //    PresetName=CarId, IsBuiltin=false). For each carId migrated
+            //    that doesn't yet have a CarDefaults entry, point CarDefaults
+            //    at the migrated user preset so the user's existing tunings
+            //    stay active.
+            var legacyMigrated = _carStore.MigrateLegacyFiles();
+            foreach (var carId in legacyMigrated)
             {
-                Settings.CarOverrides[kv.Key] = kv.Value;
-                _lastPersistedCarOverrides[kv.Key] = CloneCarOverride(kv.Value);
+                if (!Settings.CarDefaults.ContainsKey(carId))
+                    Settings.CarDefaults[carId] = carId;
+                migrated++;
             }
-            if (migrated > 0)
-                SimHub.Logging.Current.Info($"[Trueforce] Migrated {migrated} per-car override(s) to per-car files.");
+
+            // 4) Install / refresh built-in factory car presets. Always runs:
+            //    if a future release updates a default tuning the new content
+            //    lands; user-saved files are untouched (different filenames).
+            int builtinsWritten = _carStore.InstallOrUpdateBuiltinCarPresets(BuiltinCarPresets.PresetJsons);
+
+            // 5) Load every preset back into memory and resolve the active
+            //    preset per car into Settings.CarOverrides. Active selection:
+            //    Settings.CarDefaults[carId] → that preset; else the first
+            //    builtin "(default)" found; else nothing.
+            var loaded = _carStore.LoadAll();
+            foreach (var carKv in loaded)
+            {
+                string carId    = carKv.Key;
+                var perCar      = carKv.Value;
+                string activeName = ResolveActiveCarPresetName(carId, perCar);
+                if (activeName != null && perCar.TryGetValue(activeName, out var entry))
+                {
+                    Settings.CarOverrides[carId] = entry.Override;
+                    _lastPersistedCarOverrides[carId] = CloneCarOverride(entry.Override);
+                    if (!Settings.CarDefaults.ContainsKey(carId))
+                        Settings.CarDefaults[carId] = activeName;
+                }
+            }
+
+            if (migrated > 0 || builtinsWritten > 0)
+                SimHub.Logging.Current.Info(
+                    $"[Trueforce] Car presets: migrated {migrated} legacy entries, wrote {builtinsWritten} builtin preset(s).");
+        }
+
+        /// <summary>Pick the preset to load for a car. CarDefaults[carId]
+        /// wins if it points at a real preset on disk; else fall back to the
+        /// first built-in "(default)" preset for the car; else null (no
+        /// active preset, effects fall through to globals).</summary>
+        private string ResolveActiveCarPresetName(string carId,
+            IReadOnlyDictionary<string, CarPresetEntry> perCar)
+        {
+            if (Settings?.CarDefaults != null
+                && Settings.CarDefaults.TryGetValue(carId, out var name)
+                && !string.IsNullOrEmpty(name)
+                && perCar.ContainsKey(name))
+                return name;
+            foreach (var kv in perCar)
+                if (kv.Value.IsBuiltin) return kv.Key;
+            return null;
         }
 
         /// <summary>Deep-clone a CarOverride so the last-persisted snapshot
@@ -1127,44 +1192,158 @@ namespace TrueforceForAll.Plugin
             };
         }
 
-        /// <summary>Write the active car's override to its per-car file
-        /// and update the last-persisted snapshot used for dirty checks.
-        /// Called by explicit user save actions ("For this car",
-        /// "Update game defaults"). NOT auto-called from slider edits —
-        /// per-car saves are explicit.</summary>
-        public void PersistActiveCarOverride()
+        /// <summary>Write the active car's override to the active car preset
+        /// file (Settings.CarDefaults[activeCarId]) and update the
+        /// last-persisted snapshot. Refuses to overwrite a built-in factory
+        /// preset; callers must check IsActiveCarPresetBuiltin() and fork
+        /// via SaveActiveCarPresetAs(newName) instead. Returns true if the
+        /// write happened.</summary>
+        public bool PersistActiveCarOverride()
         {
-            if (_carStore == null || string.IsNullOrEmpty(_activeCarId) || Settings?.CarOverrides == null) return;
+            if (_carStore == null || string.IsNullOrEmpty(_activeCarId) || Settings?.CarOverrides == null) return false;
+            string presetName = GetActiveCarPresetName(_activeCarId);
+            if (string.IsNullOrEmpty(presetName)) return false;
+            if (IsCarPresetBuiltin(_activeCarId, presetName)) return false;
+
             Settings.CarOverrides.TryGetValue(_activeCarId, out var ovr);
-            _carStore.Save(_activeCarId, _activeGame ?? "", ovr);
-            // Refresh dirty baseline. Empty / null override → no saved file
-            // exists, so drop from the snapshot too.
+            _carStore.Save(_activeCarId, presetName, _activeGame ?? "", ovr, isBuiltin: false);
             if (ovr == null || ovr.IsEmpty)
                 _lastPersistedCarOverrides.Remove(_activeCarId);
             else
                 _lastPersistedCarOverrides[_activeCarId] = CloneCarOverride(ovr);
+            return true;
+        }
+
+        /// <summary>Fork the current live override into a new user preset
+        /// for the active car. Sets CarDefaults[activeCarId] to the new
+        /// name. Returns true on success. Used by the UI fork-on-default
+        /// flow when the user saves changes while on a built-in preset.</summary>
+        public bool SaveActiveCarPresetAs(string newPresetName)
+        {
+            if (_carStore == null || Settings == null || string.IsNullOrEmpty(_activeCarId)) return false;
+            if (string.IsNullOrEmpty(newPresetName)) return false;
+            Settings.CarOverrides.TryGetValue(_activeCarId, out var ovr);
+            _carStore.Save(_activeCarId, newPresetName, _activeGame ?? "", ovr, isBuiltin: false);
+            if (Settings.CarDefaults == null) Settings.CarDefaults = new Dictionary<string, string>();
+            Settings.CarDefaults[_activeCarId] = newPresetName;
+            if (ovr == null || ovr.IsEmpty)
+                _lastPersistedCarOverrides.Remove(_activeCarId);
+            else
+                _lastPersistedCarOverrides[_activeCarId] = CloneCarOverride(ovr);
+            return true;
         }
 
         /// <summary>Wipe a car's per-car file AND its in-memory override.
-        /// The car will fall back to the game preset's globals on its next
-        /// detection.</summary>
-        public void ResetCarToGameDefaults(string carId)
+        /// Refused for built-in presets (delete-protection). The car will
+        /// fall back to the next-best preset (factory default if one exists,
+        /// else globals) on its next ApplyActiveCarOverride.</summary>
+        public bool DeleteCarPreset(string carId, string presetName)
         {
-            if (_carStore == null || string.IsNullOrEmpty(carId)) return;
-            _carStore.Delete(carId);
-            if (Settings?.CarOverrides != null) Settings.CarOverrides.Remove(carId);
-            _lastPersistedCarOverrides.Remove(carId);
-            if (carId == _activeCarId) ApplyActiveCarOverride();
+            if (_carStore == null || string.IsNullOrEmpty(carId) || string.IsNullOrEmpty(presetName)) return false;
+            if (IsCarPresetBuiltin(carId, presetName)) return false;
+            _carStore.Delete(carId, presetName);
+            if (Settings?.CarDefaults != null
+                && Settings.CarDefaults.TryGetValue(carId, out var active)
+                && string.Equals(active, presetName, StringComparison.Ordinal))
+            {
+                Settings.CarDefaults.Remove(carId);
+                if (carId == _activeCarId)
+                    ReloadActiveCarOverrideFromStore();
+            }
+            return true;
         }
 
-        /// <summary>"For this car" save action: ensures the section has a
-        /// per-car override containing the section's current values, then
-        /// persists the file. If no override exists yet, snapshots from
-        /// globals (where current edits live). If override already exists,
-        /// keeps the existing values (where current edits live) and just
-        /// writes them through. Either way, the file matches the in-memory
-        /// state after this call.</summary>
-        public void SaveSectionForCar(SectionKind kind)
+        /// <summary>Re-resolve the active preset for the active car after a
+        /// preset switch / delete and update Settings.CarOverrides + the
+        /// persisted-snapshot baseline + the live effect parameters.</summary>
+        public void ReloadActiveCarOverrideFromStore()
+        {
+            if (string.IsNullOrEmpty(_activeCarId) || Settings == null || _carStore == null) return;
+            var loaded = _carStore.LoadAll();
+            if (!loaded.TryGetValue(_activeCarId, out var perCar) || perCar.Count == 0)
+            {
+                Settings.CarOverrides.Remove(_activeCarId);
+                _lastPersistedCarOverrides.Remove(_activeCarId);
+                ApplyActiveCarOverride();
+                return;
+            }
+            string activeName = ResolveActiveCarPresetName(_activeCarId, perCar);
+            if (activeName != null && perCar.TryGetValue(activeName, out var entry))
+            {
+                Settings.CarOverrides[_activeCarId] = entry.Override;
+                _lastPersistedCarOverrides[_activeCarId] = CloneCarOverride(entry.Override);
+                if (Settings.CarDefaults == null) Settings.CarDefaults = new Dictionary<string, string>();
+                Settings.CarDefaults[_activeCarId] = activeName;
+            }
+            else
+            {
+                Settings.CarOverrides.Remove(_activeCarId);
+                _lastPersistedCarOverrides.Remove(_activeCarId);
+            }
+            ApplyActiveCarOverride();
+        }
+
+        /// <summary>Switch the active preset for a car to the named one and
+        /// reload the override into live state. Used by the dropdown.</summary>
+        public bool SwitchActiveCarPreset(string carId, string presetName)
+        {
+            if (string.IsNullOrEmpty(carId) || string.IsNullOrEmpty(presetName)) return false;
+            if (Settings == null) return false;
+            if (Settings.CarDefaults == null) Settings.CarDefaults = new Dictionary<string, string>();
+            Settings.CarDefaults[carId] = presetName;
+            if (carId == _activeCarId) ReloadActiveCarOverrideFromStore();
+            return true;
+        }
+
+        /// <summary>Returns the preset name currently active for a car
+        /// (CarDefaults lookup), or null if unset.</summary>
+        public string GetActiveCarPresetName(string carId)
+        {
+            if (Settings?.CarDefaults == null || string.IsNullOrEmpty(carId)) return null;
+            return Settings.CarDefaults.TryGetValue(carId, out var n) ? n : null;
+        }
+
+        /// <summary>Returns all presets currently on disk for a car. Empty
+        /// dict if the car has none. Used by the UI to populate the
+        /// per-car preset dropdown.</summary>
+        public IReadOnlyDictionary<string, CarPresetEntry> GetCarPresets(string carId)
+        {
+            if (_carStore == null || string.IsNullOrEmpty(carId))
+                return new Dictionary<string, CarPresetEntry>();
+            var loaded = _carStore.LoadAll();
+            return loaded.TryGetValue(carId, out var perCar)
+                ? perCar
+                : new Dictionary<string, CarPresetEntry>();
+        }
+
+        /// <summary>True iff the named car preset is a factory built-in.
+        /// Built-ins refuse delete and refuse in-place save; the UI must
+        /// fork to a user-named preset.</summary>
+        public bool IsCarPresetBuiltin(string carId, string presetName)
+        {
+            if (_carStore == null || string.IsNullOrEmpty(carId) || string.IsNullOrEmpty(presetName))
+                return false;
+            var loaded = _carStore.LoadAll();
+            if (!loaded.TryGetValue(carId, out var perCar)) return false;
+            return perCar.TryGetValue(presetName, out var entry) && entry.IsBuiltin;
+        }
+
+        /// <summary>True iff the active preset for the active car is a
+        /// factory built-in. Used by the UI to gate save behavior.</summary>
+        public bool IsActiveCarPresetBuiltin()
+        {
+            if (string.IsNullOrEmpty(_activeCarId)) return false;
+            string presetName = GetActiveCarPresetName(_activeCarId);
+            return !string.IsNullOrEmpty(presetName) && IsCarPresetBuiltin(_activeCarId, presetName);
+        }
+
+        /// <summary>Snapshot a section's current values into the per-car
+        /// override (in-memory only; does NOT write to disk). If the
+        /// section already has an override, keeps it as-is. After this call
+        /// Settings.CarOverrides[activeCarId] reflects what would be saved
+        /// to disk; the caller decides whether to persist (in-place save)
+        /// or fork to a new user preset.</summary>
+        public void SnapshotSectionToCarOverride(SectionKind kind)
         {
             if (string.IsNullOrEmpty(_activeCarId) || Settings == null) return;
             if (Settings.CarOverrides == null) Settings.CarOverrides = new Dictionary<string, CarOverride>();
@@ -1183,7 +1362,6 @@ namespace TrueforceForAll.Plugin
                 case SectionKind.Audio:    if (ovr.AudioCapture == null) ovr.AudioCapture = CloneOrNull(Settings.AudioCapture); break;
                 default: return;  // Master / Ducking aren't per-car
             }
-            PersistActiveCarOverride();
             ApplyActiveCarOverride();
         }
 
@@ -1846,19 +2024,46 @@ namespace TrueforceForAll.Plugin
                     AudioCapture = CloneOrNull(ActiveAudio),
                 };
             }
-            var file = new CarPresetFile { GameName = _activeGame, CarId = _activeCarId, Override = ovr };
+            // Carry the active preset name into the exported file so a
+            // recipient sees what the author named it. IsBuiltin is forced
+            // false on export — only the plugin's bundled factory files are
+            // built-ins; an exported community preset is always user-tier.
+            string presetName = GetActiveCarPresetName(_activeCarId) ?? _activeCarId;
+            var file = new CarPresetFile
+            {
+                GameName   = _activeGame,
+                CarId      = _activeCarId,
+                PresetName = StripDefaultSuffixForExport(presetName),
+                IsBuiltin  = false,
+                Override   = ovr,
+            };
             System.IO.File.WriteAllText(path,
                 Newtonsoft.Json.JsonConvert.SerializeObject(file, Newtonsoft.Json.Formatting.Indented));
-            SimHub.Logging.Current.Info($"[Trueforce] Exported car preset for '{_activeCarId}' to {path}.");
+            SimHub.Logging.Current.Info($"[Trueforce] Exported car preset '{file.PresetName}' for '{_activeCarId}' to {path}.");
         }
 
-        /// <summary>Read a car-preset file and store under its CarId in
-        /// CarOverrides. If the imported CarId matches the active car, the
-        /// override is applied immediately.</summary>
+        // Strip a trailing " (default)" so an exported built-in doesn't
+        // claim to be a built-in on import (which we'd refuse to honor
+        // anyway, but the UX is cleaner without the suffix).
+        private static string StripDefaultSuffixForExport(string name)
+        {
+            const string suffix = " (default)";
+            return !string.IsNullOrEmpty(name) && name.EndsWith(suffix, StringComparison.Ordinal)
+                ? name.Substring(0, name.Length - suffix.Length)
+                : name;
+        }
+
+        /// <summary>Read a car-preset file and add it to the multi-preset
+        /// library under (CarId, PresetName) with IsBuiltin forced to false.
+        /// If a user preset with the same name already exists for this car,
+        /// appends "(N)" to keep both. Sets CarDefaults[carId] = imported
+        /// preset name so the import becomes the active preset for that
+        /// car. Applied immediately if the imported CarId matches the
+        /// active car.</summary>
         /// <returns>The car id from the imported file (for UI feedback).</returns>
         public string ImportCarPreset(string path)
         {
-            if (Settings == null) return null;
+            if (Settings == null || _carStore == null) return null;
             string json = System.IO.File.ReadAllText(path);
             var file = Newtonsoft.Json.JsonConvert.DeserializeObject<CarPresetFile>(json);
             if (file == null || file.Override == null || string.IsNullOrEmpty(file.CarId))
@@ -1866,12 +2071,37 @@ namespace TrueforceForAll.Plugin
             if (file.Type != CarPresetFile.FileType)
                 throw new System.IO.InvalidDataException($"Wrong file type '{file.Type}'. Expected '{CarPresetFile.FileType}'.");
 
-            Settings.CarOverrides[file.CarId] = file.Override;
+            // PresetName may be missing on legacy v1 imports — fall back to
+            // the carId. IsBuiltin is force-cleared regardless of source.
+            string desired = string.IsNullOrEmpty(file.PresetName) ? file.CarId : file.PresetName;
+            string presetName = MakeUniqueCarPresetName(file.CarId, desired);
+            _carStore.Save(file.CarId, presetName, file.GameName ?? "", file.Override, isBuiltin: false);
+
+            if (Settings.CarDefaults == null) Settings.CarDefaults = new Dictionary<string, string>();
+            Settings.CarDefaults[file.CarId] = presetName;
             this.SaveCommonSettings("GeneralSettings", Settings);
 
-            if (file.CarId == _activeCarId) ApplyActiveCarOverride();
-            SimHub.Logging.Current.Info($"[Trueforce] Imported car preset for '{file.CarId}' from {path}.");
+            if (file.CarId == _activeCarId) ReloadActiveCarOverrideFromStore();
+            SimHub.Logging.Current.Info(
+                $"[Trueforce] Imported car preset '{presetName}' for '{file.CarId}' from {path}.");
             return file.CarId;
+        }
+
+        // Append "(2)", "(3)", … to the desired name until it's unique
+        // among the existing presets for this car. Avoids accidentally
+        // clobbering a user preset with the same name as the import.
+        private string MakeUniqueCarPresetName(string carId, string desired)
+        {
+            if (_carStore == null || string.IsNullOrEmpty(desired)) return desired;
+            var loaded = _carStore.LoadAll();
+            if (!loaded.TryGetValue(carId, out var perCar)) return desired;
+            if (!perCar.ContainsKey(desired)) return desired;
+            for (int i = 2; i < 100; i++)
+            {
+                string candidate = $"{desired} ({i})";
+                if (!perCar.ContainsKey(candidate)) return candidate;
+            }
+            return $"{desired} ({DateTime.Now:HHmmss})";
         }
 
         // ---------- export / import ----------

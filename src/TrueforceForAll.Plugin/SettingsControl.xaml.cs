@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -185,9 +186,9 @@ namespace TrueforceForAll.Plugin
                 HeaderCarText.Text  = string.IsNullOrEmpty(_plugin.ActiveCarId) ? "(none)" : _plugin.ActiveCarId;
 
                 bool carDetected = !string.IsNullOrEmpty(_plugin.ActiveCarId);
-                ResetCarOverridesButton.IsEnabled = carDetected;
                 ExportCarPresetButton.IsEnabled   = carDetected;
                 ImportCarPresetButton.IsEnabled   = true;
+                RefreshCarPresetCombo();
 
                 // Skip-passthrough makes the FFB tuning controls (scale/smooth/invert/
                 // safety limiters) irrelevant — game writes the wheel directly. Grey
@@ -804,16 +805,221 @@ namespace TrueforceForAll.Plugin
 
         // ---------- Active car ----------
 
-        private void ResetCarOverrides_Click(object sender, RoutedEventArgs e)
+        // ---------- Active car preset dropdown / save / delete ----------
+
+        /// <summary>Repopulate the active-car preset dropdown from the
+        /// store and select the currently-active preset. Built-in (default)
+        /// presets get sorted to the top with a "(default)" suffix already
+        /// in their name. Save / Delete enabled state derives from the
+        /// active preset's IsBuiltin and whether a car is detected.</summary>
+        private void RefreshCarPresetCombo()
+        {
+            if (_plugin == null) { CarPresetCombo.IsEnabled = false; SaveCarPresetButton.IsEnabled = false; DeleteCarPresetButton.IsEnabled = false; return; }
+            string carId = _plugin.ActiveCarId;
+            bool   carDetected = !string.IsNullOrEmpty(carId);
+
+            CarPresetCombo.IsEnabled = carDetected;
+            SaveCarPresetButton.IsEnabled   = carDetected;
+            DeleteCarPresetButton.IsEnabled = false;
+
+            bool prevSuppress = _suppressEvents;
+            _suppressEvents = true;
+            try
+            {
+                CarPresetCombo.Items.Clear();
+                if (!carDetected) return;
+
+                var presets = _plugin.GetCarPresets(carId);
+                string activeName = _plugin.GetActiveCarPresetName(carId);
+
+                // Built-ins first (alpha), then user presets (alpha).
+                var ordered = new List<CarPresetEntry>();
+                foreach (var kv in presets) if (kv.Value.IsBuiltin) ordered.Add(kv.Value);
+                foreach (var kv in presets) if (!kv.Value.IsBuiltin) ordered.Add(kv.Value);
+                ordered.Sort((a, b) =>
+                {
+                    if (a.IsBuiltin != b.IsBuiltin) return a.IsBuiltin ? -1 : 1;
+                    return string.Compare(a.PresetName, b.PresetName, StringComparison.OrdinalIgnoreCase);
+                });
+
+                foreach (var entry in ordered)
+                {
+                    var item = new System.Windows.Controls.ComboBoxItem
+                    {
+                        Content = entry.PresetName,
+                        Tag     = entry.PresetName,
+                    };
+                    CarPresetCombo.Items.Add(item);
+                    if (string.Equals(entry.PresetName, activeName, StringComparison.Ordinal))
+                        CarPresetCombo.SelectedItem = item;
+                }
+
+                // No matching active in dropdown (e.g. CarDefaults points at
+                // a deleted preset) → leave the dropdown blank rather than
+                // silently picking the first item.
+                if (CarPresetCombo.SelectedItem == null && CarPresetCombo.Items.Count > 0
+                    && string.IsNullOrEmpty(activeName))
+                {
+                    // Active is unset and presets exist; let the user pick.
+                }
+
+                // Delete is enabled only when a non-builtin preset is active.
+                if (!string.IsNullOrEmpty(activeName) && !_plugin.IsCarPresetBuiltin(carId, activeName))
+                    DeleteCarPresetButton.IsEnabled = true;
+            }
+            finally { _suppressEvents = prevSuppress; }
+        }
+
+        private void CarPresetCombo_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            string carId = _plugin.ActiveCarId;
+            if (string.IsNullOrEmpty(carId)) return;
+            if (!(CarPresetCombo.SelectedItem is System.Windows.Controls.ComboBoxItem item)) return;
+            if (!(item.Tag is string presetName) || string.IsNullOrEmpty(presetName)) return;
+            if (string.Equals(presetName, _plugin.GetActiveCarPresetName(carId), StringComparison.Ordinal))
+                return;
+            _plugin.SwitchActiveCarPreset(carId, presetName);
+            RefreshFromPlugin();
+        }
+
+        private void SaveCarPreset_Click(object sender, RoutedEventArgs e)
         {
             if (_plugin == null || string.IsNullOrEmpty(_plugin.ActiveCarId)) return;
-            string carId = _plugin.ActiveCarId;
+            string carId       = _plugin.ActiveCarId;
+            string activeName  = _plugin.GetActiveCarPresetName(carId);
+            bool   onBuiltin   = !string.IsNullOrEmpty(activeName)
+                                 && _plugin.IsCarPresetBuiltin(carId, activeName);
+
+            if (string.IsNullOrEmpty(activeName) || onBuiltin)
+            {
+                // No active preset, or active is a built-in: prompt for a
+                // new user-preset name and fork.
+                string suggestion = onBuiltin
+                    ? StripDefaultSuffix(activeName)
+                    : carId;
+                string newName = PromptForCarPresetName(
+                    title: "Save as new car preset",
+                    body: onBuiltin
+                        ? $"'{activeName}' is a built-in default. Save the current tuning as a new user preset for '{carId}':"
+                        : $"Save the current tuning as a new user preset for '{carId}':",
+                    initial: suggestion,
+                    existing: _plugin.GetCarPresets(carId));
+                if (string.IsNullOrEmpty(newName)) return;
+                _plugin.SaveActiveCarPresetAs(newName);
+            }
+            else
+            {
+                // On a user preset: in-place save.
+                if (!_plugin.PersistActiveCarOverride())
+                {
+                    MessageBox.Show("Save failed (see SimHub log for details).", "Trueforce");
+                    return;
+                }
+            }
+            RefreshFromPlugin();
+        }
+
+        private void DeleteCarPreset_Click(object sender, RoutedEventArgs e)
+        {
+            if (_plugin == null || string.IsNullOrEmpty(_plugin.ActiveCarId)) return;
+            string carId      = _plugin.ActiveCarId;
+            string activeName = _plugin.GetActiveCarPresetName(carId);
+            if (string.IsNullOrEmpty(activeName)) return;
+            if (_plugin.IsCarPresetBuiltin(carId, activeName))
+            {
+                MessageBox.Show(
+                    $"'{activeName}' is a built-in default and can't be deleted.",
+                    "Trueforce");
+                return;
+            }
             if (MessageBox.Show(
-                    $"Reset '{carId}' to game defaults? Deletes this car's per-car preset file; the car will use the active game preset's globals.",
+                    $"Delete user preset '{activeName}' for '{carId}'? The car will fall back to its built-in default if one exists, otherwise to the active game preset's globals.",
                     "Trueforce", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
                 return;
-            _plugin.ResetCarToGameDefaults(carId);
+            _plugin.DeleteCarPreset(carId, activeName);
             RefreshFromPlugin();
+        }
+
+        /// <summary>Strip a trailing " (default)" suffix from a preset name
+        /// so the suggested fork name doesn't end up as
+        /// "X (default) (something)". Returns the original string when no
+        /// suffix is present.</summary>
+        private static string StripDefaultSuffix(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return name;
+            const string suffix = " (default)";
+            return name.EndsWith(suffix, StringComparison.Ordinal)
+                ? name.Substring(0, name.Length - suffix.Length)
+                : name;
+        }
+
+        /// <summary>Modal name-prompt for car preset save. Disallows empty
+        /// names, the suffix "(default)" (built-in territory), and names
+        /// already taken by another preset for this car. Returns the
+        /// chosen name, or null on cancel / invalid.</summary>
+        private string PromptForCarPresetName(string title, string body, string initial,
+                                              IReadOnlyDictionary<string, CarPresetEntry> existing)
+        {
+            var win = new Window
+            {
+                Title  = title,
+                Width  = 460,
+                Height = 200,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ResizeMode    = ResizeMode.NoResize,
+                ShowInTaskbar = false,
+                Owner = Window.GetWindow(this),
+            };
+            if (win.Owner == null) win.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+
+            var sp = new StackPanel { Margin = new Thickness(14) };
+            sp.Children.Add(new TextBlock
+            {
+                Text = body,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 10),
+            });
+            var box = new System.Windows.Controls.TextBox { Text = initial ?? "", Height = 26 };
+            sp.Children.Add(box);
+            var error = new TextBlock { FontSize = 11, Foreground = System.Windows.Media.Brushes.Red, Margin = new Thickness(0, 6, 0, 0) };
+            sp.Children.Add(error);
+            var btnRow = new StackPanel
+            {
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 12, 0, 0),
+            };
+            var ok     = new Button { Content = "Save", Width = 80, Height = 26, Margin = new Thickness(0, 0, 6, 0), IsDefault = true };
+            var cancel = new Button { Content = "Cancel", Width = 80, Height = 26, IsCancel = true };
+            btnRow.Children.Add(ok); btnRow.Children.Add(cancel);
+            sp.Children.Add(btnRow);
+            win.Content = sp;
+
+            string chosen = null;
+            ok.Click += (_, __) =>
+            {
+                string name = (box.Text ?? "").Trim();
+                if (string.IsNullOrEmpty(name)) { error.Text = "Name can't be empty."; return; }
+                if (name.EndsWith("(default)", StringComparison.OrdinalIgnoreCase))
+                {
+                    error.Text = "Names ending with '(default)' are reserved for built-ins.";
+                    return;
+                }
+                if (existing != null && existing.ContainsKey(name))
+                {
+                    error.Text = $"A preset named '{name}' already exists for this car.";
+                    return;
+                }
+                chosen = name;
+                win.DialogResult = true;
+                win.Close();
+            };
+            box.Focus();
+            box.SelectAll();
+            win.ShowDialog();
+            return chosen;
         }
 
         // ---------- Engine pulse ----------
@@ -1210,13 +1416,43 @@ namespace TrueforceForAll.Plugin
         }
 
         /// <summary>Per-car save for one effect: writes the section's
-        /// current values to the per-car file. If the section had no
-        /// override, snapshots from globals; if it had one, just persists
-        /// the existing values. After save, the file matches in-memory →
-        /// section is clean.</summary>
+        /// current values to the active car preset's file. When on a
+        /// built-in default, prompts for a new user-preset name and forks
+        /// instead of overwriting the factory file (built-ins are
+        /// read-only). On a user preset, in-place save.</summary>
         private void ApplyEffectSaveForCar(EffectKind which)
         {
-            _plugin.SaveSectionForCar((TrueforcePlugin.SectionKind)(int)which);
+            if (_plugin == null || string.IsNullOrEmpty(_plugin.ActiveCarId)) return;
+            string carId      = _plugin.ActiveCarId;
+            string activeName = _plugin.GetActiveCarPresetName(carId);
+            bool   onBuiltin  = !string.IsNullOrEmpty(activeName)
+                                && _plugin.IsCarPresetBuiltin(carId, activeName);
+
+            // Always snapshot the section values into the in-memory override
+            // first so a follow-up save / fork has the right state to write.
+            _plugin.SnapshotSectionToCarOverride((TrueforcePlugin.SectionKind)(int)which);
+
+            if (string.IsNullOrEmpty(activeName) || onBuiltin)
+            {
+                string suggestion = onBuiltin ? StripDefaultSuffix(activeName) : carId;
+                string newName = PromptForCarPresetName(
+                    title: "Save as new car preset",
+                    body: onBuiltin
+                        ? $"'{activeName}' is a built-in default. Save the current tuning as a new user preset for '{carId}':"
+                        : $"Save the current tuning as a new user preset for '{carId}':",
+                    initial: suggestion,
+                    existing: _plugin.GetCarPresets(carId));
+                if (string.IsNullOrEmpty(newName)) return;
+                _plugin.SaveActiveCarPresetAs(newName);
+            }
+            else
+            {
+                if (!_plugin.PersistActiveCarOverride())
+                {
+                    MessageBox.Show("Save failed (see SimHub log for details).", "Trueforce");
+                    return;
+                }
+            }
             RefreshFromPlugin();
         }
 

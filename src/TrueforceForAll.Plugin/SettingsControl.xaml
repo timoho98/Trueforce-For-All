@@ -530,12 +530,27 @@
 
             <!-- Active car -->
             <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Active car" Style="{StaticResource SectionHeaderText}"/></Border>
-            <TextBlock x:Name="ActiveCarHint" Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
-                       Text="Per-car tuning is saved automatically when you click 'Save…' on an effect and pick 'For this car'. Each car gets its own preset file under PluginsData/Common/TrueforceCars; sharing one is just sharing the file."/>
-            <Button x:Name="ResetCarOverridesButton" Content="Reset this car to game defaults"
-                    Width="240" Height="26" HorizontalAlignment="Left" Margin="0,0,0,20"
-                    Click="ResetCarOverrides_Click"
-                    ToolTip="Deletes the per-car preset file for the active car. The car will fall back to the game preset's globals on next detection."/>
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="120"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Active preset:" Style="{StaticResource LabelText}" VerticalAlignment="Center"/>
+                <ComboBox  Grid.Column="1" x:Name="CarPresetCombo"
+                           VerticalAlignment="Center"
+                           SelectionChanged="CarPresetCombo_Changed"
+                           ToolTip="Switch which preset is active for this car. Selecting a preset reloads its tuning into the live effects. (default) presets are built-in and can't be deleted; saving changes while on one forks a new user preset."/>
+                <Button    Grid.Column="2" x:Name="SaveCarPresetButton" Content="Save…" Width="80" Height="26" Margin="6,0,0,0"
+                           Click="SaveCarPreset_Click"
+                           ToolTip="Save the current per-car tuning. On a built-in default this prompts for a new preset name and forks; on a user preset it updates in place."/>
+                <Button    Grid.Column="3" x:Name="DeleteCarPresetButton" Content="Delete" Width="70" Height="26" Margin="6,0,0,0"
+                           Click="DeleteCarPreset_Click"
+                           ToolTip="Delete the active user preset. Built-in (default) presets can't be deleted."/>
+            </Grid>
+            <TextBlock x:Name="ActiveCarHint" Style="{StaticResource HelpText}" Margin="0,0,0,20" FontSize="12"
+                       Text="Per-car tuning lives in named presets under PluginsData/Common/TrueforceCars. Each car can have multiple presets — built-in defaults shipped with the plugin plus any user-saved or imported ones. Sharing a preset is sharing the file."/>
 
             <!-- Effects -->
             <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Effects" Style="{StaticResource SectionHeaderText}"/></Border>

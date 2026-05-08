@@ -105,6 +105,15 @@ namespace TrueforceForAll.Plugin
         // game has a default assigned, that preset auto-loads.
         public Dictionary<string, string> GameDefaults { get; set; } = new Dictionary<string, string>();
 
+        // Per-car active preset assignment. Maps CarId to a preset name in
+        // the on-disk car-preset library (TrueforceCars/). When a car is
+        // detected, the assigned preset's CarOverride loads into the live
+        // CarOverrides cache. Mirrors GameDefaults: a car can have multiple
+        // saved presets (factory + user + imports) and the user picks which
+        // is active per car. Unset = fall back to the factory "(default)"
+        // preset for that car if one exists, else no override.
+        public Dictionary<string, string> CarDefaults { get; set; } = new Dictionary<string, string>();
+
         // LEGACY (pre-2026-05-04): previously presets were keyed by game name
         // with no separate "preset library" concept. Loaded transparently for
         // backward compat and migrated to Presets + GameDefaults on first
@@ -143,7 +152,11 @@ namespace TrueforceForAll.Plugin
     public sealed class AudioCaptureSettings
     {
         public bool   Enabled          { get; set; } = true;
-        public float  Gain             { get; set; } = 1.0f;
+        // 0.06 reflects the much-lower-than-1.0 gain that's actually usable
+        // in practice. Game audio routed through the wheel as haptics is
+        // intense even at 5-10% gain; 1.0 is well past clipping for most
+        // games on most wheelbases.
+        public float  Gain             { get; set; } = 0.06f;
         public double LowpassCutoffHz  { get; set; } = 350.0;
         public double HighpassCutoffHz { get; set; } =  30.0;
     }
@@ -176,7 +189,10 @@ namespace TrueforceForAll.Plugin
     {
         public bool   Enabled   { get; set; } = true;
         public float  Gain      { get; set; } = 1.0f;
-        public int    Cylinders { get; set; } = 4;
+        // 6 covers the most common modern car engine count and is a
+        // reasonable middle ground for cars that haven't had a per-car
+        // override authored yet.
+        public int    Cylinders { get; set; } = 6;
         public float  Pitch     { get; set; } = 1.0f;     // multiplier on firing-freq calc
         public double LowpassHz { get; set; } = 0.0;       // 0 = disabled
 
@@ -250,16 +266,28 @@ namespace TrueforceForAll.Plugin
         public GameSettingsSnapshot Snapshot { get; set; }
     }
 
-    /// <summary>Standalone car-preset file. Wraps a single CarOverride for one
-    /// car. GameName is informational only (so a friend importing a car preset
-    /// knows which sim it was tuned for); the override is keyed on CarId.</summary>
+    /// <summary>Standalone car-preset file. Wraps a single named CarOverride
+    /// for one car. GameName is informational only (so a friend importing a
+    /// car preset knows which sim it was tuned for); the override is keyed
+    /// on CarId + PresetName. Multiple files can exist per car: a factory
+    /// "(default)" preset shipped via BuiltinCarPresets, and any number of
+    /// user-saved presets named whatever the user chose.</summary>
     public sealed class CarPresetFile
     {
         public const string FileType = "trueforce-car-preset";
         public string Type    { get; set; } = FileType;
-        public int    Version { get; set; } = 1;
+        public int    Version { get; set; } = 2;
         public string GameName { get; set; }
         public string CarId    { get; set; }
+        // Added in v2. Old files (v1) loaded with PresetName == null are
+        // treated as legacy user presets and get migrated to PresetName=CarId
+        // by LoadAndMigrateCarPresets on first run.
+        public string PresetName { get; set; }
+        // True for files written by InstallOrUpdateBuiltinCarPresets from
+        // BuiltinCarPresets shipped with the plugin. The runtime refuses to
+        // overwrite these when the user saves changes (forks to a new user
+        // preset instead) and refuses to delete them via the UI.
+        public bool   IsBuiltin { get; set; }
         public CarOverride Override { get; set; }
     }
 
