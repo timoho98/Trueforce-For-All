@@ -52,6 +52,15 @@ PrivilegesRequired=admin
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
 
+; Restart Manager safety net for the upgrade case where SimHub is holding
+; User.TrueforceForAll.dll. Default on Inno Setup 6.x but set explicitly so
+; the behavior is documented and survives Inno upgrades. The custom
+; InitializeSetup check below catches the same case earlier with a
+; friendlier dialog; this catches anything that slips through (e.g. SimHub
+; launched between the check and the [Files] step).
+CloseApplications=yes
+RestartApplications=yes
+
 ; LICENSE in repo root; license page lets users read GPL-2.0 before installing.
 LicenseFile=..\LICENSE
 SetupIconFile=
@@ -188,6 +197,35 @@ begin
   Result := CachedSimHubDir;
 end;
 
+// True if a process named SimHubWPF.exe is currently running. Uses
+// `tasklist` (always available since XP) rather than WMI to keep the check
+// running on machines where the WMI service is disabled. The /NH flag
+// strips the header row; /FI filters by image name.
+function IsSimHubRunning: Boolean;
+var
+  ResultCode: Integer;
+  TmpFile: string;
+  Lines: TArrayOfString;
+  i: Integer;
+begin
+  Result := False;
+  TmpFile := ExpandConstant('{tmp}\tasklist_simhub.txt');
+  if not Exec(ExpandConstant('{cmd}'),
+              '/c tasklist /FI "IMAGENAME eq SimHubWPF.exe" /NH > "' + TmpFile + '"',
+              '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    Exit;
+  if not LoadStringsFromFile(TmpFile, Lines) then Exit;
+  for i := 0 to GetArrayLength(Lines) - 1 do
+  begin
+    if Pos('SimHubWPF.exe', Lines[i]) > 0 then
+    begin
+      Result := True;
+      Break;
+    end;
+  end;
+  DeleteFile(TmpFile);
+end;
+
 function InitializeSetup: Boolean;
 var
   Dir: string;
@@ -208,6 +246,31 @@ begin
     Exit;
   end;
   CachedSimHubDir := Dir;
+
+  // Block install while SimHub is running: it holds the plugin DLL open,
+  // and pushing through anyway leaves either a stale install or a Restart
+  // Manager prompt later in the wizard. Loop until SimHub is closed or
+  // the user cancels. SimHub minimizes to the system tray by default —
+  // closing the window doesn't actually exit it; the user has to
+  // right-click the tray icon and pick Exit.
+  while IsSimHubRunning do
+  begin
+    if MsgBox(
+        'SimHub is currently running.' + #13#10 + #13#10 +
+        'The plugin DLL is loaded into SimHub''s process and can''t be ' +
+        'replaced while SimHub holds it open. Please close SimHub before ' +
+        'continuing.' + #13#10 + #13#10 +
+        'SimHub usually minimizes to the system tray when its window is ' +
+        'closed. To fully exit, right-click the SimHub icon in the tray ' +
+        '(near the clock) and pick Exit.' + #13#10 + #13#10 +
+        'Click Retry once SimHub is closed, or Cancel to abort the install.',
+        mbConfirmation, MB_RETRYCANCEL) <> IDRETRY then
+    begin
+      Result := False;
+      Exit;
+    end;
+  end;
+
   Result := True;
 end;
 
