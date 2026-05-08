@@ -329,8 +329,7 @@ begin
       'Next steps:' + #13#10 + #13#10 +
       '1. Make sure Logitech G HUB is closed (it claims the wheel''s HID interface and blocks this plugin).' + #13#10 + #13#10 +
       '2. Launch SimHub.' + #13#10 + #13#10 +
-      '3. Open the Plugins page (left sidebar). Find "Trueforce For All" in the list and toggle it on if it isn''t already.' + #13#10 + #13#10 +
-      '4. To pin the plugin to the left sidebar for quick access, click the star next to its name on the Plugins page.' + #13#10 + #13#10 +
+      '3. Click "Add/remove feature" at the bottom left of the SimHub window. Find "Trueforce For All" in the list and enable it.' + #13#10 + #13#10 +
       'Then drive a supported game and tune via the plugin''s settings panel.';
   end;
 end;
