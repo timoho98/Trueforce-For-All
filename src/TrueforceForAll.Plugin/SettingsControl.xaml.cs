@@ -32,8 +32,8 @@ namespace TrueforceForAll.Plugin
         // Values mirror TrueforcePlugin.SectionKind so we can pass through.
         // Numeric values mirror TrueforcePlugin.SectionKind so we can pass
         // through with a cast.
-        private enum EffectKind { Master = 0, Ducking = 1, Audio = 2, Engine = 3, Bumps = 4, Traction = 5, Shift = 6, Abs = 7, SpikeReduction = 8 }
-        private readonly bool[] _effectDirty = new bool[9];
+        private enum EffectKind { Master = 0, Ducking = 1, Audio = 2, Engine = 3, Bumps = 4, Traction = 5, Shift = 6, Abs = 7, SpikeReduction = 8, PitLimiter = 9, Drs = 10 }
+        private readonly bool[] _effectDirty = new bool[11];
         private System.Windows.Controls.Button GetEffectSaveBtn(EffectKind which)
         {
             switch (which)
@@ -47,6 +47,8 @@ namespace TrueforceForAll.Plugin
                 case EffectKind.Shift:          return ShiftSaveBtn;
                 case EffectKind.Abs:            return AbsSaveBtn;
                 case EffectKind.SpikeReduction: return SpikeReductionSaveBtn;
+                case EffectKind.PitLimiter:     return PitLimiterSaveBtn;
+                case EffectKind.Drs:            return DrsSaveBtn;
             }
             return null;
         }
@@ -63,6 +65,8 @@ namespace TrueforceForAll.Plugin
                 case EffectKind.Shift:          return ShiftRevertBtn;
                 case EffectKind.Abs:            return AbsRevertBtn;
                 case EffectKind.SpikeReduction: return SpikeReductionRevertBtn;
+                case EffectKind.PitLimiter:     return PitLimiterRevertBtn;
+                case EffectKind.Drs:            return DrsRevertBtn;
             }
             return null;
         }
@@ -79,6 +83,8 @@ namespace TrueforceForAll.Plugin
                 case EffectKind.Shift:          return "Gear shift";
                 case EffectKind.Abs:            return "ABS pulse";
                 case EffectKind.SpikeReduction: return "FFB spike reduction";
+                case EffectKind.PitLimiter:     return "Pit limiter";
+                case EffectKind.Drs:            return "DRS";
             }
             return "section";
         }
@@ -313,21 +319,41 @@ namespace TrueforceForAll.Plugin
                     AbsModeCombo.SelectedIndex    = (int)abs.Mode;
                     SelectWaveform(AbsWaveformCombo, abs.Waveform);
                 }
-                // Pit limiter (minimal UI: enabled + gain only for now)
+                // Pit limiter
                 var pl = _plugin.ActivePitLimiter;
                 if (pl != null && PitLimiterEnabledCheck != null)
                 {
-                    PitLimiterEnabledCheck.IsChecked = pl.Enabled;
-                    PitLimiterGainSlider.Value       = pl.Gain;
-                    PitLimiterGainText.Text          = pl.Gain.ToString("F2");
+                    PitLimiterEnabledCheck.IsChecked    = pl.Enabled;
+                    PitLimiterGainSlider.Value          = pl.Gain;
+                    PitLimiterGainText.Text             = pl.Gain.ToString("F2");
+                    SelectWaveform(PitLimiterWaveformCombo, pl.Waveform);
+                    PitLimiterFreqSlider.Value          = pl.Freq;
+                    PitLimiterFreqText.Text             = ((int)pl.Freq).ToString();
+                    PitLimiterPulseFreqSlider.Value     = pl.PulseFreq;
+                    PitLimiterPulseFreqText.Text        = pl.PulseFreq.ToString("F1");
+                    PitLimiterDutyCycleSlider.Value     = pl.DutyCycle;
+                    PitLimiterDutyCycleText.Text        = pl.DutyCycle.ToString("F2");
+                    PitLimiterActiveAmpSlider.Value     = pl.ActiveAmp;
+                    PitLimiterActiveAmpText.Text        = pl.ActiveAmp.ToString("F2");
                 }
-                // DRS (minimal UI: enabled + gain only for now)
+                // DRS
                 var drs = _plugin.ActiveDrs;
                 if (drs != null && DrsEnabledCheck != null)
                 {
-                    DrsEnabledCheck.IsChecked        = drs.Enabled;
-                    DrsGainSlider.Value              = drs.Gain;
-                    DrsGainText.Text                 = drs.Gain.ToString("F2");
+                    DrsEnabledCheck.IsChecked       = drs.Enabled;
+                    DrsGainSlider.Value             = drs.Gain;
+                    DrsGainText.Text                = drs.Gain.ToString("F2");
+                    SelectWaveform(DrsWaveformCombo, drs.Waveform);
+                    DrsActivationFreqSlider.Value   = drs.ActivationFreq;
+                    DrsActivationFreqText.Text      = ((int)drs.ActivationFreq).ToString();
+                    DrsActivationMsSlider.Value     = drs.ActivationMs;
+                    DrsActivationMsText.Text        = drs.ActivationMs.ToString();
+                    DrsActivationAmpSlider.Value    = drs.ActivationAmp;
+                    DrsActivationAmpText.Text       = drs.ActivationAmp.ToString("F2");
+                    DrsSustainedFreqSlider.Value    = drs.SustainedFreq;
+                    DrsSustainedFreqText.Text       = ((int)drs.SustainedFreq).ToString();
+                    DrsSustainedAmpSlider.Value     = drs.SustainedAmp;
+                    DrsSustainedAmpText.Text        = drs.SustainedAmp.ToString("F2");
                 }
 
                 // Override badges in expander headers — visible only when this
@@ -338,6 +364,10 @@ namespace TrueforceForAll.Plugin
                 TractionOverrideBadge.Visibility = (_plugin.IsTractionOverridden && carDetected) ? Visibility.Visible : Visibility.Collapsed;
                 ShiftOverrideBadge.Visibility    = (_plugin.IsShiftOverridden    && carDetected) ? Visibility.Visible : Visibility.Collapsed;
                 AbsOverrideBadge.Visibility      = (_plugin.IsAbsOverridden      && carDetected) ? Visibility.Visible : Visibility.Collapsed;
+                if (PitLimiterOverrideBadge != null)
+                    PitLimiterOverrideBadge.Visibility = (_plugin.IsPitLimiterOverridden && carDetected) ? Visibility.Visible : Visibility.Collapsed;
+                if (DrsOverrideBadge != null)
+                    DrsOverrideBadge.Visibility        = (_plugin.IsDrsOverridden        && carDetected) ? Visibility.Visible : Visibility.Collapsed;
 
                 // Conditional dimming/hiding on dependent settings:
                 //  - Traction noise LP/HP only matter for the Noise waveform.
@@ -1820,20 +1850,13 @@ namespace TrueforceForAll.Plugin
             Apply(EffectKind.Shift);
         }
 
-        // ---------- Pit limiter / DRS ----------
-        // Minimal handlers — Enabled + Gain only for now. Tuning sliders
-        // (carrier freq, pulse rate, duty, activation/sustained amps) are
-        // a follow-up; the defaults baked into PitLimiterSettings /
-        // DrsSettings are tuned to feel right out of the box. Skipping
-        // the full EffectKind / Save / Revert plumbing keeps the diff
-        // small; the per-car override mechanism still works because
-        // ApplyActiveCarOverride is invoked on every change.
+        // ---------- Pit limiter ----------
 
         private void PitLimiterEnabled_Changed(object sender, RoutedEventArgs e)
         {
             if (_suppressEvents || _plugin == null) return;
             _plugin.ActivePitLimiter.Enabled = PitLimiterEnabledCheck.IsChecked == true;
-            _plugin.ApplyActiveCarOverride();
+            Apply(EffectKind.PitLimiter);
         }
         private void PitLimiterGainSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
@@ -1841,14 +1864,54 @@ namespace TrueforceForAll.Plugin
             float v = (float)e.NewValue;
             PitLimiterGainText.Text = v.ToString("F2");
             _plugin.ActivePitLimiter.Gain = v;
-            _plugin.ApplyActiveCarOverride();
+            Apply(EffectKind.PitLimiter);
         }
+        private void PitLimiterWaveform_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            _plugin.ActivePitLimiter.Waveform = WaveformOf(PitLimiterWaveformCombo);
+            Apply(EffectKind.PitLimiter);
+        }
+        private void PitLimiterFreqSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            float v = (float)e.NewValue;
+            PitLimiterFreqText.Text = ((int)v).ToString();
+            _plugin.ActivePitLimiter.Freq = v;
+            Apply(EffectKind.PitLimiter);
+        }
+        private void PitLimiterPulseFreqSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            float v = (float)e.NewValue;
+            PitLimiterPulseFreqText.Text = v.ToString("F1");
+            _plugin.ActivePitLimiter.PulseFreq = v;
+            Apply(EffectKind.PitLimiter);
+        }
+        private void PitLimiterDutyCycleSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            float v = (float)e.NewValue;
+            PitLimiterDutyCycleText.Text = v.ToString("F2");
+            _plugin.ActivePitLimiter.DutyCycle = v;
+            Apply(EffectKind.PitLimiter);
+        }
+        private void PitLimiterActiveAmpSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            float v = (float)e.NewValue;
+            PitLimiterActiveAmpText.Text = v.ToString("F2");
+            _plugin.ActivePitLimiter.ActiveAmp = v;
+            Apply(EffectKind.PitLimiter);
+        }
+
+        // ---------- DRS ----------
 
         private void DrsEnabled_Changed(object sender, RoutedEventArgs e)
         {
             if (_suppressEvents || _plugin == null) return;
             _plugin.ActiveDrs.Enabled = DrsEnabledCheck.IsChecked == true;
-            _plugin.ApplyActiveCarOverride();
+            Apply(EffectKind.Drs);
         }
         private void DrsGainSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
@@ -1856,7 +1919,53 @@ namespace TrueforceForAll.Plugin
             float v = (float)e.NewValue;
             DrsGainText.Text = v.ToString("F2");
             _plugin.ActiveDrs.Gain = v;
-            _plugin.ApplyActiveCarOverride();
+            Apply(EffectKind.Drs);
+        }
+        private void DrsWaveform_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            _plugin.ActiveDrs.Waveform = WaveformOf(DrsWaveformCombo);
+            Apply(EffectKind.Drs);
+        }
+        private void DrsActivationFreqSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            float v = (float)e.NewValue;
+            DrsActivationFreqText.Text = ((int)v).ToString();
+            _plugin.ActiveDrs.ActivationFreq = v;
+            Apply(EffectKind.Drs);
+        }
+        private void DrsActivationMsSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            int v = (int)e.NewValue;
+            DrsActivationMsText.Text = v.ToString();
+            _plugin.ActiveDrs.ActivationMs = v;
+            Apply(EffectKind.Drs);
+        }
+        private void DrsActivationAmpSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            float v = (float)e.NewValue;
+            DrsActivationAmpText.Text = v.ToString("F2");
+            _plugin.ActiveDrs.ActivationAmp = v;
+            Apply(EffectKind.Drs);
+        }
+        private void DrsSustainedFreqSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            float v = (float)e.NewValue;
+            DrsSustainedFreqText.Text = ((int)v).ToString();
+            _plugin.ActiveDrs.SustainedFreq = v;
+            Apply(EffectKind.Drs);
+        }
+        private void DrsSustainedAmpSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            float v = (float)e.NewValue;
+            DrsSustainedAmpText.Text = v.ToString("F2");
+            _plugin.ActiveDrs.SustainedAmp = v;
+            Apply(EffectKind.Drs);
         }
 
         // ---------- ABS ----------

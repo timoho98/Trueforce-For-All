@@ -1523,6 +1523,8 @@ namespace TrueforceForAll.Plugin
                 TractionLoss = o.TractionLoss == null ? null : Clone(o.TractionLoss),
                 GearShift    = o.GearShift    == null ? null : Clone(o.GearShift),
                 AbsClick     = o.AbsClick     == null ? null : Clone(o.AbsClick),
+                PitLimiter   = o.PitLimiter   == null ? null : Clone(o.PitLimiter),
+                Drs          = o.Drs          == null ? null : Clone(o.Drs),
                 AudioCapture = CloneOrNull(o.AudioCapture),
             };
         }
@@ -1725,8 +1727,10 @@ namespace TrueforceForAll.Plugin
                 case SectionKind.Bumps:    if (ovr.RoadBumps    == null) ovr.RoadBumps    = Clone(Settings.RoadBumps);      break;
                 case SectionKind.Traction: if (ovr.TractionLoss == null) ovr.TractionLoss = Clone(Settings.TractionLoss);   break;
                 case SectionKind.Shift:    if (ovr.GearShift    == null) ovr.GearShift    = Clone(Settings.GearShift);      break;
-                case SectionKind.Abs:      if (ovr.AbsClick     == null) ovr.AbsClick     = Clone(Settings.AbsClick);       break;
-                case SectionKind.Audio:    if (ovr.AudioCapture == null) ovr.AudioCapture = CloneOrNull(Settings.AudioCapture); break;
+                case SectionKind.Abs:        if (ovr.AbsClick     == null) ovr.AbsClick     = Clone(Settings.AbsClick);       break;
+                case SectionKind.PitLimiter: if (ovr.PitLimiter   == null) ovr.PitLimiter   = Clone(Settings.PitLimiter);     break;
+                case SectionKind.Drs:        if (ovr.Drs          == null) ovr.Drs          = Clone(Settings.Drs);            break;
+                case SectionKind.Audio:      if (ovr.AudioCapture == null) ovr.AudioCapture = CloneOrNull(Settings.AudioCapture); break;
                 default: return;  // Master / Ducking aren't per-car
             }
             ApplyActiveCarOverride();
@@ -1749,8 +1753,10 @@ namespace TrueforceForAll.Plugin
                 case SectionKind.Bumps:    if (ovr.RoadBumps    != null) { Settings.RoadBumps    = Clone(ovr.RoadBumps);      ovr.RoadBumps    = null; } break;
                 case SectionKind.Traction: if (ovr.TractionLoss != null) { Settings.TractionLoss = Clone(ovr.TractionLoss);   ovr.TractionLoss = null; } break;
                 case SectionKind.Shift:    if (ovr.GearShift    != null) { Settings.GearShift    = Clone(ovr.GearShift);      ovr.GearShift    = null; } break;
-                case SectionKind.Abs:      if (ovr.AbsClick     != null) { Settings.AbsClick     = Clone(ovr.AbsClick);       ovr.AbsClick     = null; } break;
-                case SectionKind.Audio:    if (ovr.AudioCapture != null) { Settings.AudioCapture = CloneOrNull(ovr.AudioCapture); ovr.AudioCapture = null; } break;
+                case SectionKind.Abs:        if (ovr.AbsClick     != null) { Settings.AbsClick     = Clone(ovr.AbsClick);       ovr.AbsClick     = null; } break;
+                case SectionKind.PitLimiter: if (ovr.PitLimiter   != null) { Settings.PitLimiter   = Clone(ovr.PitLimiter);     ovr.PitLimiter   = null; } break;
+                case SectionKind.Drs:        if (ovr.Drs          != null) { Settings.Drs          = Clone(ovr.Drs);            ovr.Drs          = null; } break;
+                case SectionKind.Audio:      if (ovr.AudioCapture != null) { Settings.AudioCapture = CloneOrNull(ovr.AudioCapture); ovr.AudioCapture = null; } break;
                 default: return;
             }
             if (ovr.IsEmpty) Settings.CarOverrides.Remove(_activeCarId);
@@ -1856,7 +1862,9 @@ namespace TrueforceForAll.Plugin
                     case SectionKind.Bumps:    return !EffectEquals(snap, EffectField.Bumps);
                     case SectionKind.Traction: return !EffectEquals(snap, EffectField.Traction);
                     case SectionKind.Shift:    return !EffectEquals(snap, EffectField.Shift);
-                    case SectionKind.Abs:      return !EffectEquals(snap, EffectField.Abs);
+                    case SectionKind.Abs:        return !EffectEquals(snap, EffectField.Abs);
+                    case SectionKind.PitLimiter: return !EffectEquals(snap, EffectField.PitLimiter);
+                    case SectionKind.Drs:        return !EffectEquals(snap, EffectField.Drs);
                 }
                 return false;
             }
@@ -1878,7 +1886,9 @@ namespace TrueforceForAll.Plugin
                     case SectionKind.Bumps:    if (liveCo?.RoadBumps    != null) return !Eq(liveCo.RoadBumps,    savedCo?.RoadBumps);    break;
                     case SectionKind.Traction: if (liveCo?.TractionLoss != null) return !Eq(liveCo.TractionLoss, savedCo?.TractionLoss); break;
                     case SectionKind.Shift:    if (liveCo?.GearShift    != null) return !Eq(liveCo.GearShift,    savedCo?.GearShift);    break;
-                    case SectionKind.Abs:      if (liveCo?.AbsClick     != null) return !Eq(liveCo.AbsClick,     savedCo?.AbsClick);     break;
+                    case SectionKind.Abs:        if (liveCo?.AbsClick     != null) return !Eq(liveCo.AbsClick,     savedCo?.AbsClick);     break;
+                    case SectionKind.PitLimiter: if (liveCo?.PitLimiter   != null) return !Eq(liveCo.PitLimiter,   savedCo?.PitLimiter);   break;
+                    case SectionKind.Drs:        if (liveCo?.Drs          != null) return !Eq(liveCo.Drs,          savedCo?.Drs);          break;
                 }
             }
             return false;
@@ -1910,7 +1920,9 @@ namespace TrueforceForAll.Plugin
                 case SectionKind.Bumps:    return liveCo.RoadBumps    != null;
                 case SectionKind.Traction: return liveCo.TractionLoss != null;
                 case SectionKind.Shift:    return liveCo.GearShift    != null;
-                case SectionKind.Abs:      return liveCo.AbsClick     != null;
+                case SectionKind.Abs:        return liveCo.AbsClick     != null;
+                case SectionKind.PitLimiter: return liveCo.PitLimiter   != null;
+                case SectionKind.Drs:        return liveCo.Drs          != null;
             }
             return false;
         }
@@ -1946,7 +1958,7 @@ namespace TrueforceForAll.Plugin
         private static bool EqF1(double a, double b) => Math.Abs(a - b) < 0.05;
         private static bool EqI (double a, double b) => Math.Abs(a - b) < 0.5;
 
-        private enum EffectField { Audio, Engine, Bumps, Traction, Shift, Abs }
+        private enum EffectField { Audio, Engine, Bumps, Traction, Shift, Abs, PitLimiter, Drs }
 
         /// <summary>Scope-aware equals for dirty detection.
         ///
@@ -1986,6 +1998,12 @@ namespace TrueforceForAll.Plugin
                 case EffectField.Abs:
                     if (liveCo?.AbsClick     != null) return Eq(liveCo.AbsClick,     savedCo?.AbsClick);
                     return Eq(Settings.AbsClick,     snap.AbsClick);
+                case EffectField.PitLimiter:
+                    if (liveCo?.PitLimiter   != null) return Eq(liveCo.PitLimiter,   savedCo?.PitLimiter);
+                    return Eq(Settings.PitLimiter,   snap.PitLimiter);
+                case EffectField.Drs:
+                    if (liveCo?.Drs          != null) return Eq(liveCo.Drs,          savedCo?.Drs);
+                    return Eq(Settings.Drs,          snap.Drs);
             }
             return true;
         }
@@ -2089,7 +2107,7 @@ namespace TrueforceForAll.Plugin
         /// Mirrors the per-section "Save…" / "Revert" buttons in the UI:
         /// Master and Ducking are global-only; the rest have a per-car
         /// override component that revert respects.</summary>
-        public enum SectionKind { Master, Ducking, Audio, Engine, Bumps, Traction, Shift, Abs, SpikeReduction }
+        public enum SectionKind { Master, Ducking, Audio, Engine, Bumps, Traction, Shift, Abs, SpikeReduction, PitLimiter, Drs }
 
         /// <summary>Revert one section to the active preset's saved snapshot.
         /// Scope-aware: if the snapshot has a per-car override for the
@@ -2188,6 +2206,28 @@ namespace TrueforceForAll.Plugin
                         s => Settings.AbsClick = Clone(s),
                         (co, v) => co.AbsClick = Clone(v),
                         co => co.AbsClick = null);
+                    ApplyActiveCarOverride();
+                    return true;
+
+                case SectionKind.PitLimiter:
+                    RevertEffectScopeAware(
+                        snap.PitLimiter,
+                        snap.CarOverrides,
+                        co => co?.PitLimiter,
+                        s => Settings.PitLimiter = Clone(s),
+                        (co, v) => co.PitLimiter = Clone(v),
+                        co => co.PitLimiter = null);
+                    ApplyActiveCarOverride();
+                    return true;
+
+                case SectionKind.Drs:
+                    RevertEffectScopeAware(
+                        snap.Drs,
+                        snap.CarOverrides,
+                        co => co?.Drs,
+                        s => Settings.Drs = Clone(s),
+                        (co, v) => co.Drs = Clone(v),
+                        co => co.Drs = null);
                     ApplyActiveCarOverride();
                     return true;
 
@@ -2353,6 +2393,8 @@ namespace TrueforceForAll.Plugin
             if (snap.TractionLoss != null) Settings.TractionLoss = Clone(snap.TractionLoss);
             if (snap.GearShift    != null) Settings.GearShift    = Clone(snap.GearShift);
             if (snap.AbsClick     != null) Settings.AbsClick     = Clone(snap.AbsClick);
+            if (snap.PitLimiter   != null) Settings.PitLimiter   = Clone(snap.PitLimiter);
+            if (snap.Drs          != null) Settings.Drs          = Clone(snap.Drs);
             // Per-car overrides are no longer carried by game presets (Model G):
             // they live in <plugin data>/Cars/<carId>.tfcar.json files,
             // independent of the active preset. Switching presets doesn't
@@ -2399,6 +2441,8 @@ namespace TrueforceForAll.Plugin
                     TractionLoss = o.TractionLoss == null ? null : Clone(o.TractionLoss),
                     GearShift    = o.GearShift    == null ? null : Clone(o.GearShift),
                     AbsClick     = o.AbsClick     == null ? null : Clone(o.AbsClick),
+                    PitLimiter   = o.PitLimiter   == null ? null : Clone(o.PitLimiter),
+                    Drs          = o.Drs          == null ? null : Clone(o.Drs),
                     AudioCapture = CloneOrNull(o.AudioCapture),
                 };
             }
@@ -2433,6 +2477,8 @@ namespace TrueforceForAll.Plugin
                 TractionLoss            = Clone(Settings.TractionLoss),
                 GearShift               = Clone(Settings.GearShift),
                 AbsClick                = Clone(Settings.AbsClick),
+                PitLimiter              = Clone(Settings.PitLimiter),
+                Drs                     = Clone(Settings.Drs),
                 // CarOverrides intentionally omitted — per-car tuning is
                 // managed via per-car .tfcar.json files post-Model-G.
             };
