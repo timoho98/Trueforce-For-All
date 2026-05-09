@@ -1405,6 +1405,12 @@
                 <Button x:Name="ImportCarPresetButton" Content="Import car preset..." Width="180" Height="26" Click="ImportCarPreset_Click"
                         ToolTip="Load a car preset file. Stored under its car id; applied if it matches the current car."/>
             </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                <Button x:Name="ExportPackButton" Content="Export pack..." Width="180" Height="26" Margin="0,0,6,0" Click="ExportPack_Click"
+                        ToolTip="Bundle multiple game presets and car presets into a single .tfpack zip for sharing."/>
+                <Button x:Name="ImportPackButton" Content="Import pack..." Width="180" Height="26" Click="ImportPack_Click"
+                        ToolTip="Import every game preset and car preset from a .tfpack zip."/>
+            </StackPanel>
             <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
                 <Button x:Name="ExportButton" Content="Export all settings..." Width="180" Height="26" Margin="0,0,6,0" Click="Export_Click"
                         ToolTip="Export master, audio, every effect, and all per-car overrides as one JSON file."/>

@@ -477,6 +477,32 @@ namespace TrueforceForAll.Plugin
         public CarOverride Override { get; set; }
     }
 
+    /// <summary>Manifest written into a multi-preset pack zip. Lists the
+    /// game presets and car presets bundled inside, so an importer can show
+    /// counts before importing and skip files that don't match the manifest.
+    /// Pack zip layout:
+    ///   manifest.json
+    ///   presets/&lt;PresetName&gt;.tfpreset
+    ///   cars/&lt;CarId&gt;~&lt;PresetName&gt;.tfcar.json
+    /// </summary>
+    public sealed class PresetPackManifest
+    {
+        public const string FileType = "trueforce-pack";
+        public string Type    { get; set; } = FileType;
+        public int    Version { get; set; } = 1;
+        public string ExportedAt { get; set; }
+        public List<string> Presets { get; set; } = new List<string>();
+        public List<PackedCarPreset> Cars { get; set; } = new List<PackedCarPreset>();
+    }
+
+    public sealed class PackedCarPreset
+    {
+        public string CarId      { get; set; }
+        public string PresetName { get; set; }
+        public string GameName   { get; set; }
+        public string FileName   { get; set; }
+    }
+
     /// <summary>
     /// Per-car override snapshot. Each section field is nullable: null = use the
     /// matching global setting, non-null = use these values for this car. The

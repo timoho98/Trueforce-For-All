@@ -2799,6 +2799,76 @@ namespace TrueforceForAll.Plugin
             return new string(arr);
         }
 
+        // ---------- Export / Import pack (multi-preset zip) ----------
+
+        private void ExportPack_Click(object sender, RoutedEventArgs e)
+        {
+            if (_plugin == null) return;
+            var presets = _plugin.GetExportablePresetNames();
+            var cars    = _plugin.GetExportableCarPresets();
+            if (presets.Count == 0 && cars.Count == 0)
+            {
+                MessageBox.Show("No game presets or car presets to export yet. Save some first.",
+                                "Trueforce", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var picker = new PackPickerWindow(presets, cars, exportMode: true)
+            {
+                Owner = Window.GetWindow(this),
+            };
+            if (picker.Owner == null) picker.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            if (picker.ShowDialog() != true) return;
+
+            var pickedPresets = picker.SelectedPresetNames;
+            var pickedCars    = picker.SelectedCarPresets;
+            if (pickedPresets.Count == 0 && pickedCars.Count == 0) return;
+
+            string defaultName = $"Trueforce-pack-{DateTime.Now:yyyy-MM-dd}.tfpack";
+            var dlg = new Microsoft.Win32.SaveFileDialog
+            {
+                Filter   = "Trueforce pack (*.tfpack)|*.tfpack|Zip (*.zip)|*.zip",
+                FileName = defaultName,
+                Title    = "Export Trueforce pack",
+            };
+            if (dlg.ShowDialog() != true) return;
+            try
+            {
+                var (p, c) = _plugin.ExportPack(
+                    dlg.FileName,
+                    pickedPresets,
+                    pickedCars.ConvertAll(e2 => (e2.CarId, e2.PresetName)));
+                MessageBox.Show($"Exported {p} game preset(s) and {c} car preset(s) to:\n{dlg.FileName}",
+                                "Trueforce", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Export failed:\n{ex.Message}", "Trueforce", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void ImportPack_Click(object sender, RoutedEventArgs e)
+        {
+            if (_plugin == null) return;
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = "Trueforce pack (*.tfpack;*.zip)|*.tfpack;*.zip|All files (*.*)|*.*",
+                Title  = "Import Trueforce pack",
+            };
+            if (dlg.ShowDialog() != true) return;
+            try
+            {
+                var (p, c) = _plugin.ImportPack(dlg.FileName);
+                MessageBox.Show($"Imported {p} game preset(s) and {c} car preset(s) from:\n{dlg.FileName}",
+                                "Trueforce", MessageBoxButton.OK, MessageBoxImage.Information);
+                RefreshFromPlugin();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Import failed:\n{ex.Message}", "Trueforce", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
         // ---------- Export / Import ----------
 
         private void Export_Click(object sender, RoutedEventArgs e)

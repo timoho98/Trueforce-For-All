@@ -2797,6 +2797,235 @@ namespace TrueforceForAll.Plugin
             return $"{desired} ({DateTime.Now:HHmmss})";
         }
 
+        // ---------- preset pack (multi-preset zip) ----------
+
+        /// <summary>Returns the names of all game presets in the library, in
+        /// alphabetical order. Used by the export-pack picker.</summary>
+        public List<string> GetExportablePresetNames()
+        {
+            if (Settings?.Presets == null) return new List<string>();
+            var names = new List<string>(Settings.Presets.Keys);
+            names.Sort(StringComparer.OrdinalIgnoreCase);
+            return names;
+        }
+
+        /// <summary>Returns every (carId, presetName, gameName) tuple
+        /// currently on disk, sorted by carId then preset name. Used by the
+        /// export-pack picker.</summary>
+        public List<CarPresetEntry> GetExportableCarPresets()
+        {
+            var result = new List<CarPresetEntry>();
+            if (_carStore == null) return result;
+            var loaded = _carStore.LoadAll();
+            foreach (var carKv in loaded)
+            {
+                foreach (var pKv in carKv.Value)
+                    result.Add(pKv.Value);
+            }
+            result.Sort((a, b) =>
+            {
+                int c = string.Compare(a.CarId, b.CarId, StringComparison.OrdinalIgnoreCase);
+                return c != 0 ? c : string.Compare(a.PresetName, b.PresetName, StringComparison.OrdinalIgnoreCase);
+            });
+            return result;
+        }
+
+        /// <summary>Bundle the selected game presets and car presets into a
+        /// .tfpack zip. Pass null for either collection to mean "include all
+        /// of that kind". Layout: manifest.json, presets/Name.tfpreset,
+        /// cars/CarId~PresetName.tfcar.json. Built-in car presets are exported
+        /// with IsBuiltin forced false (only the bundled factory files are
+        /// genuine built-ins).</summary>
+        public (int presetsExported, int carsExported) ExportPack(
+            string path,
+            IEnumerable<string> presetNames,
+            IEnumerable<(string CarId, string PresetName)> carPresets)
+        {
+            if (Settings == null) return (0, 0);
+
+            // Materialize selection: null = all available.
+            var pickedPresets = presetNames != null
+                ? new HashSet<string>(presetNames, StringComparer.Ordinal)
+                : null;
+            var pickedCars = carPresets != null
+                ? new HashSet<(string, string)>(carPresets)
+                : null;
+
+            var manifest = new PresetPackManifest
+            {
+                ExportedAt = DateTime.UtcNow.ToString("o"),
+            };
+
+            int presetsCount = 0, carsCount = 0;
+            using (var fs = new System.IO.FileStream(path, System.IO.FileMode.Create, System.IO.FileAccess.Write))
+            using (var zip = new System.IO.Compression.ZipArchive(fs, System.IO.Compression.ZipArchiveMode.Create))
+            {
+                // ---- game presets ----
+                if (Settings.Presets != null)
+                {
+                    foreach (var kv in Settings.Presets)
+                    {
+                        if (pickedPresets != null && !pickedPresets.Contains(kv.Key)) continue;
+                        if (kv.Value == null) continue;
+
+                        string entryName = "presets/" + SanitizeForZip(kv.Key) + ".tfpreset";
+                        var file = new PresetFile { PresetName = kv.Key, Snapshot = kv.Value };
+                        WriteJsonZipEntry(zip, entryName, file);
+                        manifest.Presets.Add(entryName);
+                        presetsCount++;
+                    }
+                }
+
+                // ---- car presets ----
+                if (_carStore != null)
+                {
+                    var loaded = _carStore.LoadAll();
+                    foreach (var carKv in loaded)
+                    {
+                        foreach (var pKv in carKv.Value)
+                        {
+                            var entry = pKv.Value;
+                            var key = (entry.CarId, entry.PresetName);
+                            if (pickedCars != null && !pickedCars.Contains(key)) continue;
+
+                            string entryName = "cars/" + SanitizeForZip(entry.CarId) + "~"
+                                + SanitizeForZip(entry.PresetName) + ".tfcar.json";
+                            var file = new CarPresetFile
+                            {
+                                GameName   = entry.GameName ?? "",
+                                CarId      = entry.CarId,
+                                PresetName = entry.PresetName,
+                                IsBuiltin  = false, // shareable copies are user-tier
+                                Override   = entry.Override,
+                            };
+                            WriteJsonZipEntry(zip, entryName, file);
+                            manifest.Cars.Add(new PackedCarPreset
+                            {
+                                CarId      = entry.CarId,
+                                PresetName = entry.PresetName,
+                                GameName   = entry.GameName ?? "",
+                                FileName   = entryName,
+                            });
+                            carsCount++;
+                        }
+                    }
+                }
+
+                WriteJsonZipEntry(zip, "manifest.json", manifest);
+            }
+
+            SimHub.Logging.Current.Info(
+                $"[Trueforce] Exported pack to {path}: {presetsCount} game preset(s), {carsCount} car preset(s).");
+            return (presetsCount, carsCount);
+        }
+
+        /// <summary>Read every preset and car-preset file in the pack zip.
+        /// Game presets land in Settings.Presets (overwriting any with the
+        /// same name); car presets go through MakeUniqueCarPresetName so a
+        /// name collision keeps both. Returns a (presets, cars) count.</summary>
+        public (int presetsImported, int carsImported) ImportPack(string path)
+        {
+            if (Settings == null) return (0, 0);
+
+            int presetsImported = 0, carsImported = 0;
+            using (var fs = new System.IO.FileStream(path, System.IO.FileMode.Open, System.IO.FileAccess.Read))
+            using (var zip = new System.IO.Compression.ZipArchive(fs, System.IO.Compression.ZipArchiveMode.Read))
+            {
+                // Validate manifest if present (we don't strictly need it to
+                // import, but Type-mismatch is a useful early failure for the
+                // "user picked the wrong zip" case).
+                var manifestEntry = zip.GetEntry("manifest.json");
+                if (manifestEntry != null)
+                {
+                    var manifest = ReadJsonZipEntry<PresetPackManifest>(manifestEntry);
+                    if (manifest != null && !string.IsNullOrEmpty(manifest.Type)
+                        && manifest.Type != PresetPackManifest.FileType)
+                    {
+                        throw new System.IO.InvalidDataException(
+                            $"Wrong pack type '{manifest.Type}'. Expected '{PresetPackManifest.FileType}'.");
+                    }
+                }
+
+                if (Settings.Presets == null)
+                    Settings.Presets = new Dictionary<string, GameSettingsSnapshot>();
+
+                foreach (var entry in zip.Entries)
+                {
+                    if (entry.FullName.StartsWith("presets/", StringComparison.OrdinalIgnoreCase)
+                        && entry.FullName.EndsWith(".tfpreset", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var pf = ReadJsonZipEntry<PresetFile>(entry);
+                        if (pf == null || pf.Snapshot == null || string.IsNullOrEmpty(pf.PresetName)) continue;
+                        if (pf.Type != PresetFile.FileType) continue;
+                        Settings.Presets[pf.PresetName] = pf.Snapshot;
+                        presetsImported++;
+                    }
+                    else if (entry.FullName.StartsWith("cars/", StringComparison.OrdinalIgnoreCase)
+                        && entry.FullName.EndsWith(".tfcar.json", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var cf = ReadJsonZipEntry<CarPresetFile>(entry);
+                        if (cf == null || cf.Override == null || string.IsNullOrEmpty(cf.CarId)) continue;
+                        if (cf.Type != CarPresetFile.FileType) continue;
+
+                        string desired = string.IsNullOrEmpty(cf.PresetName) ? cf.CarId : cf.PresetName;
+                        string presetName = MakeUniqueCarPresetName(cf.CarId, desired);
+                        _carStore?.Save(cf.CarId, presetName, cf.GameName ?? "", cf.Override, isBuiltin: false);
+                        carsImported++;
+                    }
+                }
+            }
+
+            this.SaveCommonSettings("GeneralSettings", Settings);
+            if (!string.IsNullOrEmpty(_activeCarId)) ReloadActiveCarOverrideFromStore();
+
+            SimHub.Logging.Current.Info(
+                $"[Trueforce] Imported pack from {path}: {presetsImported} game preset(s), {carsImported} car preset(s).");
+            return (presetsImported, carsImported);
+        }
+
+        // Replace anything not-safe-in-a-zip-entry-name with '_'. Zip handles
+        // most chars fine, but '/' and '\\' would create unintended directory
+        // structure and a few oddballs trip up some unzip tools.
+        private static string SanitizeForZip(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "_";
+            var arr = s.ToCharArray();
+            for (int i = 0; i < arr.Length; i++)
+            {
+                char c = arr[i];
+                if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?'
+                    || c == '"' || c == '<' || c == '>' || c == '|' || c < ' ')
+                    arr[i] = '_';
+            }
+            return new string(arr);
+        }
+
+        private static void WriteJsonZipEntry(System.IO.Compression.ZipArchive zip, string entryName, object obj)
+        {
+            var entry = zip.CreateEntry(entryName, System.IO.Compression.CompressionLevel.Optimal);
+            using (var s = entry.Open())
+            using (var w = new System.IO.StreamWriter(s))
+            {
+                w.Write(Newtonsoft.Json.JsonConvert.SerializeObject(obj, Newtonsoft.Json.Formatting.Indented));
+            }
+        }
+
+        private static T ReadJsonZipEntry<T>(System.IO.Compression.ZipArchiveEntry entry) where T : class
+        {
+            try
+            {
+                using (var s = entry.Open())
+                using (var r = new System.IO.StreamReader(s))
+                {
+                    return Newtonsoft.Json.JsonConvert.DeserializeObject<T>(r.ReadToEnd());
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         // ---------- export / import ----------
 
         public void ExportSettings(string path)
