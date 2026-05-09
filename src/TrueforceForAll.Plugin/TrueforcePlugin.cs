@@ -2919,36 +2919,61 @@ namespace TrueforceForAll.Plugin
         // perceptible content but above floating-point noise.
         private const float SilenceFloor = 3e-4f;
 
-        // Sidechain ducking state. Two buses, both driven by max-activity of
-        // the relevant transients with the same depth/attack/release params:
+        // Sidechain ducking state. Three buses, all driven by max-activity
+        // of relevant effects with the same depth/attack/release params:
         //
-        //   _duckSmoothed         — driven by ALL transients (incl. TractionLoss);
-        //                           applied to EnginePulse + audio capture.
-        //   _duckSmoothedMomentary — driven by only the truly-momentary transients
-        //                           (RoadBumps, GearShift, AbsClick); applied to
-        //                           TractionLoss so a sustained slide doesn't
-        //                           drown out an ABS pump or curb hit happening
-        //                           on top of it. TractionLoss is excluded from
-        //                           its own bus (effects don't duck themselves).
-        private float _duckSmoothed          = 1.0f;
-        private float _duckSmoothedMomentary = 1.0f;
+        //   _duckSmoothed           — Bus 1. Driven by ALL transients +
+        //                             modal flags (RoadBumps, TractionLoss,
+        //                             GearShift, AbsClick, PitLimiter, Drs).
+        //                             Applied to EnginePulse + audio capture
+        //                             so any "event" haptic ducks the
+        //                             continuous background.
+        //   _duckSmoothedMomentary  — Bus 2. Truly-momentary transients only
+        //                             (RoadBumps, GearShift, AbsClick) —
+        //                             excludes the sustained ones.
+        //                             Applied to TractionLoss so a sustained
+        //                             slide doesn't drown out an ABS pump
+        //                             or curb hit on top of it.
+        //   _duckSmoothedDrsSustained — Bus 3. Driven by the transients that
+        //                             should override a held-DRS hum
+        //                             (AbsClick, TractionLoss, GearShift).
+        //                             Applied to DrsEffect.SustainedDuck-
+        //                             Multiplier — only the sustained tone;
+        //                             the activation chirp ignores all
+        //                             ducking by design (alert event).
+        private float _duckSmoothed             = 1.0f;
+        private float _duckSmoothedMomentary    = 1.0f;
+        private float _duckSmoothedDrsSustained = 1.0f;
 
         private void UpdateDucking()
         {
-            // Bus 1 (existing): all transients, ducks engine + audio.
+            // Bus 1: all transients + modal flags, ducks engine + audio.
             double maxAll = 0;
             if (RoadBumps    != null) maxAll = Math.Max(maxAll, RoadBumps.ActivityLevel);
             if (TractionLoss != null) maxAll = Math.Max(maxAll, TractionLoss.ActivityLevel);
             if (GearShift    != null) maxAll = Math.Max(maxAll, GearShift.ActivityLevel);
             if (AbsClick     != null) maxAll = Math.Max(maxAll, AbsClick.ActivityLevel);
+            if (PitLimiter   != null) maxAll = Math.Max(maxAll, PitLimiter.ActivityLevel);
+            if (Drs          != null) maxAll = Math.Max(maxAll, Drs.ActivityLevel);
 
-            // Bus 2 (new): truly-momentary transients only — excludes
-            // TractionLoss because a sustained slide is itself a "constant
-            // effect" relative to the impulse-shaped events below.
+            // Bus 2: truly-momentary transients only — excludes TractionLoss
+            // because a sustained slide is itself a "constant effect" relative
+            // to the impulse-shaped events below. PitLimiter / Drs sustained
+            // are also excluded — they represent ongoing modes, not
+            // momentary events.
             double maxMomentary = 0;
             if (RoadBumps != null) maxMomentary = Math.Max(maxMomentary, RoadBumps.ActivityLevel);
             if (GearShift != null) maxMomentary = Math.Max(maxMomentary, GearShift.ActivityLevel);
             if (AbsClick  != null) maxMomentary = Math.Max(maxMomentary, AbsClick.ActivityLevel);
+
+            // Bus 3: drives DRS sustained ducking. ABS pumps, traction loss,
+            // gear shifts all happen "on top of" a held DRS — those
+            // signals matter more in the moment than the DRS hum, so we
+            // duck the hum to make room for them.
+            double maxDrsTransient = 0;
+            if (AbsClick     != null) maxDrsTransient = Math.Max(maxDrsTransient, AbsClick.ActivityLevel);
+            if (TractionLoss != null) maxDrsTransient = Math.Max(maxDrsTransient, TractionLoss.ActivityLevel);
+            if (GearShift    != null) maxDrsTransient = Math.Max(maxDrsTransient, GearShift.ActivityLevel);
 
             float depth     = Settings?.DuckDepth     ?? 0.5f;
             float attackMs  = Settings?.DuckAttackMs  ?? 5.0f;
@@ -2956,20 +2981,25 @@ namespace TrueforceForAll.Plugin
 
             // IIR with attack-or-release time constant (dt ≈ 1 ms — producer
             // pushes ~1 batch per ms). alpha = 1 - exp(-dt/tau).
-            float targetAll       = (float)Math.Max(0.0, 1.0 - depth * maxAll);
-            float targetMomentary = (float)Math.Max(0.0, 1.0 - depth * maxMomentary);
+            float targetAll          = (float)Math.Max(0.0, 1.0 - depth * maxAll);
+            float targetMomentary    = (float)Math.Max(0.0, 1.0 - depth * maxMomentary);
+            float targetDrsSustained = (float)Math.Max(0.0, 1.0 - depth * maxDrsTransient);
 
-            float tauAllMs       = (targetAll       < _duckSmoothed)          ? attackMs : releaseMs;
-            float tauMomentaryMs = (targetMomentary < _duckSmoothedMomentary) ? attackMs : releaseMs;
-            float alphaAll       = (float)(1.0 - Math.Exp(-1.0 / Math.Max(0.5, tauAllMs)));
-            float alphaMomentary = (float)(1.0 - Math.Exp(-1.0 / Math.Max(0.5, tauMomentaryMs)));
+            float tauAllMs          = (targetAll          < _duckSmoothed)             ? attackMs : releaseMs;
+            float tauMomentaryMs    = (targetMomentary    < _duckSmoothedMomentary)    ? attackMs : releaseMs;
+            float tauDrsSustainedMs = (targetDrsSustained < _duckSmoothedDrsSustained) ? attackMs : releaseMs;
+            float alphaAll          = (float)(1.0 - Math.Exp(-1.0 / Math.Max(0.5, tauAllMs)));
+            float alphaMomentary    = (float)(1.0 - Math.Exp(-1.0 / Math.Max(0.5, tauMomentaryMs)));
+            float alphaDrsSustained = (float)(1.0 - Math.Exp(-1.0 / Math.Max(0.5, tauDrsSustainedMs)));
 
-            _duckSmoothed          = _duckSmoothed          * (1f - alphaAll)       + targetAll       * alphaAll;
-            _duckSmoothedMomentary = _duckSmoothedMomentary * (1f - alphaMomentary) + targetMomentary * alphaMomentary;
+            _duckSmoothed             = _duckSmoothed             * (1f - alphaAll)          + targetAll          * alphaAll;
+            _duckSmoothedMomentary    = _duckSmoothedMomentary    * (1f - alphaMomentary)    + targetMomentary    * alphaMomentary;
+            _duckSmoothedDrsSustained = _duckSmoothedDrsSustained * (1f - alphaDrsSustained) + targetDrsSustained * alphaDrsSustained;
 
             if (EnginePulse  != null) EnginePulse.DuckMultiplier  = _duckSmoothed;
             if (_audio       != null) _audio.DuckMultiplier       = _duckSmoothed;
             if (TractionLoss != null) TractionLoss.DuckMultiplier = _duckSmoothedMomentary;
+            if (Drs          != null) Drs.SustainedDuckMultiplier = _duckSmoothedDrsSustained;
         }
 
         private void ProducerLoop()

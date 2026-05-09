@@ -51,15 +51,26 @@ namespace TrueforceForAll.Plugin.Effects
 
         private const double SampleRate = 4000.0;
 
-        // Activation envelope state (samples remaining + total).
+        // Activation envelope state (samples remaining + total). The chirp
+        // ignores all sidechain ducking — it's an "important alert" event,
+        // gets through regardless of what other effects are doing.
         private int    _envelopeRemaining;
         private int    _envelopeTotal;
         private double _activationPhase;
 
-        // Sustained-tone state.
+        // Sustained-tone state. Unlike the chirp, the sustained component
+        // is ducked by transient effects via SustainedDuckMultiplier so a
+        // gear shift / ABS click / traction-loss spike doesn't get drowned
+        // out by the held DRS hum.
         private bool   _drsHeld;
         private int    _lastDrsValue;
         private double _sustainedPhase;
+
+        /// <summary>Multiplier applied only to the sustained tone (0..1).
+        /// The activation chirp ignores this. Set by TrueforcePlugin's
+        /// sidechain ducker each tick from a bus that includes ABS,
+        /// traction loss, and gear shift activity.</summary>
+        public float SustainedDuckMultiplier { get; set; } = 1.0f;
 
         public override bool IsActive
             => IsTesting || (Enabled && (_envelopeRemaining > 0 || _drsHeld));
@@ -77,13 +88,15 @@ namespace TrueforceForAll.Plugin.Effects
         public override void RenderAdd(float[] buffer, int count)
         {
             if (!Enabled && !IsTesting) return;
-            float dm = DuckMultiplier;
-            if (dm <= 0f) return;
 
             double aStep = Math.Max(0.0, ActivationFreq) / SampleRate;
             double sStep = Math.Max(0.0, SustainedFreq)  / SampleRate;
-            float aAmp = ActivationAmp * Gain * dm;
-            float sAmp = SustainedAmp  * Gain * dm;
+            // Chirp amp ignores DuckMultiplier entirely — by design, the
+            // activation alert always punches through. Sustained amp uses
+            // the dedicated SustainedDuckMultiplier set by the plugin's
+            // ducker (driven by ABS / traction / gear-shift activity).
+            float aAmp = ActivationAmp * Gain;
+            float sAmp = SustainedAmp  * Gain * Math.Max(0f, SustainedDuckMultiplier);
             int total  = _envelopeTotal;
             Waveform w = Waveform;
 
@@ -155,6 +168,7 @@ namespace TrueforceForAll.Plugin.Effects
             _sustainedPhase = 0;
             _drsHeld = false;
             _lastDrsValue = 0;
+            SustainedDuckMultiplier = 1.0f;
         }
 
         private static float SampleAt(Waveform w, double phase)

@@ -53,7 +53,11 @@ namespace TrueforceForAll.Plugin.Effects
 
         public override bool IsActive => IsTesting || (Enabled && _amp > 0);
 
-        public override double ActivityLevel => _amp > 0 ? 1.0 : 0;
+        // Activity level for sidechain ducking. Returns 0.6 (instead of 1.0)
+        // while engaged so the pit limiter pulse train ducks audio + engine
+        // pulse perceptibly without fully muting them — the user still wants
+        // to feel the engine note over the limiter cadence.
+        public override double ActivityLevel => _amp > 0 ? 0.6 : 0;
 
         public override void RenderAdd(float[] buffer, int count)
         {
