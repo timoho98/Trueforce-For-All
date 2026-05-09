@@ -31,16 +31,19 @@ namespace TrueforceForAll.Plugin
         // Capacity must be a power of two (the head/tail wrap with `& (cap-1)`).
         // At 4 kHz each sample is 0.25 ms, so 8=2ms, 16=4ms, 32=8ms,
         // 64=16ms, 128=32ms.
+        //
+        // Default starts at the minimum (8 = 2 ms) so users on low-latency
+        // audio drivers get the lowest possible round-trip out of the box,
+        // and users on slower hardware get auto-tuned up by the ratchet.
         // WASAPI loopback (via IAudioClient3) typically fires at ~3 ms with
-        // ~12 decimated samples per burst. Capacity 16 holds a normal burst
-        // with 4 samples of headroom — viable on common hardware. Capacity
-        // 8 only works if WASAPI period drops to ~2 ms (uncommon, requires
-        // low-latency audio drivers) — exposed but not the default. The
-        // Performance tab's auto-ratchet bumps capacity up when underruns
-        // or lap events cross threshold.
+        // ~12 decimated samples per burst, so on most systems the very
+        // first noisy moment will trigger a ratchet UP to 16 (4 ms — the
+        // safe default for typical hardware). Subsequent quiet sessions
+        // ratchet back DOWN, so the system self-tunes to whatever the
+        // user's hardware actually needs.
         public const int MaxRingSamples     = 128;     // power of two
-        public const int MinRingSamples     = 8;       // power of two; 8 only viable on very-low-latency audio drivers
-        public const int DefaultRingSamples = 16;      // 4 ms — fits typical 3 ms WASAPI burst with headroom
+        public const int MinRingSamples     = 8;       // power of two
+        public const int DefaultRingSamples = 8;       // 2 ms — start low, ratchet auto-tunes up if needed
 
         private int _ringCapacity = DefaultRingSamples;
         public int RingCapacity => System.Threading.Volatile.Read(ref _ringCapacity);

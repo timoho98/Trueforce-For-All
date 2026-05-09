@@ -255,10 +255,12 @@ namespace TrueforceForAll.Plugin
         public int TfRingSize { get; set; } = 8;
 
         // Audio loopback ring depth (samples; pow-of-two; 8..128). At 4 kHz
-        // each sample is 0.25 ms, so 8 = 2 ms, 128 = 32 ms. Default 16 (4 ms)
-        // fits a typical 3 ms WASAPI burst (~12 samples post-decimation) with
-        // headroom; 8 is only viable on very-low-latency audio drivers.
-        public int AudioRingSize { get; set; } = 16;
+        // each sample is 0.25 ms, so 8 = 2 ms, 128 = 32 ms. Defaults to the
+        // minimum (8 = 2 ms) so low-latency hardware gets the best feel out
+        // of the box. The two-way auto-ratchet bumps it up on the first
+        // noisy moment and shrinks it back down once the system settles, so
+        // it self-tunes to whatever the user's hardware actually needs.
+        public int AudioRingSize { get; set; } = 8;
     }
 
     /// <summary>What EnginePulse should do when the resolver flags the
