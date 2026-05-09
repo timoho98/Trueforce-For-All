@@ -331,12 +331,24 @@ foreach ($car in $cars) {
     if ($ui.description) {
         $desc = "$($ui.description)" -replace '&[a-z]+;', ' '
 
-        # Layout+number patterns (V8, I6, etc.)
+        # Layout+number patterns (V8, I6, etc.) with per-letter plausibility
+        # filter to suppress false positives: "V2" / "V3" almost always mean
+        # "version N" of a mod, not a V-twin / V-three engine. Mirror the
+        # C# resolver's plausibility table so probe and runtime agree.
         $m = [regex]::Match($desc, $descLayoutPattern)
         while ($m.Success) {
             $layout = $m.Groups[1].Value.ToUpper()
             $count = [int]$m.Groups[2].Value
-            if ($layout -in @('V','I','L','F','B','W')) {
+            $plausible = $false
+            switch ($layout) {
+                'V' { $plausible = $count -in @(4,6,8,10,12,16) }
+                'I' { $plausible = $count -in @(3,4,5,6,8) }
+                'L' { $plausible = $count -in @(4,5,6,8) }
+                'F' { $plausible = $count -in @(4,6,8,12) }
+                'B' { $plausible = $count -in @(4,6) }
+                'W' { $plausible = $count -in @(12,16) }
+            }
+            if ($plausible) {
                 $cylFromDesc = $count
                 $layoutFromDesc = $layout
                 break
