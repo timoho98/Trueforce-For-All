@@ -25,17 +25,14 @@ namespace TrueforceForAll.Plugin
             {
                 { "AssettoCorsa",    "Assetto Corsa (default)"     },
                 { "Wreckfest2",      "Wreckfest 2 (default)"       },
-                // Forza titles share the Data Out wire format end-to-end (FM7 →
-                // FH4 → FH5 → FM2023, almost certainly FH6 too), so one preset
-                // covers the whole family. Pre-bind the known SimHub GameNames
-                // here; FH6's name will be added in a follow-up if MS picks
-                // anything other than "ForzaHorizon6".
+                // Forza Horizon variants share the Data Out wire format
+                // (FH4/FH5/FH6) so one preset covers them all. Forza
+                // Motorsport ships native Trueforce on PC and the plugin
+                // auto-disables for it (see IsNativeTrueforceGame), so no
+                // FM mapping here.
                 { "ForzaHorizon5",   "Forza Horizon (default)"     },
                 { "ForzaHorizon6",   "Forza Horizon (default)"     },
                 { "ForzaHorizon4",   "Forza Horizon (default)"     },
-                { "ForzaMotorsport", "Forza Motorsport (default)"  },
-                { "ForzaMotorsport8","Forza Motorsport (default)"  },
-                { "ForzaMotorsport7","Forza Motorsport (default)"  },
             };
 
         /// <summary>Built-in preset name → serialized GameSettingsSnapshot
@@ -48,7 +45,6 @@ namespace TrueforceForAll.Plugin
                 ["Assetto Corsa (default)"]    = AssettoCorsaJson,
                 ["Wreckfest 2 (default)"]      = Wreckfest2Json,
                 ["Forza Horizon (default)"]    = ForzaHorizonJson,
-                ["Forza Motorsport (default)"] = ForzaMotorsportJson,
             };
 
         public static bool IsBuiltin(string presetName)
@@ -111,31 +107,6 @@ namespace TrueforceForAll.Plugin
             ""TractionLoss"":{""Enabled"":true,""Gain"":0.08,""Sensitivity"":0.4,""Freq"":133.9,""NoiseLowpassHz"":250.0,""NoiseHighpassHz"":40.0,""Waveform"":""Noise""},
             ""GearShift"":{""Enabled"":true,""Gain"":0.4,""Freq"":40.0,""Waveform"":""Sine""},
             ""AbsClick"":{""Enabled"":false,""Gain"":0.15,""Freq"":150.0,""PulseFreq"":9.8,""DutyCycle"":0.33,""TickDurationMs"":35.0,""Mode"":""Pulse"",""Waveform"":""Square""}
-        }";
-
-        // Forza Motorsport (2023) ships native Trueforce, so SkipFfbPassthrough
-        // is true here too — we layer audio-haptics on top of the game's own
-        // FFB rather than replacing it. Slight Sensitivity bump on Traction
-        // and a more conservative Master gain to leave headroom for the
-        // game's already-rich force feedback.
-        private const string ForzaMotorsportJson = @"{
-            ""MasterGain"":0.85,
-            ""FfbScale"":1.0,
-            ""FfbInvertSign"":true,
-            ""FfbSmoothTimeConstantMs"":0.0,
-            ""FfbSpikeTamingEnabled"":false,
-            ""FfbSpikeMaxLsbPerMs"":2060.923,
-            ""FfbPeakSoftLimitLsb"":1561.78564,
-            ""SkipFfbPassthrough"":true,
-            ""DuckDepth"":0.6952232,
-            ""DuckAttackMs"":5.0,
-            ""DuckReleaseMs"":80.0,
-            ""AudioCapture"":{""Enabled"":true,""Gain"":0.06,""LowpassCutoffHz"":350.0,""HighpassCutoffHz"":30.0},
-            ""EnginePulse"":{""Enabled"":true,""Gain"":0.06,""Cylinders"":4,""Pitch"":1.0,""LowpassHz"":450.0,""Waveform"":""Triangle""},
-            ""RoadBumps"":{""Enabled"":true,""Gain"":0.4,""Freq"":60.0,""Waveform"":""Noise"",""SurfaceEnabled"":true,""SurfaceGain"":0.5,""SurfaceFreq"":140.0,""SurfaceWaveform"":""Noise"",""SurfaceLowpassHz"":900.0,""SurfaceHighpassHz"":70.0,""SurfaceRumbleScale"":1.0,""RumbleStripPulseAmp"":0.0,""RumbleStripPulseMs"":120},
-            ""TractionLoss"":{""Enabled"":true,""Gain"":0.08,""Sensitivity"":0.5,""Freq"":133.9,""NoiseLowpassHz"":250.0,""NoiseHighpassHz"":40.0,""Waveform"":""Noise""},
-            ""GearShift"":{""Enabled"":true,""Gain"":0.4,""Freq"":40.0,""Waveform"":""Sine""},
-            ""AbsClick"":{""Enabled"":true,""Gain"":0.15,""Freq"":150.0,""PulseFreq"":9.8,""DutyCycle"":0.33,""TickDurationMs"":35.0,""Mode"":""Pulse"",""Waveform"":""Square""}
         }";
 
         private const string Wreckfest2Json = @"{

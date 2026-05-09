@@ -797,15 +797,33 @@ namespace TrueforceForAll.Plugin
                     SimHub.Logging.Current.Info($"[Trueforce] Loaded preset '{presetName}' as default for '{gameName}'.");
                 }
 
-                // Per-game master enable: default true for unseen games, else
-                // honor the saved choice. Don't persist here — game-change
-                // shouldn't write back the same value we just read.
+                // Per-game master enable. Default is "true" for unseen games,
+                // EXCEPT for games that ship native Trueforce (Forza Motorsport
+                // 2023) — for those we default to "false" so our ep3 stream
+                // doesn't fight the game's own Trueforce path. Saved values
+                // always win over defaults so a user who explicitly enabled
+                // us for a native-TF game keeps that choice.
                 if (Settings != null)
                 {
-                    bool wantEnabled = true;
-                    if (!string.IsNullOrEmpty(gameName) && Settings.GameEnabled != null
-                        && Settings.GameEnabled.TryGetValue(gameName, out var saved))
-                        wantEnabled = saved;
+                    bool savedValue = false;
+                    bool sawSaved = !string.IsNullOrEmpty(gameName)
+                        && Settings.GameEnabled != null
+                        && Settings.GameEnabled.TryGetValue(gameName, out savedValue);
+                    bool wantEnabled;
+                    if (sawSaved) { wantEnabled = savedValue; }
+                    else if (IsNativeTrueforceGame(gameName))
+                    {
+                        wantEnabled = false;
+                        // Persist so the user's per-game UI reflects "off" the
+                        // first time and they understand we backed off.
+                        if (Settings.GameEnabled == null)
+                            Settings.GameEnabled = new Dictionary<string, bool>();
+                        Settings.GameEnabled[gameName] = false;
+                        try { this.SaveCommonSettings("GeneralSettings", Settings); } catch { }
+                        SimHub.Logging.Current.Info(
+                            $"[Trueforce] Auto-disabling for '{gameName}' (ships native Trueforce). Re-enable manually if you prefer our stream.");
+                    }
+                    else { wantEnabled = true; }
                     if (Settings.PluginEnabled != wantEnabled)
                         SetPluginEnabled(wantEnabled, persistForActiveGame: false);
                 }
@@ -1199,16 +1217,27 @@ namespace TrueforceForAll.Plugin
             IsForzaGameName(_activeGame)
             || (Settings?.Forza?.AlwaysListen == true);
 
-        /// <summary>True if SimHub's GameName looks like a Forza title.
-        /// Conservative match against the known names — extending if FH6
-        /// ships with a slightly different convention is one literal away.</summary>
+        /// <summary>True if SimHub's GameName looks like a Forza Horizon
+        /// title — the variants we actually enhance. Forza Motorsport ships
+        /// native Trueforce on PC and is intentionally NOT matched here so
+        /// our Forza UDP section stays hidden for it (the auto-disable in
+        /// the per-game enable path is the other half of that fence).</summary>
         private static bool IsForzaGameName(string game)
         {
             if (string.IsNullOrEmpty(game)) return false;
             return game == "ForzaHorizon5"
                 || game == "ForzaHorizon6"
-                || game == "ForzaHorizon4"
-                || game == "ForzaMotorsport"
+                || game == "ForzaHorizon4";
+        }
+
+        /// <summary>True if the game ships native Trueforce on PC. Plugin
+        /// auto-disables on first encounter so our ep3 stream doesn't fight
+        /// the game's own. Users can manually re-enable via the master
+        /// toggle if they prefer our effects layered on top.</summary>
+        private static bool IsNativeTrueforceGame(string game)
+        {
+            if (string.IsNullOrEmpty(game)) return false;
+            return game == "ForzaMotorsport"
                 || game == "ForzaMotorsport8"
                 || game == "ForzaMotorsport7";
         }
