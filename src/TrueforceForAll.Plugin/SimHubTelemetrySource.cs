@@ -50,6 +50,7 @@ namespace TrueforceForAll.Plugin
 
                 Gear      = d.Gear,
                 AbsActive = d.ABSActive,
+                TcActive  = d.TCActive,
                 // Modal-flag overlays. Each is null when the active game's
                 // SimHub plugin doesn't expose it; effects gracefully skip
                 // when they read null. SimHub maps these from per-game

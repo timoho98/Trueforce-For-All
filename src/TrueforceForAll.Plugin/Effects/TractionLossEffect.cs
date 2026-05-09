@@ -307,6 +307,22 @@ namespace TrueforceForAll.Plugin.Effects
             double driftNorm = Math.Max(driftFromSlipAngle, driftFromExcess);
             double rawTraction = Math.Max(wheelspinNorm, driftNorm);
 
+            // ---------- TC intervention boost ----------
+            // SimHub doesn't expose direct wheel slip, so when the game's own
+            // traction control is intervening it's the most reliable
+            // ground-truth signal we have that the tires are losing grip.
+            // Raise rawTraction to a moderate floor (0.4) so a faint TC
+            // intervention still produces felt feedback even when the
+            // heuristic above missed it. Only floor — Math.Max preserves any
+            // stronger reading from the heuristic. SimHub-source-only in
+            // practice; AC/Forza paths use direct WheelSlip and skip this
+            // function entirely.
+            if (f.TcActive > 0)
+            {
+                double tcFloor = 0.4;
+                if (rawTraction < tcFloor) rawTraction = tcFloor;
+            }
+
             // Diagnostic — once per second, only when something interesting.
             if (rawTraction > _peakSlipSinceLastLog) _peakSlipSinceLastLog = rawTraction;
             if (now - _lastDiagLogTicks > Stopwatch.Frequency)

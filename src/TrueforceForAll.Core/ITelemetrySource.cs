@@ -100,6 +100,16 @@ namespace TrueforceForAll.Core
         /// heuristic in that case.</summary>
         public double? WheelSlip;
 
+        /// <summary>1 = the game's traction control is actively intervening
+        /// (cutting power because the wheels are slipping). 0 = TC not firing
+        /// (or no TC system on this car). Used by TractionLossEffect's
+        /// heuristic path as a confidence boost: when the game itself says
+        /// the wheels are slipping, raise the slip estimate to a moderate
+        /// floor even if the RPM/yaw heuristic didn't catch it. Only useful
+        /// when WheelSlip is null (SimHub fallback) — direct-slip sources
+        /// already have ground truth.</summary>
+        public int TcActive;
+
         // ---- Surface / road-feel (Forza-rich) ----
         /// <summary>Per-frame surface-rumble magnitude in [0..1], max-abs across
         /// all four tires. Forza's SurfaceRumble[] channel: a low-frequency
