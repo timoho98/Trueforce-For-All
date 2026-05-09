@@ -367,6 +367,26 @@ namespace TrueforceForAll.Core
             return (gear - 1).ToString();
         }
 
+        /// <summary>Cheap shape check used by UdpPortScanner: packet length
+        /// matches one of the known Forza Data Out sizes. Forza ships three
+        /// sizes — Sled-only (FM7), Sled + Horizon-Dash (FH4/FH5), and
+        /// Sled + Motorsport-Dash (FM2023) — so we accept any of them. The
+        /// length match is a strong enough signal for discovery; random
+        /// UDP traffic won't be exactly 232/311/324 bytes by chance.</summary>
+        public static bool IsValidPacketCandidate(byte[] buf, int len)
+        {
+            if (buf == null) return false;
+            // Known Forza sizes: 232 (Sled), 311 (Motorsport Dash), 324 (Horizon Dash).
+            return len == 232 || len == 311 || len == 324;
+        }
+
+        /// <summary>Default candidate ports the discovery flow tries when
+        /// the user's configured port shows zero packets after startup.
+        /// Forza default 5300 plus the SimHub Forza default (4123) and a
+        /// few common alternates.</summary>
+        public static readonly int[] DiscoveryCandidatePorts =
+            { 5300, 5301, 5302, 4123, 9999 };
+
         // Forza Data Out is little-endian. Windows hosts are little-endian
         // too so BitConverter is direct; we don't bother with byte-swap
         // fallbacks for big-endian platforms (Forza doesn't ship there).

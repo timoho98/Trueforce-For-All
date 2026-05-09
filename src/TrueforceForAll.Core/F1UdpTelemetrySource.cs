@@ -367,6 +367,28 @@ namespace TrueforceForAll.Core
             return gear.ToString();
         }
 
+        /// <summary>Cheap shape check used by UdpPortScanner: at least the
+        /// 29-byte header, with PacketFormat == 2025 and a recognized
+        /// packet ID. Lets discovery distinguish F1 25 packets from
+        /// random UDP traffic on a candidate port. False positives are
+        /// possible but vanishingly unlikely given the format-version
+        /// gate.</summary>
+        public static bool IsValidPacketCandidate(byte[] buf, int len)
+        {
+            if (buf == null || len < HEADER_SIZE) return false;
+            ushort format = (ushort)(buf[HDR_PACKET_FORMAT] | (buf[HDR_PACKET_FORMAT + 1] << 8));
+            if (format != SUPPORTED_PACKET_FORMAT) return false;
+            byte packetId = buf[HDR_PACKET_ID];
+            return packetId <= 15;   // F1 25 has 16 packet types (0..15)
+        }
+
+        /// <summary>Default candidate ports the discovery flow tries when
+        /// the user's configured port shows zero packets after startup.
+        /// Mostly the F1 default plus a few common alternates the
+        /// community uses for parallel listeners.</summary>
+        public static readonly int[] DiscoveryCandidatePorts =
+            { 20777, 20778, 20779, 20780, 21580 };
+
         private static ushort ReadUInt16(byte[] b, int off)
             => (ushort)(b[off] | (b[off+1] << 8));
 

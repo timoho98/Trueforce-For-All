@@ -92,6 +92,24 @@ namespace TrueforceForAll.Plugin
         private ITelemetrySource      _telemetrySource;
         public  ITelemetrySource      TelemetrySource => _telemetrySource;
 
+        // ---- Port discovery ----
+        // When a UDP source (Forza or F1) has been running for a few
+        // seconds without receiving anything, kick off a one-shot scan
+        // across known alternate ports to find where the game is actually
+        // sending. UI subscribes to DiscoveredAlternatePort to surface a
+        // "switch to port X?" banner. _discoveryStartedForSource ensures we
+        // run the scan at most once per source-instance — no nagging if
+        // the user dismisses or the game truly isn't sending packets.
+        private const int DiscoveryNoPacketsTriggerMs = 10_000;
+        private const int DiscoveryScanTimeoutMs      = 8_000;
+        private long  _discoverySourceStartedTicks;
+        private object _discoverySourceKey;
+        private int  _discoveredAlternatePort;
+        public int DiscoveredAlternatePort => System.Threading.Volatile.Read(ref _discoveredAlternatePort);
+        /// <summary>Fired on a worker thread when a port scan succeeds.
+        /// Args: (gameKind "forza"/"f1", discoveredPort).</summary>
+        public event Action<string, int> AlternatePortDiscovered;
+
         /// <summary>True when the active game is one SimHub has a telemetry
         /// reader for — i.e. anything with a non-Custom GameName. SimHub's
         /// "Custom_*" code is a definitive marker that the user added the
@@ -928,6 +946,8 @@ namespace TrueforceForAll.Plugin
                 }
             }
 
+            MaybeStartPortDiscovery();
+
             // Cache slow-rate fields for the enhanced-source overlay step in
             // DispatchFrame. Always populated from SimHub regardless of which
             // source is currently dispatching, so the cache stays warm during
@@ -1369,6 +1389,13 @@ namespace TrueforceForAll.Plugin
             newSource.OnFrame = DispatchFrame;
             _telemetrySource = newSource;
 
+            // Reset port-discovery state on every source swap so a fresh
+            // start (Forza was idle, F1 just launched, port changed in
+            // settings, etc.) gets one new discovery attempt.
+            _discoverySourceStartedTicks = Stopwatch.GetTimestamp();
+            _discoverySourceKey = newSource;
+            System.Threading.Volatile.Write(ref _discoveredAlternatePort, 0);
+
             // Dispose the previous enhanced source. _simHubSource is the
             // long-lived fallback and stays alive for the plugin's lifetime.
             if (old != null && old != _simHubSource && old != newSource)
@@ -1378,6 +1405,129 @@ namespace TrueforceForAll.Plugin
 
             SimHub.Logging.Current.Info(
                 $"[Trueforce] Telemetry source: {newSource.Name} (enhanced={newSource.IsEnhanced}).");
+        }
+
+        // ---------- Port discovery ----------
+
+        // Polled from DataUpdate. Triggers a one-shot scan when:
+        //   - The active source is a UDP source (Forza or F1).
+        //   - It's been running for >DiscoveryNoPacketsTriggerMs without
+        //     receiving any packets.
+        //   - We haven't already scanned for THIS source instance.
+        // Runs the scan on a background thread so the SimHub data tick
+        // isn't blocked.
+        private bool _discoveryScanInFlight;
+        private void MaybeStartPortDiscovery()
+        {
+            if (_discoveryScanInFlight) return;
+
+            var src = _telemetrySource;
+            if (src == null || src != _discoverySourceKey) return;
+
+            // Source must be a UDP one with a "received N packets" counter
+            // we can read. AC's MMF source and the SimHub fallback don't
+            // benefit from port discovery.
+            long received;
+            int[] candidates;
+            int currentPort;
+            string kind;
+            Func<byte[], int, bool> validator;
+            if (src is ForzaUdpTelemetrySource fz)
+            {
+                received    = fz.PacketsReceived;
+                candidates  = ForzaUdpTelemetrySource.DiscoveryCandidatePorts;
+                currentPort = Settings?.Forza?.Port ?? 0;
+                validator   = ForzaUdpTelemetrySource.IsValidPacketCandidate;
+                kind        = "forza";
+            }
+            else if (src is F1UdpTelemetrySource f1)
+            {
+                received    = f1.PacketsReceived;
+                candidates  = F1UdpTelemetrySource.DiscoveryCandidatePorts;
+                currentPort = Settings?.F1?.Port ?? 0;
+                validator   = F1UdpTelemetrySource.IsValidPacketCandidate;
+                kind        = "f1";
+            }
+            else return;
+
+            if (received > 0) return;
+
+            long now = Stopwatch.GetTimestamp();
+            long elapsedMs = (now - _discoverySourceStartedTicks) * 1000L / Stopwatch.Frequency;
+            if (elapsedMs < DiscoveryNoPacketsTriggerMs) return;
+
+            // Filter the candidate list to skip the user's currently-configured
+            // port — we already know that one isn't receiving (received==0).
+            var filtered = new List<int>(candidates.Length);
+            foreach (int p in candidates) if (p != currentPort) filtered.Add(p);
+            if (filtered.Count == 0) return;
+
+            _discoveryScanInFlight = true;
+            // Mark this source as scanned so we don't repeat unless the
+            // source is swapped again. Even on scan-failure we don't want
+            // to retry every 10 seconds for the rest of the session.
+            _discoverySourceKey = null;
+
+            var bindIp = ParseIpOrAny(
+                kind == "forza" ? Settings?.Forza?.BindAddress : Settings?.F1?.BindAddress);
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                int hit = 0;
+                try
+                {
+                    hit = UdpPortScanner.Scan(filtered, bindIp, validator,
+                        DiscoveryScanTimeoutMs, System.Threading.CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    SimHub.Logging.Current.Info($"[Trueforce] Port discovery error: {ex.GetType().Name}: {ex.Message}");
+                }
+                finally
+                {
+                    _discoveryScanInFlight = false;
+                }
+
+                if (hit > 0)
+                {
+                    System.Threading.Volatile.Write(ref _discoveredAlternatePort, hit);
+                    SimHub.Logging.Current.Info(
+                        $"[Trueforce] Detected {kind} packets on alternate port {hit}.");
+                    try { AlternatePortDiscovered?.Invoke(kind, hit); } catch { }
+                }
+            });
+        }
+
+        /// <summary>UI hook: switch the F1 (or Forza) listener to the
+        /// just-discovered port and persist. Returns true if the switch
+        /// was applied.</summary>
+        public bool AdoptDiscoveredAlternatePort()
+        {
+            int port = DiscoveredAlternatePort;
+            if (port <= 0 || Settings == null) return false;
+
+            var src = _telemetrySource;
+            if (src is ForzaUdpTelemetrySource && Settings.Forza != null)
+            {
+                Settings.Forza.Port = port;
+                ApplyForzaSettings();
+            }
+            else if (src is F1UdpTelemetrySource && Settings.F1 != null)
+            {
+                Settings.F1.Port = port;
+                ApplyF1Settings();
+            }
+            else return false;
+
+            System.Threading.Volatile.Write(ref _discoveredAlternatePort, 0);
+            return true;
+        }
+
+        /// <summary>UI hook: dismiss the discovered-port banner without
+        /// switching. Suppresses re-discovery for the remainder of this
+        /// source instance.</summary>
+        public void DismissDiscoveredAlternatePort()
+        {
+            System.Threading.Volatile.Write(ref _discoveredAlternatePort, 0);
         }
 
         // 0.0.0.0 / blank / unparseable → IPAddress.Any so the listener accepts

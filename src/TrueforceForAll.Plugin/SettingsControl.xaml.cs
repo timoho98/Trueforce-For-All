@@ -607,6 +607,22 @@ namespace TrueforceForAll.Plugin
                                 $"{fzSrc.PacketsForwarded:N0} packets relayed to {fwd.ForwardHost}:{fwd.ForwardPort}";
                         }
                     }
+
+                    // Discovered-port banner: shown only when the active
+                    // source is Forza UDP and the plugin found an alternate.
+                    if (ForzaDiscoveryBanner != null)
+                    {
+                        int alt = _plugin.DiscoveredAlternatePort;
+                        bool show = fzSrc != null && alt > 0;
+                        ForzaDiscoveryBanner.Visibility = show
+                            ? System.Windows.Visibility.Visible
+                            : System.Windows.Visibility.Collapsed;
+                        if (show && ForzaDiscoveryText != null)
+                        {
+                            ForzaDiscoveryText.Text =
+                                $"Forza packets detected on port {alt}. Switch Trueforce to it?";
+                        }
+                    }
                 }
 
                 // F1 listener status. Mirrors the Forza shape but adds a
@@ -626,13 +642,13 @@ namespace TrueforceForAll.Plugin
                     else if (f1Src.PacketsReceived == 0)
                     {
                         F1StatusText.Text =
-                            $"Listening on {(_plugin.Settings?.F1?.BindAddress ?? "0.0.0.0")}:{(_plugin.Settings?.F1?.Port ?? 0)} — no packets yet (check F1's UDP Telemetry settings)";
+                            $"Listening on {(_plugin.Settings?.F1?.BindAddress ?? "0.0.0.0")}:{(_plugin.Settings?.F1?.Port ?? 0)}. No packets yet (check F1's UDP Telemetry settings).";
                         if (F1RateWarning != null) F1RateWarning.Visibility = System.Windows.Visibility.Collapsed;
                     }
                     else
                     {
                         double hz = f1Src.MeasuredHz;
-                        F1StatusText.Text = $"Receiving — {f1Src.PacketsReceived:N0} packets at ~{hz:0} Hz";
+                        F1StatusText.Text = $"Receiving {f1Src.PacketsReceived:N0} packets at ~{hz:0} Hz";
                         if (F1RateWarning != null)
                         {
                             // Only show the warning once we've seen enough
@@ -649,6 +665,21 @@ namespace TrueforceForAll.Plugin
                                 F1RateWarningText.Text =
                                     $"UDP Send Rate looks low (~{hz:0} Hz). Set it to 60Hz in F1's Telemetry Settings for the most responsive haptics.";
                             }
+                        }
+                    }
+
+                    // F1 discovered-port banner.
+                    if (F1DiscoveryBanner != null)
+                    {
+                        int alt = _plugin.DiscoveredAlternatePort;
+                        bool show = f1Src != null && alt > 0;
+                        F1DiscoveryBanner.Visibility = show
+                            ? System.Windows.Visibility.Visible
+                            : System.Windows.Visibility.Collapsed;
+                        if (show && F1DiscoveryText != null)
+                        {
+                            F1DiscoveryText.Text =
+                                $"F1 packets detected on port {alt}. Switch Trueforce to it?";
                         }
                     }
                 }
@@ -2166,6 +2197,19 @@ namespace TrueforceForAll.Plugin
                 _plugin.ApplyForzaSettings();
             }
         }
+
+        // ---- Port discovery banner handlers ----
+        // Shared between Forza and F1: the plugin exposes a single
+        // DiscoveredAlternatePort and AdoptDiscoveredAlternatePort handles
+        // both kinds based on the active source type.
+        private void ForzaDiscoveryAdopt_Click(object sender, RoutedEventArgs e)
+            => _plugin?.AdoptDiscoveredAlternatePort();
+        private void ForzaDiscoveryDismiss_Click(object sender, RoutedEventArgs e)
+            => _plugin?.DismissDiscoveredAlternatePort();
+        private void F1DiscoveryAdopt_Click(object sender, RoutedEventArgs e)
+            => _plugin?.AdoptDiscoveredAlternatePort();
+        private void F1DiscoveryDismiss_Click(object sender, RoutedEventArgs e)
+            => _plugin?.DismissDiscoveredAlternatePort();
 
         // ---- F1 UDP handlers ----
         // Mirror the Forza ones; no forwarder field (F1 doesn't share a

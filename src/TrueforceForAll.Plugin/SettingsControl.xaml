@@ -1198,6 +1198,21 @@
                 <TextBlock Grid.Column="0" Text="Status:" Style="{StaticResource LabelText}"/>
                 <TextBlock Grid.Column="1" x:Name="ForzaStatusText" Text="(idle)" FontSize="11" Opacity="0.85"/>
             </Grid>
+            <!-- Auto-discovered alternate port banner. Shown when the
+                 plugin scanned candidate ports and found Forza packets on
+                 one we're not bound to. One-click switch + dismiss. -->
+            <Border x:Name="ForzaDiscoveryBanner" Background="#3300A8FF" BorderBrush="#00A8FF" BorderThickness="1"
+                    CornerRadius="3" Padding="8" Margin="0,4,0,8" Visibility="Collapsed">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock x:Name="ForzaDiscoveryText" FontSize="11" TextWrapping="Wrap"
+                               VerticalAlignment="Center" MaxWidth="380"
+                               Text="Forza packets detected on a different port."/>
+                    <Button x:Name="ForzaDiscoveryAdoptButton" Content="Switch" Width="80" Height="22" FontSize="11"
+                            Margin="10,0,4,0" Click="ForzaDiscoveryAdopt_Click"/>
+                    <Button x:Name="ForzaDiscoveryDismissButton" Content="Dismiss" Width="80" Height="22" FontSize="11"
+                            Click="ForzaDiscoveryDismiss_Click"/>
+                </StackPanel>
+            </Border>
 
             <!-- Coexistence forwarder. Forza only sends to one destination, so
                  if the user wants both Trueforce haptics AND SimHub dashboards,
@@ -1298,6 +1313,19 @@
                 <TextBlock Grid.Column="0" Text="Status:" Style="{StaticResource LabelText}"/>
                 <TextBlock Grid.Column="1" x:Name="F1StatusText" Text="(idle)" FontSize="11" Opacity="0.85"/>
             </Grid>
+            <!-- Auto-discovered alternate port banner (F1). Same flow as Forza. -->
+            <Border x:Name="F1DiscoveryBanner" Background="#3300A8FF" BorderBrush="#00A8FF" BorderThickness="1"
+                    CornerRadius="3" Padding="8" Margin="0,4,0,4" Visibility="Collapsed">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock x:Name="F1DiscoveryText" FontSize="11" TextWrapping="Wrap"
+                               VerticalAlignment="Center" MaxWidth="380"
+                               Text="F1 packets detected on a different port."/>
+                    <Button x:Name="F1DiscoveryAdoptButton" Content="Switch" Width="80" Height="22" FontSize="11"
+                            Margin="10,0,4,0" Click="F1DiscoveryAdopt_Click"/>
+                    <Button x:Name="F1DiscoveryDismissButton" Content="Dismiss" Width="80" Height="22" FontSize="11"
+                            Click="F1DiscoveryDismiss_Click"/>
+                </StackPanel>
+            </Border>
             <!-- Send-rate warning. Shown only when packets are arriving but
                  the observed rate is well below 60 Hz; we recommend the user
                  bump UDP Send Rate in F1's Telemetry Settings. -->
