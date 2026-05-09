@@ -1217,17 +1217,20 @@ namespace TrueforceForAll.Plugin
             IsForzaGameName(_activeGame)
             || (Settings?.Forza?.AlwaysListen == true);
 
-        /// <summary>True if SimHub's GameName looks like a Forza Horizon
-        /// title — the variants we actually enhance. Forza Motorsport ships
-        /// native Trueforce on PC and is intentionally NOT matched here so
-        /// our Forza UDP section stays hidden for it (the auto-disable in
-        /// the per-game enable path is the other half of that fence).</summary>
+        /// <summary>True if SimHub's GameName looks like any Forza title
+        /// (Horizon or Motorsport). Drives Forza UDP section visibility.
+        /// FM is included even though we auto-disable for it: the Data Out
+        /// wire format is shared, so a user who manually re-enables for FM
+        /// should still be able to configure the listener.</summary>
         private static bool IsForzaGameName(string game)
         {
             if (string.IsNullOrEmpty(game)) return false;
             return game == "ForzaHorizon5"
                 || game == "ForzaHorizon6"
-                || game == "ForzaHorizon4";
+                || game == "ForzaHorizon4"
+                || game == "ForzaMotorsport"
+                || game == "ForzaMotorsport8"
+                || game == "ForzaMotorsport7";
         }
 
         /// <summary>True if the game ships native Trueforce on PC. Plugin
