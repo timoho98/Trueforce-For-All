@@ -1217,6 +1217,26 @@ namespace TrueforceForAll.Plugin
             IsForzaGameName(_activeGame)
             || (Settings?.Forza?.AlwaysListen == true);
 
+        /// <summary>True when the F1 UDP section should be visible.</summary>
+        public bool ShouldShowF1Section =>
+            IsF1GameName(_activeGame)
+            || (Settings?.F1?.AlwaysListen == true);
+
+        /// <summary>True if SimHub's GameName looks like an EA / Codemasters
+        /// F1 title we target. Currently F1 25 is the only validated wire
+        /// format; older games (F1 22/23/24) may receive packets but the
+        /// source skips PacketFormat != 2025 with a one-time log line. The
+        /// UI section still renders for those names so a user can confirm
+        /// that's why packets aren't parsing.</summary>
+        private static bool IsF1GameName(string game)
+        {
+            if (string.IsNullOrEmpty(game)) return false;
+            return game == "F12025"
+                || game == "F12024"
+                || game == "F12023"
+                || game == "F12022";
+        }
+
         /// <summary>True if SimHub's GameName looks like any Forza title
         /// (Horizon or Motorsport). Drives Forza UDP section visibility.
         /// FM is included even though we auto-disable for it: the Data Out
@@ -1311,6 +1331,33 @@ namespace TrueforceForAll.Plugin
                     }
                 }
             }
+            else if (IsF1GameName(game)
+                     || (Settings?.F1?.AlwaysListen == true && Settings.F1.Enabled))
+            {
+                if (Settings?.F1?.Enabled == true)
+                {
+                    try
+                    {
+                        var bindIp = ParseIpOrAny(Settings.F1.BindAddress);
+                        var f1 = new F1UdpTelemetrySource(Settings.F1.Port, bindIp)
+                        {
+                            Logger = msg => SimHub.Logging.Current.Info($"[Trueforce] {msg}"),
+                        };
+                        f1.Start();
+                        newSource = f1;
+                    }
+                    catch (Exception ex)
+                    {
+                        if (!silent)
+                        {
+                            SimHub.Logging.Current.Info(
+                                $"[Trueforce] F1 UDP source unavailable on port {Settings.F1.Port} " +
+                                $"({ex.GetType().Name}): {ex.Message}; falling back to SimHub. " +
+                                "If another listener holds the port, change Trueforce's port to a free one and re-point F1's UDP Telemetry to it.");
+                        }
+                    }
+                }
+            }
             if (newSource == null) newSource = _simHubSource;
             if (newSource == _telemetrySource) return;
 
@@ -1391,6 +1438,28 @@ namespace TrueforceForAll.Plugin
                     _simHubSource.OnFrame = DispatchFrame;
                     _telemetrySource = _simHubSource;
                     try { oldFz?.Dispose(); } catch { }
+                }
+                SwapTelemetrySource(_activeGame);
+            }
+        }
+
+        /// <summary>Same shape as ApplyForzaSettings, for the F1 source.</summary>
+        public void ApplyF1Settings()
+        {
+            if (Settings?.F1 == null) return;
+            this.SaveCommonSettings("GeneralSettings", Settings);
+
+            if (!string.IsNullOrEmpty(_activeGame)
+                && (IsF1GameName(_activeGame)
+                    || (Settings.F1.AlwaysListen && Settings.F1.Enabled)))
+            {
+                if (_telemetrySource is F1UdpTelemetrySource)
+                {
+                    var oldF1 = _telemetrySource;
+                    if (oldF1 != null) oldF1.OnFrame = null;
+                    _simHubSource.OnFrame = DispatchFrame;
+                    _telemetrySource = _simHubSource;
+                    try { oldF1?.Dispose(); } catch { }
                 }
                 SwapTelemetrySource(_activeGame);
             }

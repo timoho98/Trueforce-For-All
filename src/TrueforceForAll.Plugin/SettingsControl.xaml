@@ -1252,6 +1252,62 @@
             </Expander>
             </StackPanel> <!-- /ForzaSection -->
 
+            <!-- F1 Telemetry (UDP). EA / Codemasters F1 series emits a rich
+                 UDP telemetry stream the user enables in Settings → Telemetry
+                 Settings. We target F1 25's wire format (PacketFormat=2025);
+                 older years receive packets but skip parsing with a clear log
+                 line. Recommend 60 Hz Send Rate; warn if the observed rate
+                 drops well below that. -->
+            <StackPanel x:Name="F1Section" Visibility="Collapsed">
+            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="F1 telemetry (UDP)" Style="{StaticResource SectionHeaderText}"/></Border>
+            <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
+                Text="In F1 25, open Settings → Telemetry Settings. Set UDP Telemetry to On, UDP IP Address to 127.0.0.1, UDP Port to the port below, UDP Send Rate to 60Hz, and UDP Format to 2025. Enables direct per-wheel slip, KERS deployment, pit limiter, DRS, and surface type."/>
+            <CheckBox x:Name="F1EnabledCheck" Content="Enable F1 UDP listener" Click="F1Enabled_Changed" Margin="0,0,0,8"
+                      ToolTip="When off, F1 titles fall back to SimHub's universal telemetry (60 Hz, no direct slip, no KERS)."/>
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="140"/>
+                    <ColumnDefinition Width="120"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Port:" Style="{StaticResource LabelText}"/>
+                <TextBox   Grid.Column="1" x:Name="F1PortBox" LostFocus="F1Port_LostFocus" KeyDown="F1Port_KeyDown" VerticalAlignment="Center"
+                           ToolTip="Match this in F1's UDP Port. Default 20777."/>
+                <TextBlock Grid.Column="2" Style="{StaticResource HelpText}" Margin="8,0,0,0" VerticalAlignment="Center"
+                           Text="Restart Trueforce (toggle plugin off+on) after changing."/>
+            </Grid>
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="140"/>
+                    <ColumnDefinition Width="120"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Bind address:" Style="{StaticResource LabelText}"/>
+                <TextBox   Grid.Column="1" x:Name="F1BindBox" LostFocus="F1Bind_LostFocus" KeyDown="F1Bind_KeyDown" VerticalAlignment="Center"
+                           ToolTip="0.0.0.0 listens on every interface (recommended)."/>
+                <TextBlock Grid.Column="2" Style="{StaticResource HelpText}" Margin="8,0,0,0" VerticalAlignment="Center"
+                           Text="0.0.0.0 = listen on every network adapter."/>
+            </Grid>
+            <CheckBox x:Name="F1AlwaysListenCheck" Content="Always listen (use for unrecognized F1 titles)" Click="F1AlwaysListen_Changed" Margin="0,4,0,4"
+                      ToolTip="Keep the F1 source open even when SimHub doesn't recognize the running game."/>
+            <Grid Margin="0,4,0,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="140"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Status:" Style="{StaticResource LabelText}"/>
+                <TextBlock Grid.Column="1" x:Name="F1StatusText" Text="(idle)" FontSize="11" Opacity="0.85"/>
+            </Grid>
+            <!-- Send-rate warning. Shown only when packets are arriving but
+                 the observed rate is well below 60 Hz; we recommend the user
+                 bump UDP Send Rate in F1's Telemetry Settings. -->
+            <Border x:Name="F1RateWarning" Background="#33FFC107" BorderBrush="#FFC107" BorderThickness="1"
+                    CornerRadius="3" Padding="8" Margin="0,4,0,8" Visibility="Collapsed">
+                <TextBlock x:Name="F1RateWarningText" FontSize="11" TextWrapping="Wrap"
+                           Text="UDP Send Rate looks low. Set it to 60Hz in F1 25's Telemetry Settings for the most responsive haptics."/>
+            </Border>
+            </StackPanel> <!-- /F1Section -->
+
             <!-- Diagnostics + Live activity. Sit between game-config sections
                  (above) and preset/sharing/support sections (below). Both are
                  collapsed by default — only opened when troubleshooting or
