@@ -129,15 +129,18 @@ namespace TrueforceForAll.Plugin
         // brief noisy moment (Chrome update kicking in, antivirus scan)
         // doesn't leave the ring permanently inflated. After UP fires, a
         // 5-minute cooldown blocks any DOWN; after the cooldown, sustained
-        // 60+ seconds of zero underruns triggers a one-notch DOWN step.
-        // Each step requires another 60 seconds of quiet before the next,
-        // so descent is gradual. UP fires fast (1s window); DOWN waits 60s
-        // → if noise returns within 5 min, the cooldown prevents any DOWN
-        // and oscillation can't form.
-        private const int  RatchetWindowMs       = 1000;
-        private const long RatchetThreshold      = 3;     // underruns/laps in 1 s to trigger UP
-        private const int  RatchetDownQuietMs    = 60_000;   // 60 s of zero deltas → eligible for one DOWN step
-        private const int  RatchetDownCooldownMs = 300_000;  // 5 min after any UP before DOWN allowed
+        // 60+ seconds of zero underruns triggers the FIRST one-notch DOWN
+        // step. Subsequent DOWN steps use a much shorter 30s cooldown so a
+        // transient load spike (track loading, replay scrub, alt-tab shock)
+        // doesn't lock the ring inflated for 20+ minutes; once it's been
+        // quiet for the full 5min and we've started descending, we trust the
+        // descent and accelerate. UP fires fast (1s window); if noise
+        // returns mid-descent it re-arms the long 5min cooldown.
+        private const int  RatchetWindowMs           = 1000;
+        private const long RatchetThreshold          = 3;     // underruns/laps in 1 s to trigger UP
+        private const int  RatchetDownQuietMs        = 60_000;   // 60 s of zero deltas → eligible for any DOWN step
+        private const int  RatchetDownCooldownMs     = 300_000;  // 5 min after an UP before the FIRST DOWN allowed
+        private const int  RatchetDownFastCooldownMs = 30_000;   // 30 s between subsequent DOWN steps once descent has started
         private long _autoRatchetLastCheckTicks;
         private long _autoRatchetLastTfCount;
         private long _autoRatchetLastAudioCount;
@@ -150,6 +153,11 @@ namespace TrueforceForAll.Plugin
         // 5-minute cooldown gates any DOWN step against this.
         private long _tfLastRatchetActionTicks;
         private long _audioLastRatchetActionTicks;
+        // True iff the last action on this ring was a DOWN step. Lets the
+        // DOWN cooldown switch to the fast 30s value once descent has begun
+        // — UP re-arms the long 5min cooldown by clearing this.
+        private bool _tfLastActionWasDown;
+        private bool _audioLastActionWasDown;
 
         // Fired on the producer thread when auto-ratchet bumps a ring size.
         // Args: isTfRing (true = Trueforce stream ring, false = audio ring),
@@ -1002,7 +1010,16 @@ namespace TrueforceForAll.Plugin
             if (audioDelta > 0) _audioLastUnderrunSeenTicks = now;
 
             // ----- Ratchet UP -----
-            if (tfDelta >= RatchetThreshold && perf.TfRingSize < TrueforceDevice.MaxRingSize)
+            // Forza UDP exposes IsRaceOn — when paused / in menu / loading,
+            // CPU spikes there don't reflect race-time conditions, so don't
+            // bake a ratchet UP from them. Other sources don't have an
+            // equivalent flag; SimHub's own GameRunning isn't precise enough
+            // (it's true the moment the launcher is up, including loading).
+            bool suppressUp = false;
+            var fz = _telemetrySource as ForzaUdpTelemetrySource;
+            if (fz != null && !fz.LastIsRaceOn) suppressUp = true;
+
+            if (!suppressUp && tfDelta >= RatchetThreshold && perf.TfRingSize < TrueforceDevice.MaxRingSize)
             {
                 int oldCap = perf.TfRingSize;
                 int newCap = oldCap * 2;
@@ -1011,10 +1028,11 @@ namespace TrueforceForAll.Plugin
                 SimHub.Logging.Current.Info(
                     $"[Trueforce] Auto-ratchet UP: Trueforce ring {oldCap} → {newCap} after {tfDelta} underruns/s.");
                 _tfLastRatchetActionTicks = now;
+                _tfLastActionWasDown = false;
                 FireRatchetEvent(true, oldCap, newCap);
             }
 
-            if (audioDelta >= RatchetThreshold && perf.AudioRingSize < AudioCaptureSource.MaxRingSamples)
+            if (!suppressUp && audioDelta >= RatchetThreshold && perf.AudioRingSize < AudioCaptureSource.MaxRingSamples)
             {
                 int oldCap = perf.AudioRingSize;
                 int newCap = oldCap * 2;
@@ -1023,6 +1041,7 @@ namespace TrueforceForAll.Plugin
                 SimHub.Logging.Current.Info(
                     $"[Trueforce] Auto-ratchet UP: audio ring {oldCap} → {newCap} after {audioDelta} glitches/s.");
                 _audioLastRatchetActionTicks = now;
+                _audioLastActionWasDown = false;
                 FireRatchetEvent(false, oldCap, newCap);
             }
 
@@ -1030,18 +1049,23 @@ namespace TrueforceForAll.Plugin
             // Conditions, all must hold:
             //   - capacity is above its minimum
             //   - quiet window: no underruns/glitches for >= RatchetDownQuietMs
-            //   - cooldown: no ratchet action (up or down) for
-            //     >= RatchetDownCooldownMs
+            //   - cooldown: no ratchet action (up or down) for >=
+            //     RatchetDownCooldownMs after an UP, or >=
+            //     RatchetDownFastCooldownMs once descent has started.
             // Quiet operation: log entry only, no UI event fire (don't want
             // a modal interrupting the user every minute as the ring drains).
-            long quietTicks    = Stopwatch.Frequency * RatchetDownQuietMs    / 1000L;
-            long cooldownTicks = Stopwatch.Frequency * RatchetDownCooldownMs / 1000L;
+            long quietTicks         = Stopwatch.Frequency * RatchetDownQuietMs        / 1000L;
+            long slowCooldownTicks  = Stopwatch.Frequency * RatchetDownCooldownMs     / 1000L;
+            long fastCooldownTicks  = Stopwatch.Frequency * RatchetDownFastCooldownMs / 1000L;
+
+            long tfCooldown    = _tfLastActionWasDown    ? fastCooldownTicks : slowCooldownTicks;
+            long audioCooldown = _audioLastActionWasDown ? fastCooldownTicks : slowCooldownTicks;
 
             if (perf.TfRingSize > TrueforceDevice.MinRingSize
                 && _tfLastUnderrunSeenTicks  != 0
                 && (now - _tfLastUnderrunSeenTicks)    >= quietTicks
                 && (_tfLastRatchetActionTicks == 0
-                    || (now - _tfLastRatchetActionTicks) >= cooldownTicks))
+                    || (now - _tfLastRatchetActionTicks) >= tfCooldown))
             {
                 int oldCap = perf.TfRingSize;
                 int newCap = oldCap / 2;
@@ -1050,17 +1074,14 @@ namespace TrueforceForAll.Plugin
                 SimHub.Logging.Current.Info(
                     $"[Trueforce] Auto-ratchet DOWN: Trueforce ring {oldCap} → {newCap} after {RatchetDownQuietMs / 1000} s of quiet.");
                 _tfLastRatchetActionTicks = now;
-                // Re-arm the cooldown for the next step too — DOWN is
-                // gradual, one notch at a time, with another full cooldown
-                // period between steps. Avoids halving twice in a single
-                // tick if we'd been quiet for hours.
+                _tfLastActionWasDown = true;
             }
 
             if (perf.AudioRingSize > AudioCaptureSource.MinRingSamples
                 && _audioLastUnderrunSeenTicks  != 0
                 && (now - _audioLastUnderrunSeenTicks)    >= quietTicks
                 && (_audioLastRatchetActionTicks == 0
-                    || (now - _audioLastRatchetActionTicks) >= cooldownTicks))
+                    || (now - _audioLastRatchetActionTicks) >= audioCooldown))
             {
                 int oldCap = perf.AudioRingSize;
                 int newCap = oldCap / 2;
@@ -1069,6 +1090,7 @@ namespace TrueforceForAll.Plugin
                 SimHub.Logging.Current.Info(
                     $"[Trueforce] Auto-ratchet DOWN: audio ring {oldCap} → {newCap} after {RatchetDownQuietMs / 1000} s of quiet.");
                 _audioLastRatchetActionTicks = now;
+                _audioLastActionWasDown = true;
             }
         }
 
