@@ -112,6 +112,11 @@ namespace TrueforceForAll.Plugin
         private int _ringHead;       // producer index (capture)
         private int _ringTail;       // consumer index (RenderAdd)
         private readonly object _ringLock = new object();
+
+        // Reusable scratch for downsampled emissions per WASAPI callback.
+        // Single-producer (the helper-host pump thread is the only writer),
+        // so no sync needed. Grown lazily if a callback exceeds current size.
+        private float[] _outBufScratch = new float[256];
         // Tracks whether RenderAdd has ever pulled at least one sample, so we
         // don't count "underrun" during the cold-start period before the
         // capture callback has fired.
@@ -290,10 +295,12 @@ namespace TrueforceForAll.Plugin
             int frameCount = e.BytesRecorded / bytesPerFrame;
             if (frameCount == 0) return;
 
-            // Local scratch — accumulate emitted output samples, push to ring once.
+            // Reusable scratch — accumulate emitted output samples, push to ring once.
             // At 48 kHz input → 1 kHz output, frameCount/48 emissions per callback (~10 frames).
             int maxEmissions = frameCount + 1;
-            float[] outBuf = new float[maxEmissions];
+            if (_outBufScratch.Length < maxEmissions)
+                _outBufScratch = new float[maxEmissions];
+            float[] outBuf = _outBufScratch;
             int outIdx = 0;
 
             byte[] buf = e.Buffer;

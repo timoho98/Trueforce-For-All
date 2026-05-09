@@ -180,7 +180,7 @@ namespace TrueforceForAll.Plugin
     ""EnginePulse"": {
       ""Enabled"": true,
       ""Gain"": 0.06518083,
-      ""Cylinders"": 7,
+      ""Cylinders"": 6,
       ""Pitch"": 1.00160933,
       ""LowpassHz"": 510.18329938900223,
       ""Waveform"": ""Triangle""

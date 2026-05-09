@@ -89,6 +89,10 @@ namespace TrueforceForAll.Core
         // Reusable packet buffer (re-zeroed on each tick).
         private readonly byte[] _packetBuf = new byte[PacketLen];
 
+        // Reusable scratch for samples drained from the ring each StreamTick.
+        // Single-threaded use (only StreamTick touches it) so no sync needed.
+        private readonly ushort[] _newSamplesScratch = new ushort[NewPerPacket];
+
         // Optional FFB target source. Returns AC's most-recent FFB target as a
         // signed int16 if it was captured within FfbTargetMaxAgeMs, or null
         // otherwise. We use this as cur (bytes 6-9) for active packets so AC's
@@ -163,6 +167,10 @@ namespace TrueforceForAll.Core
         // elevated force for ~50-100 ms; this half-life keeps attenuation
         // active through the whole impact rather than just the slew moment.
         private const float SpikeEnvHalfLifeMs = 70f;
+        // Per-tick decay factor for the spike envelope. Both inputs to Math.Pow
+        // are constants, so precompute once.
+        private static readonly float SpikeEnvDecayPerTick =
+            (float)Math.Pow(0.5, 1.0 / SpikeEnvHalfLifeMs);
         private float _prevRawForSlew;
         private float _spikeSlewEnv;
 
@@ -171,10 +179,12 @@ namespace TrueforceForAll.Core
         // UI's "Test" button can drive audio through the wheel while AC isn't
         // running (otherwise we'd be in keepalive mode and the test would
         // be silent). Set via ForceActiveFor(durationMs).
+        // Stored in Stopwatch.GetTimestamp() ticks (monotonic, immune to
+        // wall-clock jumps from NTP / DST / manual changes).
         private long _forceActiveUntilTicks;
         public void ForceActiveFor(int durationMs)
         {
-            long endTicks = DateTime.UtcNow.Ticks + durationMs * TimeSpan.TicksPerMillisecond;
+            long endTicks = Stopwatch.GetTimestamp() + durationMs * Stopwatch.Frequency / 1000;
             System.Threading.Interlocked.Exchange(ref _forceActiveUntilTicks, endTicks);
         }
 
@@ -312,6 +322,17 @@ namespace TrueforceForAll.Core
         public void Pause()  => _paused = true;
         public void Resume() => _paused = false;
 
+        // Clear FFB filter state. Called on car / game switch so the new car's
+        // first frames don't get blended with the previous car's last sample
+        // through the IIR / slew / spike-envelope chain.
+        public void ResetFfbFilters()
+        {
+            _smoothedFfb     = 0f;
+            _slewLimitedFfb  = 0f;
+            _prevRawForSlew  = 0f;
+            _spikeSlewEnv    = 0f;
+        }
+
         // Protocol-level mode commands. Per mescon's protocol doc:
         //   type 0x04 = stop/clear (init packet #67)  → wheel returns to its
         //               internal FFB-only mode; further sample packets ignored.
@@ -438,7 +459,7 @@ namespace TrueforceForAll.Core
             }
 
             // Drain up to NewPerPacket samples from the ring (non-blocking).
-            ushort[] newSamples = new ushort[NewPerPacket];
+            ushort[] newSamples = _newSamplesScratch;
             int n = 0;
             lock (_ringLock)
             {
@@ -493,7 +514,7 @@ namespace TrueforceForAll.Core
             if (_paused) return;
 
             short? ffbTargetMaybe = FfbTargetProvider?.Invoke();
-            bool forceActive = DateTime.UtcNow.Ticks < System.Threading.Interlocked.Read(ref _forceActiveUntilTicks);
+            bool forceActive = Stopwatch.GetTimestamp() < System.Threading.Interlocked.Read(ref _forceActiveUntilTicks);
             bool sendActive = ffbTargetMaybe.HasValue || forceActive;
 
             if (sendActive)
@@ -547,10 +568,7 @@ namespace TrueforceForAll.Core
                     }
                     else
                     {
-                        // Per-tick decay factor for given half-life:
-                        // f = 0.5^(1/halfLifeMs). At HalfLife=70 ms, f ≈ 0.9902.
-                        float decay = (float)Math.Pow(0.5, 1.0 / SpikeEnvHalfLifeMs);
-                        _spikeSlewEnv *= decay;
+                        _spikeSlewEnv *= SpikeEnvDecayPerTick;
                     }
 
                     // Slew-rate limit: caps the input step a curb hit can

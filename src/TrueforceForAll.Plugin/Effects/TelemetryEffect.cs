@@ -26,6 +26,11 @@ namespace TrueforceForAll.Plugin.Effects
         public abstract void   RenderAdd(float[] buffer, int count);
         public virtual  void   OnTelemetry(TelemetryFrame frame) { }
 
+        // Clear any internal state that would carry across a car / game switch.
+        // Default is no-op; effects with edge-detected or last-value state
+        // (gear tracking, ABS rising-edge) override.
+        public virtual void Reset() { }
+
         // Test mode — used by the settings UI's "Test" button to play the effect
         // at representative max parameters for a short duration without needing
         // the game to drive it via telemetry. Subclasses set their internal

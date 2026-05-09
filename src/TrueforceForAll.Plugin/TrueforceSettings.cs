@@ -34,6 +34,23 @@ namespace TrueforceForAll.Plugin
         // here and we'll capture from it.
         public Dictionary<string, string> AudioCaptureExeOverrides { get; set; } = new Dictionary<string, string>();
 
+        // Per-(game, carId) cylinder lookup cache. Populated by CarCylinderResolver
+        // when its heuristic detects a car not present in the shipped bake — so
+        // the next session resolves instantly without re-reading ui_car.json.
+        // Schema: outer key = SimHub GameName (e.g. "AssettoCorsa"), inner key
+        // = carId, value = effective cylinder count (1..16; 0 reserved for EV
+        // sentinel). Plugin owns invalidation via CarCylinderCacheVersion below
+        // — bump that integer when the heuristic improves and all caches are
+        // discarded next load.
+        public Dictionary<string, Dictionary<string, int>> CarCylinderCache { get; set; }
+            = new Dictionary<string, Dictionary<string, int>>();
+
+        // Bump when heuristic patterns change in a way that invalidates prior
+        // cache entries. On load, CarCylinderResolver compares this to its
+        // own constant; mismatch clears the cache so cars get re-detected
+        // against the improved heuristic.
+        public int CarCylinderCacheVersion { get; set; } = 1;
+
         public float MasterGain { get; set; } = 1.0f;
 
         // FFB pass-through tuning. Scale lets users dial down the felt strength
@@ -240,19 +257,51 @@ namespace TrueforceForAll.Plugin
         public int AudioRingSize { get; set; } = 16;
     }
 
+    /// <summary>What EnginePulse should do when the resolver flags the
+    /// active car as a pure EV. Combustion cars ignore this entirely.</summary>
+    public enum ElectricCarMode
+    {
+        /// <summary>Play the same firing-frequency hum as a combustion car
+        /// but at half amplitude. Real EVs aren't silent — many pump
+        /// synthetic engine sound — so a muted hum reads more correctly
+        /// than dead silence. Default.</summary>
+        MutedHum,
+
+        /// <summary>EnginePulse is fully muted on EVs. For users who want
+        /// authentic silence (or just don't like the synthetic-engine
+        /// approach). Other effects (RoadBumps, TractionLoss, etc.) still
+        /// run normally — only the firing-rate hum is suppressed.</summary>
+        Silent,
+    }
+
     public sealed class EnginePulseSettings
     {
         public bool   Enabled   { get; set; } = true;
         public float  Gain      { get; set; } = 1.0f;
-        // 6 covers the most common modern car engine count and is a
-        // reasonable middle ground for cars that haven't had a per-car
-        // override authored yet.
-        public int    Cylinders { get; set; } = 6;
+
+        // Cylinders=0 is the "use auto-detected count" sentinel. When 0,
+        // EnginePulseEffect.EffectiveCylinders returns AutoCylinders if
+        // the resolver populated one (or falls back to a sane default of
+        // 6 if there's no auto value). When non-zero, the user has dialed
+        // in a specific count and that value wins regardless of detection.
+        // Default is 0 (auto) so a fresh install or fresh per-car preset
+        // automatically uses the resolver's answer for the active car.
+        // Existing users' saved settings retain their explicit value and
+        // continue to behave as before — only fresh state defaults to auto.
+        public int    Cylinders { get; set; } = 0;
         public float  Pitch     { get; set; } = 1.0f;     // multiplier on firing-freq calc
         public double LowpassHz { get; set; } = 0.0;       // 0 = disabled
 
         [JsonConverter(typeof(StringEnumConverter))]
         public Waveform Waveform { get; set; } = Waveform.Sine;
+
+        /// <summary>How EnginePulse handles cars the resolver flags as
+        /// pure EVs. Per-car preset overrides the global default like
+        /// every other EnginePulseSettings field, so a user who likes the
+        /// muted hum globally can still pick Silent for one specific EV
+        /// (or vice versa).</summary>
+        [JsonConverter(typeof(StringEnumConverter))]
+        public ElectricCarMode ElectricMode { get; set; } = ElectricCarMode.MutedHum;
     }
 
     public sealed class RoadBumpsSettings

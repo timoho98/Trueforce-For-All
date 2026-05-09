@@ -30,6 +30,15 @@ namespace TrueforceForAll.Core
         /// <summary>True between Start() and Stop().</summary>
         bool IsRunning { get; }
 
+        /// <summary>True when this source populates TelemetryFrame.NumCylinders
+        /// each frame (Forza UDP today). Lets the plugin set EnginePulseEffect's
+        /// AutoCylinderSource = "telemetry" eagerly on car change rather than
+        /// waiting for the first frame to arrive — eliminating the brief null
+        /// window between "car-change cleared the field" and "first telemetry
+        /// frame populated it." False for sources that don't expose cyl
+        /// (AC shared memory, SimHub fallback for most games).</summary>
+        bool ProvidesNumCylinders { get; }
+
         /// <summary>Live measured frame rate based on inter-frame timing.
         /// Returns 0 when the source is idle (no frame in the last second).</summary>
         double MeasuredHz { get; }
@@ -115,6 +124,9 @@ namespace TrueforceForAll.Core
         public abstract string Name { get; }
         public abstract bool IsEnhanced { get; }
         public abstract bool IsRunning { get; }
+
+        // Default false. Sources that surface NumCylinders override to true.
+        public virtual bool ProvidesNumCylinders => false;
 
         public Action<TelemetryFrame> OnFrame { get; set; }
 

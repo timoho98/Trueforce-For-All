@@ -8,6 +8,7 @@
 //            feel matches what the simulated pump is doing.
 
 using System;
+using System.Diagnostics;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using TrueforceForAll.Core;
@@ -47,10 +48,12 @@ namespace TrueforceForAll.Plugin.Effects
 
         private const double SampleRate = 4000.0;
         private const int HoldMs = 120;   // Pulse-mode hold
+        private static readonly long HoldStopwatchTicks =
+            HoldMs * Stopwatch.Frequency / 1000;
 
         // Pulse-mode state
         private float  _amp;
-        private long   _lastActiveTicks;
+        private long   _lastActiveTicks;   // Stopwatch.GetTimestamp() units
 
         // PerTick-mode state
         private int    _tickEnvelopeRemaining;
@@ -60,8 +63,6 @@ namespace TrueforceForAll.Plugin.Effects
         // Shared
         private double _carrierPhase;
         private double _pulsePhase;
-        private long   _lastAbsLogTicks;
-        private int    _lastLoggedAbsValue = -1;
 
         public override bool IsActive
             => IsTesting
@@ -165,7 +166,6 @@ namespace TrueforceForAll.Plugin.Effects
             if (IsTesting) return;
 
             int absValue = f.AbsActive;
-            long now = DateTime.UtcNow.Ticks;
 
             if (Mode == AbsMode.PerTick)
             {
@@ -179,21 +179,23 @@ namespace TrueforceForAll.Plugin.Effects
             else
             {
                 // Pulse mode with hold (decouples our pulse rate from game flicker).
+                long now = Stopwatch.GetTimestamp();
                 if (absValue > 0) _lastActiveTicks = now;
                 bool stillEngaged = _lastActiveTicks != 0
-                    && (now - _lastActiveTicks) < HoldMs * TimeSpan.TicksPerMillisecond;
+                    && (now - _lastActiveTicks) < HoldStopwatchTicks;
                 _amp = stillEngaged ? ActiveAmp * Gain : 0;
                 _lastAbsValue = absValue;
             }
+        }
 
-            // Diagnostic — log when ABSActive changes value or every 2s while active.
-            if (absValue != _lastLoggedAbsValue
-                || (absValue > 0 && now - _lastAbsLogTicks > 2 * TimeSpan.TicksPerSecond))
-            {
-                SimHub.Logging.Current.Info($"[Trueforce] ABS diag: ABSActive={absValue} mode={Mode} amp={_amp:F3} tickRem={_tickEnvelopeRemaining}");
-                _lastLoggedAbsValue = absValue;
-                _lastAbsLogTicks = now;
-            }
+        public override void Reset()
+        {
+            _amp = 0;
+            _lastActiveTicks = 0;
+            _tickEnvelopeRemaining = 0;
+            _lastAbsValue = 0;
+            _carrierPhase = 0;
+            _pulsePhase = 0;
         }
 
         private void TriggerTick()

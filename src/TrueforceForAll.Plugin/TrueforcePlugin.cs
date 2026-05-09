@@ -175,7 +175,7 @@ namespace TrueforceForAll.Plugin
         public string StreamStatus   { get; private set; } = "Stopped";
         public string CaptureStatus  => _captureStatus;
         public string FfbTapStatus   => _ffbTap?.Status ?? "Not started";
-        public int    ActiveVoiceCount => _mixer.Sources.Count;
+        public int    ActiveVoiceCount => _mixer.SourceCount;
         public AudioCaptureSource AudioCapture => _audio;
 
         // Live counters surfaced to the Performance tab for the underrun
@@ -370,6 +370,15 @@ namespace TrueforceForAll.Plugin
             if (Settings.GameEnabled  == null) Settings.GameEnabled  = new Dictionary<string, bool>();
             if (Settings.Performance  == null) Settings.Performance  = new PerformanceSettings();
             if (Settings.Forza        == null) Settings.Forza        = new ForzaSettings();
+            if (Settings.CarCylinderCache == null)
+                Settings.CarCylinderCache = new Dictionary<string, Dictionary<string, int>>();
+
+            // Hand the resolver a reference to the persisted cache. New heuristic
+            // hits get written through and flushed to disk on the next settings
+            // save. Version mismatch (heuristic improvement) clears the cache.
+            int cacheVer = Settings.CarCylinderCacheVersion;
+            CarCylinderResolver.AttachPersistentCache(Settings.CarCylinderCache, ref cacheVer);
+            Settings.CarCylinderCacheVersion = cacheVer;
             MigrateLegacyGamePresets();
             MigrateSpikeTamingFlag();
             InstallBuiltinPresetsIfMissing();
@@ -503,7 +512,7 @@ namespace TrueforceForAll.Plugin
                 AudioCaptureSource.MinRingSamples, AudioCaptureSource.MaxRingSamples, AudioCaptureSource.DefaultRingSamples);
             _audio.SetRingCapacity(Settings.Performance.AudioRingSize);
             if (_helperHost != null) _audio.Attach(_helperHost);
-            _mixer.Sources.Add(_audio);
+            _mixer.Add(_audio);
 
             // Telemetry effects: instantiate from settings, register in the
             // mixer in display order. Each effect is fed via the active
@@ -514,7 +523,7 @@ namespace TrueforceForAll.Plugin
             GearShift    = new GearShiftEffect();
             AbsClick     = new AbsClickEffect();
             _effects = new TelemetryEffect[] { EnginePulse, RoadBumps, TractionLoss, GearShift, AbsClick };
-            foreach (var fx in _effects) _mixer.Sources.Add(fx);
+            foreach (var fx in _effects) _mixer.Add(fx);
             // Pull initial values from globals (no car detected yet).
             ApplyActiveCarOverride();
 
@@ -647,11 +656,69 @@ namespace TrueforceForAll.Plugin
             if (carId != _activeCarId)
             {
                 _activeCarId = carId;
+                // Clear any per-car edge-detected / IIR state on the effects and
+                // the device's FFB filter chain so the new car's first frames
+                // don't get blended with the previous car's last sample (e.g. a
+                // spurious gear thud from a 4→1 apparent transition, or an FFB
+                // smoothing transient biased toward the old car's last torque).
+                if (_effects != null)
+                {
+                    for (int i = 0; i < _effects.Length; i++)
+                    {
+                        try { _effects[i].Reset(); } catch { }
+                    }
+                }
+                _device?.ResetFfbFilters();
                 // New car — discard the previous car's auto-detected cylinder
                 // count so the next telemetry frame populates fresh from the
                 // new car's NumCylinders. (No-op for non-Forza sources that
                 // never fill it.)
-                if (EnginePulse != null) EnginePulse.AutoCylinders = null;
+                if (EnginePulse != null)
+                {
+                    EnginePulse.AutoCylinders = null;
+                    EnginePulse.IsElectric = false;
+                    EnginePulse.AutoCylinderSource = null;
+
+                    // Seed AutoCylinders from baked lookup / heuristic for
+                    // games that don't ship cylinder count in telemetry
+                    // (AC, etc.). Forza sets NumCylinders directly each
+                    // frame and will overwrite this on the next tick — no
+                    // conflict, since the values agree for any car in both
+                    // lookups. EVs leave AutoCylinders null (so the user's
+                    // configured Cylinders stays in effect) and the IsElectric
+                    // flag drives AutoGainScale via the user's ElectricMode
+                    // setting (MutedHum=0.5x, Silent=0x). ApplyEngineSettings
+                    // below sets ElectricMode from the active preset.
+                    if (CarCylinderResolver.TryResolve(_activeGame, carId, out var carSpec))
+                    {
+                        if (carSpec.IsElectric)
+                        {
+                            EnginePulse.IsElectric = true;
+                        }
+                        else
+                        {
+                            EnginePulse.AutoCylinders = carSpec.Cylinders;
+                        }
+                        EnginePulse.AutoCylinderSource = carSpec.Source;
+                        SimHub.Logging.Current.Info(
+                            $"[Trueforce] Car '{carId}' resolved: cyl={carSpec.Cylinders}, "
+                            + $"electric={carSpec.IsElectric}, source={carSpec.Source}");
+                    }
+                    else if (_telemetrySource?.ProvidesNumCylinders == true)
+                    {
+                        // Resolver missed but the active source will populate
+                        // NumCylinders shortly (Forza UDP). Label the source
+                        // now so the UI doesn't briefly show "couldn't detect"
+                        // between car-change and first frame. AutoCylinders
+                        // itself stays null until OnTelemetry runs.
+                        EnginePulse.AutoCylinderSource = "telemetry";
+                    }
+                    else if (!string.IsNullOrEmpty(carId))
+                    {
+                        SimHub.Logging.Current.Info(
+                            $"[Trueforce] Car '{carId}' not auto-resolved — user can set cylinders manually.");
+                    }
+                }
                 ApplyActiveCarOverride();
             }
 
@@ -1105,11 +1172,13 @@ namespace TrueforceForAll.Plugin
             EnginePulse.PitchMultiplier = s.Pitch;
             EnginePulse.LowpassHz       = s.LowpassHz;
             EnginePulse.Waveform        = s.Waveform;
-            // Auto-cylinders precedence: a per-car engine override is the
-            // user explicitly customizing for this car, so their saved
-            // Cylinders value wins over telemetry. No override → telemetry's
-            // NumCylinders auto-detect drives the firing frequency.
-            EnginePulse.UseAutoCylinders = !IsEngineOverridden;
+            EnginePulse.ElectricMode    = s.ElectricMode;
+            // Auto-cylinders precedence is now derived from s.Cylinders:
+            // 0 = "use auto-detected", 1..16 = explicit manual override.
+            // EnginePulseEffect.UseAutoCylinders is computed from this so we
+            // don't need to flip an external flag here. The IsEngineOverridden
+            // flag still gates other plumbing (per-car preset detection,
+            // savability) but no longer controls auto-cyl behavior.
         }
         private void ApplyBumpsSettings(RoadBumpsSettings s)
         {
@@ -1170,7 +1239,7 @@ namespace TrueforceForAll.Plugin
 
         // ----- shallow clones used when toggling override on -----
         private static EnginePulseSettings  Clone(EnginePulseSettings s)
-            => new EnginePulseSettings  { Enabled = s.Enabled, Gain = s.Gain, Cylinders = s.Cylinders, Pitch = s.Pitch, LowpassHz = s.LowpassHz, Waveform = s.Waveform };
+            => new EnginePulseSettings  { Enabled = s.Enabled, Gain = s.Gain, Cylinders = s.Cylinders, Pitch = s.Pitch, LowpassHz = s.LowpassHz, Waveform = s.Waveform, ElectricMode = s.ElectricMode };
         private static RoadBumpsSettings    Clone(RoadBumpsSettings s)
             => new RoadBumpsSettings    {
                 Enabled = s.Enabled, Gain = s.Gain, Waveform = s.Waveform, Freq = s.Freq,
@@ -1837,7 +1906,8 @@ namespace TrueforceForAll.Plugin
                 && a.Cylinders == b.Cylinders
                 && EqF2(a.Pitch,     b.Pitch)
                 && EqI (a.LowpassHz, b.LowpassHz)
-                && a.Waveform == b.Waveform;
+                && a.Waveform == b.Waveform
+                && a.ElectricMode == b.ElectricMode;
         }
         private static bool Eq(RoadBumpsSettings a, RoadBumpsSettings b)
         {

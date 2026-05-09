@@ -228,13 +228,18 @@ namespace TrueforceForAll.Plugin
                     EngineEnabledCheck.IsChecked      = es.Enabled;
                     EngineGainSlider.Value            = es.Gain;
                     EngineGainText.Text               = es.Gain.ToString("F2");
+                    // Cylinders=0 sentinel = "auto" (use AutoCylinders or fallback).
+                    // Slider position 0 displays as "auto"; 1-12 as the numeric value.
                     EngineCylindersSlider.Value       = es.Cylinders;
-                    EngineCylindersText.Text          = es.Cylinders.ToString();
+                    EngineCylindersText.Text          = es.Cylinders == 0 ? "auto" : es.Cylinders.ToString();
                     EnginePitchSlider.Value           = es.Pitch;
                     EnginePitchText.Text              = es.Pitch.ToString("F2");
                     EngineLowpassSlider.Value         = es.LowpassHz;
                     EngineLowpassText.Text            = ((int)es.LowpassHz).ToString();
                     SelectWaveform(EngineWaveformCombo, es.Waveform);
+                    if (EngineElectricModeCombo != null)
+                        EngineElectricModeCombo.SelectedIndex =
+                            es.ElectricMode == ElectricCarMode.Silent ? 1 : 0;
                 }
                 // Bumps
                 var bs = _plugin.ActiveBumps;
@@ -393,15 +398,85 @@ namespace TrueforceForAll.Plugin
                 if (EngineCylindersAutoText != null)
                 {
                     var ep = _plugin.EnginePulse;
+                    string activeCar = _plugin.ActiveCarId;
                     if (ep != null && ep.UseAutoCylinders && ep.AutoCylinders is int auto
-                        && auto >= 1 && auto <= 12 && auto != ep.Cylinders)
+                        && auto >= 1 && auto <= 12)
                     {
+                        // Build a friendly reason string from the source token.
+                        string detectSrc = ep.AutoCylinderSource;
+                        string clarification;
+                        if (ep.AutoCylinderIsRotary)
+                        {
+                            int rotors = auto / 2;
+                            clarification = $"Auto-detected: {auto} effective cyl ({rotors}-rotor rotary)";
+                        }
+                        else if (string.Equals(detectSrc, "telemetry", StringComparison.OrdinalIgnoreCase))
+                            clarification = $"Auto-detected from telemetry: {auto}";
+                        else if (string.Equals(detectSrc, "baked", StringComparison.OrdinalIgnoreCase))
+                            clarification = $"Auto-detected: {auto} (from built-in car list)";
+                        else if (string.Equals(detectSrc, "cache", StringComparison.OrdinalIgnoreCase))
+                            clarification = $"Auto-detected: {auto} (cached from earlier session)";
+                        else if (!string.IsNullOrEmpty(detectSrc))
+                            clarification = $"Auto-detected: {auto} (heuristic: {detectSrc})";
+                        else
+                            clarification = $"Auto-detected: {auto}";
+
+                        // Note when slider value is being overridden by auto so users
+                        // know their slider isn't in effect.
+                        if (auto != ep.Cylinders)
+                            clarification += ". Slider value is overridden until you save a per-car engine override.";
+                        EngineCylindersAutoText.Text = clarification;
+                    }
+                    else if (ep != null && ep.UseAutoCylinders
+                             && string.IsNullOrEmpty(ep.AutoCylinderSource)
+                             && !string.IsNullOrEmpty(activeCar))
+                    {
+                        // Active car loaded but no auto-detection available —
+                        // prompt the user to dial it in via test playback.
                         EngineCylindersAutoText.Text =
-                            $"Auto-detected from telemetry: {auto}. Slider value is overridden until you save a per-car engine override.";
+                            $"Could not auto-detect cylinder count for '{activeCar}'. "
+                            + "Move the slider and use Test to find the value that feels closest, "
+                            + "or save a per-car engine override.";
+                    }
+                    else if (ep != null && !ep.UseAutoCylinders
+                             && ep.AutoCylinders is int autoVal
+                             && autoVal >= 1 && autoVal <= 12
+                             && autoVal != ep.Cylinders)
+                    {
+                        // Manual override active and the resolver disagrees —
+                        // surface the auto value so the user knows what they're
+                        // overriding (and can revert by dragging slider to 0).
+                        string srcSuffix = string.IsNullOrEmpty(ep.AutoCylinderSource)
+                            ? ""
+                            : $" ({ep.AutoCylinderSource})";
+                        EngineCylindersAutoText.Text =
+                            $"Manual override: {ep.Cylinders}. Auto would be {autoVal}{srcSuffix}. "
+                            + "Drag slider to 0 to use auto.";
                     }
                     else
                     {
                         EngineCylindersAutoText.Text = "";
+                    }
+
+                    // Context-aware label on the report button: "Report wrong"
+                    // when we have a value (user's correcting it); "Report this
+                    // car's cylinder count" when we missed detection entirely
+                    // (user's filling in the gap). Hide the button when no car
+                    // is loaded — there's nothing to report against.
+                    if (ReportWrongCylindersButton != null)
+                    {
+                        if (string.IsNullOrEmpty(activeCar))
+                        {
+                            ReportWrongCylindersButton.Visibility = System.Windows.Visibility.Collapsed;
+                        }
+                        else
+                        {
+                            ReportWrongCylindersButton.Visibility = System.Windows.Visibility.Visible;
+                            bool detected = ep != null && ep.AutoCylinders.HasValue;
+                            ReportWrongCylindersButton.Content = detected
+                                ? "Report wrong cylinder count for this car…"
+                                : "Help us add this car: report its cylinder count…";
+                        }
                     }
                 }
 
@@ -1177,10 +1252,113 @@ namespace TrueforceForAll.Plugin
         private void EngineCylindersSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (_suppressEvents || _plugin == null) return;
+            // 0 = auto sentinel (saves Cylinders=0 → resolver / telemetry value
+            // wins via EffectiveCylinders). 1-12 = explicit manual override.
             int v = (int)Math.Round(e.NewValue);
-            EngineCylindersText.Text = v.ToString();
+            EngineCylindersText.Text = v == 0 ? "auto" : v.ToString();
             _plugin.ActiveEngine.Cylinders = v;
             Apply(EffectKind.Engine);
+        }
+
+        // GitHub issue template URL. Pre-fills title + body with the active
+        // car's state so users can submit corrections in one click — no need
+        // to remember the carId, the source attribution, or the format.
+        private const string ReportIssuesBase = "https://github.com/Mhytee/Trueforce-For-All/issues/new";
+        private const string RepoUrl          = "https://github.com/Mhytee/Trueforce-For-All";
+
+        private void ReportIssue_Click(object sender, RoutedEventArgs e)
+        {
+            // Generic "report a bug / feature request" path. Pre-fills version +
+            // active game so common context is captured without typing.
+            string game = _plugin?.ActiveGame ?? "(none)";
+            string carId = _plugin?.ActiveCarId ?? "(none)";
+            string version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "?";
+            string body =
+                  "**What happened?**\n<describe the issue>\n\n"
+                + "**Steps to reproduce**\n1. \n2. \n\n"
+                + "**Expected behavior**\n<what should have happened>\n\n"
+                + "---\n"
+                + "**Environment**\n"
+                + $"- Plugin version: {version}\n"
+                + $"- Active game: {game}\n"
+                + $"- Active car: {carId}\n"
+                + "- SimHub version: <fill in>\n"
+                + "- Wheel: <e.g. G PRO, RS50>\n";
+            string url = ReportIssuesBase
+                       + "?title=" + Uri.EscapeDataString("[bug] ")
+                       + "&body="  + Uri.EscapeDataString(body);
+            OpenUrl(url);
+        }
+
+        private void OpenRepo_Click(object sender, RoutedEventArgs e) => OpenUrl(RepoUrl);
+
+        private static void OpenUrl(string url)
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url)
+                {
+                    UseShellExecute = true,
+                });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Couldn't open browser:\n{ex.Message}\n\nURL: {url}",
+                    "Trueforce", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private void ReportWrongCylindersButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_plugin == null) return;
+            string carId   = _plugin.ActiveCarId ?? "(no car loaded)";
+            string game    = _plugin.ActiveGame ?? "(unknown)";
+            var ep = _plugin.EnginePulse;
+            int? autoCyl   = ep?.AutoCylinders;
+            string source  = ep?.AutoCylinderSource ?? "(none)";
+            int effective  = ep?.EffectiveCylinders ?? 0;
+            int sliderCyl  = _plugin.ActiveEngine?.Cylinders ?? 0;
+            string elec    = ep != null && ep.IsElectric ? "yes" : "no";
+            string elecMode = ep?.ElectricMode.ToString() ?? "MutedHum";
+            string version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "?";
+
+            // Body uses GitHub-flavored markdown so the plain text renders cleanly.
+            string body =
+                  "**Car / detection state**\n"
+                + $"- Game: `{game}`\n"
+                + $"- Car ID: `{carId}`\n"
+                + $"- Auto-detected cylinders: {(autoCyl?.ToString() ?? "(not detected)")}\n"
+                + $"- Detection source: `{source}`\n"
+                + $"- Currently in effect (EffectiveCylinders): {effective}\n"
+                + $"- Slider value (Cylinders): {sliderCyl}\n"
+                + $"- Flagged as electric: {elec} (mode: {elecMode})\n"
+                + $"- Plugin version: {version}\n\n"
+                + "**Your correction**\n"
+                + "- Correct cylinder count: <FILL IN, e.g. 8>\n"
+                + "- Engine type: <e.g. \"LS3 V8 swap\" or \"stock 2JZ-GTE I6\" — manufacturer / mod author info if known>\n"
+                + "- Source / link to mod page: <optional>\n\n"
+                + "**Notes** (any other context):\n"
+                + "<optional>\n";
+
+            string title = $"Wrong cylinder count: {carId}";
+            string url = ReportIssuesBase
+                       + "?title=" + Uri.EscapeDataString(title)
+                       + "&body="  + Uri.EscapeDataString(body)
+                       + "&labels=" + Uri.EscapeDataString("cylinder-count");
+
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url)
+                {
+                    UseShellExecute = true,  // .NET Framework 4.8 launches the URL via default browser
+                });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Couldn't open browser:\n{ex.Message}\n\nYou can manually file an issue at:\n{ReportIssuesBase}",
+                    "Trueforce", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
         private void EnginePitchSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
@@ -1202,6 +1380,14 @@ namespace TrueforceForAll.Plugin
         {
             if (_suppressEvents || _plugin == null) return;
             _plugin.ActiveEngine.Waveform = WaveformOf(EngineWaveformCombo);
+            Apply(EffectKind.Engine);
+        }
+        private void EngineElectricMode_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            _plugin.ActiveEngine.ElectricMode = EngineElectricModeCombo.SelectedIndex == 1
+                ? ElectricCarMode.Silent
+                : ElectricCarMode.MutedHum;
             Apply(EffectKind.Engine);
         }
 

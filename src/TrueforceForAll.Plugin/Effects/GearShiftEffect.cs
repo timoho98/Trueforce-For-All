@@ -138,5 +138,12 @@ namespace TrueforceForAll.Plugin.Effects
             }
             _lastGear = gear;
         }
+
+        public override void Reset()
+        {
+            _lastGear = null;
+            _envelopeRemaining = 0;
+            _phase = 0;
+        }
     }
 }

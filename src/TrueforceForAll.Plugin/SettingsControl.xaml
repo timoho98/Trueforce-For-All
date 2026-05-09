@@ -482,19 +482,36 @@
                                         TickFrequency="0.25" ValueChanged="EngineGainSlider_ValueChanged" VerticalAlignment="Center"/>
                             <TextBlock Grid.Column="2" x:Name="EngineGainText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="1.00"/>
                         </Grid>
+                        <!-- Cylinders slider: 0 = auto (use resolver / telemetry value);
+                             1-12 = manual override. The text readout to the right shows
+                             "auto" at position 0, the number elsewhere. Drag all the way
+                             left to engage auto-detection; drag right to dial in a specific
+                             count. The status text below explains what's currently in effect. -->
                         <Grid Margin="0,0,0,8">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="Cylinders:" Style="{StaticResource LabelText}"/>
-                            <Slider     Grid.Column="1" x:Name="EngineCylindersSlider" Minimum="1" Maximum="12" SmallChange="1" LargeChange="2"
+                            <TextBlock Grid.Column="0" Text="Cylinders:" Style="{StaticResource LabelText}"
+                                       ToolTip="Drag to 'auto' (leftmost) to use the cylinder count detected for the active car, or pick a specific count to override detection."/>
+                            <Slider     Grid.Column="1" x:Name="EngineCylindersSlider" Minimum="0" Maximum="12" SmallChange="1" LargeChange="2"
                                         TickFrequency="1" IsSnapToTickEnabled="True"
                                         ValueChanged="EngineCylindersSlider_ValueChanged" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="2" x:Name="EngineCylindersText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="4"/>
+                            <TextBlock Grid.Column="2" x:Name="EngineCylindersText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="auto"/>
                         </Grid>
                         <!-- Auto-detect indicator: when telemetry supplies a per-car
                              cylinder count (Forza's NumCylinders today), shows what
                              the firing-frequency calc is actually using. Empty when
                              no auto value is available — slider value is in effect. -->
-                        <TextBlock x:Name="EngineCylindersAutoText" Style="{StaticResource HelpText}" Margin="140,0,0,8" Text=""/>
+                        <TextBlock x:Name="EngineCylindersAutoText" Style="{StaticResource HelpText}" Margin="140,0,0,4" Text=""/>
+                        <!-- Report-wrong button: opens a pre-filled GitHub issue for
+                             the active car so users can correct bake / heuristic mistakes
+                             without needing to know the carId or source attribution. -->
+                        <Grid Margin="140,0,0,8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Button x:Name="ReportWrongCylindersButton"
+                                    HorizontalAlignment="Left" Padding="8,3" Margin="0,2,0,0"
+                                    Click="ReportWrongCylindersButton_Click"
+                                    Content="Report wrong cylinder count for this car…"
+                                    ToolTip="Opens a pre-filled report on GitHub. Use this if the auto-detected count sounds wrong for the active car (most often for engine-swapped drift mods)."/>
+                        </Grid>
                         <Grid Margin="0,0,0,8">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Pitch:" Style="{StaticResource LabelText}"/>
@@ -509,13 +526,25 @@
                                 <ComboBoxItem Content="Sine"/><ComboBoxItem Content="Square"/><ComboBoxItem Content="Saw"/><ComboBoxItem Content="Triangle"/><ComboBoxItem Content="Noise"/>
                             </ComboBox>
                         </Grid>
-                        <Grid Margin="0,0,0,0">
+                        <Grid Margin="0,0,0,8">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Lowpass (Hz):" Style="{StaticResource LabelText}"
                                        ToolTip="0 = disabled. Lowers buzzy harmonics on Square/Saw without changing pitch."/>
                             <Slider     Grid.Column="1" x:Name="EngineLowpassSlider" Minimum="0" Maximum="2000" SmallChange="10" LargeChange="50"
                                         TickFrequency="200" ValueChanged="EngineLowpassSlider_ValueChanged" VerticalAlignment="Center"/>
                             <TextBlock Grid.Column="2" x:Name="EngineLowpassText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0"/>
+                        </Grid>
+                        <!-- Electric car behavior: applies only when the resolver
+                             flags the active car as a pure EV. Combustion cars
+                             ignore this. Per-car preset overrides the global. -->
+                        <Grid Margin="0,0,0,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Electric cars:" Style="{StaticResource LabelText}"
+                                       ToolTip="What EnginePulse does for cars detected as pure electric. Most users prefer the muted hum since real EVs aren't silent — many pump synthetic engine sound. Pick Silent if you want true silence on EVs."/>
+                            <ComboBox  Grid.Column="1" x:Name="EngineElectricModeCombo" SelectionChanged="EngineElectricMode_Changed">
+                                <ComboBoxItem Content="Muted hum (50%)"/>
+                                <ComboBoxItem Content="Silent (off)"/>
+                            </ComboBox>
                         </Grid>
                     </StackPanel>
                 </Expander>
@@ -1189,6 +1218,20 @@
                 </Button.Template>
             </Button>
             <TextBlock Text="ko-fi.com/mhytee" FontSize="11" Opacity="0.5" Margin="0,0,0,8"/>
+
+            <!-- Report-issue + repo link: separate from cylinder reporting; this
+                 is for everything else (bugs, feature requests, weird behavior). -->
+            <Border Style="{StaticResource SectionHeaderBorder}" Margin="0,16,0,0"><TextBlock Text="Feedback" Style="{StaticResource SectionHeaderText}"/></Border>
+            <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
+                Text="Found a bug, weird behavior, or have a feature request? Open an issue on GitHub."/>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                <Button x:Name="ReportIssueButton" Content="Report an issue…" Width="160" Height="26"
+                        Click="ReportIssue_Click" Margin="0,0,8,0"
+                        ToolTip="Opens a new GitHub issue. Pre-fills plugin version and active game so you don't have to type it."/>
+                <Button x:Name="OpenRepoButton" Content="Open project on GitHub" Width="180" Height="26"
+                        Click="OpenRepo_Click"
+                        ToolTip="github.com/Mhytee/Trueforce-For-All"/>
+            </StackPanel>
         </StackPanel>
     </ScrollViewer>
 </UserControl>

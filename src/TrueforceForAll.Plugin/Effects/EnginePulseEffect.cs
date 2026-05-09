@@ -15,32 +15,85 @@ namespace TrueforceForAll.Plugin.Effects
     {
         public override string Name => "Engine pulse";
 
-        /// <summary>Number of engine cylinders (1-12). Default 4 (typical sim car).</summary>
-        public int Cylinders { get; set; } = 4;
+        /// <summary>Configured cylinder count. 0 is the "use auto" sentinel —
+        /// when 0, <see cref="EffectiveCylinders"/> uses <see cref="AutoCylinders"/>
+        /// (or a sane fallback if no auto value is available). 1-16 is a
+        /// manual override that wins over auto regardless of resolver state.
+        /// The UI's "Auto-detect" checkbox toggles between 0 and a real value.</summary>
+        public int Cylinders { get; set; } = 0;
 
-        /// <summary>Cylinder count auto-detected from the active telemetry
-        /// source (e.g. Forza's NumCylinders field). When non-null AND the
-        /// plugin has flagged this car as "no per-car engine override," the
-        /// firing-frequency calc uses this value instead of <see cref="Cylinders"/>.
-        /// Plugin clears it on car change so a new car re-detects from its
-        /// own telemetry. UI can read it to show "(auto: 8)" alongside the
-        /// slider.</summary>
+        // Sane fallback when Cylinders=0 (auto requested) but the resolver
+        // produced no value for this car — a generic 6 covers most modern
+        // engines and at least gives a plausible firing frequency.
+        private const int AutoFallbackCylinders = 6;
+
+        /// <summary>Cylinder count auto-detected from telemetry (Forza
+        /// NumCylinders) or from CarCylinderResolver (AC bake / heuristic).
+        /// Set by the plugin on car change, cleared when no resolution is
+        /// available. UI shows it alongside the slider for transparency.</summary>
         public int? AutoCylinders { get; set; }
 
-        /// <summary>Whether <see cref="AutoCylinders"/> should override the
-        /// configured <see cref="Cylinders"/> for this frame. Plugin sets it
-        /// true while no per-car engine override is active, false once the
-        /// user has saved per-car cylinder settings (so their override wins).
-        /// Defaults true so the path Just Works for un-customized cars.</summary>
-        public bool UseAutoCylinders { get; set; } = true;
+        /// <summary>True when the user has chosen auto-detection for this
+        /// car (Cylinders == 0). Derived rather than separately stored so
+        /// changing the saved value via the UI immediately flips the state
+        /// without a separate flag write. The UI's "Auto-detect" checkbox
+        /// is bound to this — toggling it sets Cylinders to 0 (on) or to
+        /// the current EffectiveCylinders (off).</summary>
+        public bool UseAutoCylinders => Cylinders == 0;
 
-        /// <summary>Effective cylinder count actually being used right now —
-        /// AutoCylinders if active, else Cylinders. Read-only helper for the
-        /// UI's "(auto: 8)" indicator.</summary>
-        public int EffectiveCylinders =>
-            (UseAutoCylinders && AutoCylinders is int auto && auto >= 1 && auto <= 12)
-                ? auto
-                : Cylinders;
+        /// <summary>Effective cylinder count actually being used right now.
+        /// Cascade: configured Cylinders (when non-zero) → AutoCylinders
+        /// (when in auto mode) → AutoFallbackCylinders. Read-only helper
+        /// for both the firing-frequency math and the UI readout.</summary>
+        public int EffectiveCylinders
+        {
+            get
+            {
+                if (Cylinders >= 1 && Cylinders <= 16) return Cylinders;
+                if (AutoCylinders is int auto && auto >= 1 && auto <= 16) return auto;
+                return AutoFallbackCylinders;
+            }
+        }
+
+        /// <summary>Set by the plugin when the resolver flags the active
+        /// car as a pure EV. Cleared on every car change. Combined with
+        /// <see cref="ElectricMode"/> to decide whether to attenuate or
+        /// silence the pulse for electric cars — see AutoGainScale.</summary>
+        public bool IsElectric { get; set; }
+
+        /// <summary>What to do for EV cars: attenuate to 50% (default,
+        /// MutedHum — synthetic-engine-style) or fully silence (Silent).
+        /// Set by ApplyEngineSettings from EnginePulseSettings.ElectricMode
+        /// so global default + per-car preset both work. Combustion cars
+        /// ignore this field.</summary>
+        public ElectricCarMode ElectricMode { get; set; } = ElectricCarMode.MutedHum;
+
+        /// <summary>Computed amplitude scale applied alongside the user's
+        /// Gain. Combustion cars: 1.0. EVs: 0.5 in MutedHum, 0.0 in Silent.
+        /// Computed (not stored) so changing ElectricMode in the UI takes
+        /// effect on the next render without re-resolving the car.</summary>
+        public float AutoGainScale =>
+            !IsElectric ? 1.0f
+            : (ElectricMode == ElectricCarMode.Silent ? 0.0f : 0.5f);
+
+        /// <summary>How AutoCylinders was determined for the active car,
+        /// surfaced in the settings UI so users see why we picked a value.
+        /// Format: source token from CarCylinderResolver.Result.Source —
+        /// "baked" / "codename" / "tag" / "chassis" / "rotor-phrase" /
+        /// "tag-rotary" / "chassis-rotary" / "desc-rotary" / "cache" /
+        /// "telemetry" (Forza-style direct telemetry) etc. Null when the
+        /// car wasn't resolved at all (user should configure manually).
+        /// Cleared on car change.</summary>
+        public string AutoCylinderSource { get; set; }
+
+        /// <summary>True when AutoCylinderSource indicates a rotary engine
+        /// (mapping rotors to effective cyl). UI uses this to clarify that
+        /// "4 cylinders" actually means a 2-rotor rotary etc., so the user
+        /// doesn't think we got the engine layout wrong.</summary>
+        public bool AutoCylinderIsRotary =>
+            !string.IsNullOrEmpty(AutoCylinderSource)
+            && AutoCylinderSource.IndexOf("rotary", StringComparison.OrdinalIgnoreCase) >= 0
+            || string.Equals(AutoCylinderSource, "rotor-phrase", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>Multiplier on the firing-frequency calc; let per-car overrides shift the pitch.</summary>
         public float PitchMultiplier { get; set; } = 1.0f;
@@ -181,7 +234,7 @@ namespace TrueforceForAll.Plugin.Effects
 
             double rpmAmp      = IdleAmp + (PeakAmp - IdleAmp) * rpmNorm;
             double throttleAmp = throttle * ThrottleBoost * PeakAmp;
-            double amp = Math.Min(rpmAmp + throttleAmp, PeakAmp * 1.5) * Gain;
+            double amp = Math.Min(rpmAmp + throttleAmp, PeakAmp * 1.5) * Gain * AutoGainScale;
             _osc.Amp = amp;
         }
 
@@ -194,8 +247,17 @@ namespace TrueforceForAll.Plugin.Effects
             // EffectiveCylinders doesn't flip-flop while the user is in a
             // menu. Plugin clears AutoCylinders on car change so the next
             // car's NumCylinders re-populates fresh.
+            //
+            // AutoCylinderSource is intentionally NOT written here — the
+            // plugin's car-change handler owns it. For sources that provide
+            // NumCylinders (Forza), the plugin sets source="telemetry"
+            // eagerly on car change. Single writer avoids the cross-thread
+            // race that existed when both this method and the plugin could
+            // write the field.
             if (f.NumCylinders is int n && n >= 1 && n <= 12)
+            {
                 AutoCylinders = n;
+            }
 
             double rpm = f.Rpms;
             if (rpm < 100) { _osc.Amp = 0; return; }   // engine off
@@ -213,7 +275,7 @@ namespace TrueforceForAll.Plugin.Effects
             double throttleAmp = f.Throttle01 * ThrottleBoost * PeakAmp;
 
             double amp = Math.Min(rpmAmp + throttleAmp, PeakAmp * 1.5);
-            _osc.Amp = amp * Gain;
+            _osc.Amp = amp * Gain * AutoGainScale;
         }
     }
 }

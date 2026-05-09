@@ -58,6 +58,10 @@ namespace TrueforceForAll.Core
         public override string Name => "Forza (UDP)";
         public override bool   IsEnhanced => true;
         public override bool   IsRunning  => _running != 0;
+        // Forza's UDP packet at offset 228 carries NumCylinders, populated
+        // every frame. Lets the plugin label AutoCylinderSource as
+        // "telemetry" on car change without waiting for the first frame.
+        public override bool   ProvidesNumCylinders => true;
 
         // Sled offsets (relative to packet start).
         private const int OFF_IS_RACE_ON         = 0;
