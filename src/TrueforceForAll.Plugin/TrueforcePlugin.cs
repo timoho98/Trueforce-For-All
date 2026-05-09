@@ -1246,7 +1246,8 @@ namespace TrueforceForAll.Plugin
                 || game == "ForzaMotorsport8"
                 || game == "ForzaMotorsport7"
                 || game == "iRacing"
-                || game == "AssettoCorsaRally";
+                || game == "AssettoCorsaRally"
+                || game == "AssettoCorsaEVO";
         }
 
         /// <summary>Pick the right ITelemetrySource for <paramref name="game"/>
