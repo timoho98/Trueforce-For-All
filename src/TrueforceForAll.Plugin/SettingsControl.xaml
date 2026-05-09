@@ -537,7 +537,7 @@
                         <!-- Electric car behavior: applies only when the resolver
                              flags the active car as a pure EV. Combustion cars
                              ignore this. Per-car preset overrides the global. -->
-                        <Grid Margin="0,0,0,0">
+                        <Grid Margin="0,0,0,8">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Electric cars:" Style="{StaticResource LabelText}"
                                        ToolTip="What EnginePulse does for cars detected as pure electric. Most users prefer the muted hum since real EVs aren't silent — many pump synthetic engine sound. Pick Silent if you want true silence on EVs."/>
@@ -546,6 +546,52 @@
                                 <ComboBoxItem Content="Silent (off)"/>
                             </ComboBox>
                         </Grid>
+                        <!-- Firing-order pattern. When enabled, EnginePulse renders
+                             the engine's true firing pattern (V8 cross-plane lope,
+                             Ducati L-twin gap, V6 odd-fire lump, etc.) instead of
+                             a uniform pulse train at firing frequency. Default off
+                             so an in-place upgrade preserves users' current feel. -->
+                        <Separator Margin="0,4,0,8"/>
+                        <CheckBox x:Name="EngineFiringOrderCheck" Content="Firing-order accurate pulses"
+                                  Margin="140,0,0,4"
+                                  Checked="EngineFiringOrder_Changed" Unchecked="EngineFiringOrder_Changed"
+                                  ToolTip="When enabled, the pulse train follows the engine's actual firing pattern instead of a uniform tone. Most pronounced on V8 cross-plane (American lope), V-twin (Ducati / Harley), and V6 odd-fire engines. Toggle to A/B against the original feel."/>
+                        <TextBlock Style="{StaticResource HelpText}" Margin="140,0,0,8"
+                                   TextWrapping="Wrap"
+                                   Text="Off = uniform pulse train at firing frequency (legacy). On = pattern-aware synthesis driven by Engine layout below."/>
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Engine layout:" Style="{StaticResource LabelText}"
+                                       ToolTip="Auto picks from cylinder count using the most common modern config (V6 60° / V8 cross-plane / V12 60°). Pick an explicit value to get characterful patterns: V8 flat-plane, V-twin variants, V6 odd-fire, rotary."/>
+                            <ComboBox  Grid.Column="1" x:Name="EngineConfigCombo" SelectionChanged="EngineConfig_Changed">
+                                <ComboBoxItem Content="Auto (from cylinder count)"/>
+                                <ComboBoxItem Content="Inline / even-fire"/>
+                                <ComboBoxItem Content="Boxer (Subaru / Porsche)"/>
+                                <ComboBoxItem Content="V60° even-fire (V6 / V12)"/>
+                                <ComboBoxItem Content="V90° even-fire"/>
+                                <ComboBoxItem Content="V8 cross-plane (American lope)"/>
+                                <ComboBoxItem Content="V8 flat-plane (Ferrari / Lotus)"/>
+                                <ComboBoxItem Content="V6 odd-fire 90° (older muscle)"/>
+                                <ComboBoxItem Content="V-twin 90° (Ducati)"/>
+                                <ComboBoxItem Content="V-twin 45° (Harley)"/>
+                                <ComboBoxItem Content="Rotary"/>
+                                <ComboBoxItem Content="Custom (advanced)"/>
+                            </ComboBox>
+                        </Grid>
+                        <!-- Active pattern readout: shows what the resolver picked
+                             (or the user's custom). Read-only — the textbox is
+                             editable only when "Custom" is the selected layout. -->
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Pattern:" Style="{StaticResource LabelText}"
+                                       ToolTip="Comma-separated phase positions in [0, 1) representing where each cylinder fires within one 720° engine cycle. Optional ':amplitude' suffix per pulse. Read-only unless Engine layout is set to Custom."/>
+                            <TextBox   Grid.Column="1" x:Name="EngineFiringPatternText"
+                                       FontFamily="Consolas" IsReadOnly="True"
+                                       LostFocus="EngineFiringPattern_LostFocus"/>
+                        </Grid>
+                        <TextBlock Style="{StaticResource HelpText}" Margin="140,0,0,0"
+                                   TextWrapping="Wrap"
+                                   Text="Format: 0, 0.125, 0.25, ...  Optional weights: 0:1.0, 0.125:0.85, ...  When the engine for your car doesn't sound right, copy this string into a GitHub issue so we can bake the correct pattern."/>
                     </StackPanel>
                 </Expander>
 

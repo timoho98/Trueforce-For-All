@@ -118,7 +118,12 @@ namespace TrueforceForAll.Plugin.Effects
         public Waveform Waveform
         {
             get => _osc.Waveform;
-            set => _osc.Waveform = value;
+            set
+            {
+                if (_osc.Waveform == value) return;
+                _osc.Waveform = value;
+                _patternDirty = true;   // wavetable needs to be regenerated against the new shape
+            }
         }
 
         /// <summary>1-pole low-pass cutoff (Hz) applied to the engine pulse
@@ -136,7 +141,96 @@ namespace TrueforceForAll.Plugin.Effects
             SampleRate = 4000.0,
         };
 
-        public override bool IsActive => IsTesting || (Enabled && _osc.IsActive);
+        // -------------------- firing-order pattern synthesis --------------------
+        //
+        // When FiringOrderEnabled is false (default), the existing path runs
+        // unchanged: a single OscillatorSource at firing frequency
+        // (RPM/60 × cyl/2). One cycle of the oscillator = one firing event,
+        // and every firing event is identical — fine for I4 / V12 / any
+        // even-fire engine, but flat-feeling for cross-plane V8s, Ducati
+        // L-twins, V6 odd-fire, etc.
+        //
+        // When true, we synthesize at the *engine cycle* rate (RPM/120 × pitch)
+        // instead of the firing rate. One cycle of the synth = one full 720°
+        // crank rotation, and within that cycle we lay down N pulses at the
+        // configured pattern's positions, weighted by per-pulse amplitudes.
+        // The cycle waveform is precomputed into a 2048-sample buffer at
+        // pattern-change time (a "wavetable" purely as an implementation
+        // detail — not because the existing path lacks one) and walked at
+        // the cycle frequency. For even-fire patterns the output is
+        // mathematically identical to the legacy path; for non-uniform
+        // patterns it produces the characterful timbre.
+
+        /// <summary>When true, render through the firing-order wavetable
+        /// (positional pulses per <see cref="EngineConfig"/>). When false,
+        /// use the existing uniform-sinusoid path. Defaults to false so an
+        /// in-place upgrade preserves users' current feel; they opt in via
+        /// the settings UI to A/B against the original.</summary>
+        public bool FiringOrderEnabled
+        {
+            get => _firingOrderEnabled;
+            set
+            {
+                if (_firingOrderEnabled == value) return;
+                _firingOrderEnabled = value;
+                _patternDirty = true;
+            }
+        }
+        private bool _firingOrderEnabled;
+
+        /// <summary>Engine layout selector. Auto picks from cylinder count
+        /// using the most common modern config (V6 60° / V8 cross-plane /
+        /// V12 60°). Explicit values are required to get the characterful
+        /// patterns: V8 flat-plane, V-twin variants, V6 odd-fire, rotary.</summary>
+        public EngineConfig EngineConfig
+        {
+            get => _engineConfig;
+            set
+            {
+                if (_engineConfig == value) return;
+                _engineConfig = value;
+                _patternDirty = true;
+            }
+        }
+        private EngineConfig _engineConfig = EngineConfig.Auto;
+
+        /// <summary>User-supplied custom pattern. Only consulted when
+        /// EngineConfig == Custom. Set via FiringPatternDb.ParseCustom from
+        /// the advanced UI textbox; null falls back to even-fire.</summary>
+        public FiringPattern CustomPattern
+        {
+            get => _customPattern;
+            set
+            {
+                _customPattern = value;
+                if (_engineConfig == EngineConfig.Custom) _patternDirty = true;
+            }
+        }
+        private FiringPattern _customPattern;
+
+        /// <summary>The pattern actually being rendered right now. Read-only
+        /// for the UI's "submit this pattern" diagnostic — shows what the
+        /// resolver picked (or the user's custom). Null until the first
+        /// resolution; never null while FiringOrderEnabled is true.</summary>
+        public FiringPattern ActiveFiringPattern { get; private set; }
+
+        // Wavetable + state. The wavetable is regenerated lazily inside
+        // RenderAdd when _patternDirty is true (set by config / cyl /
+        // waveform / custom-pattern changes). Lazy regen avoids recomputing
+        // on every UI tick when the user is dragging a slider.
+        private const int WavetableSize = 2048;
+        private float[]   _wavetable;
+        private double    _wtPhase;        // [0, WavetableSize)
+        private bool      _patternDirty = true;
+        private int       _wtCyl;          // cyl baked into the current wavetable (for rebuild detection)
+        private double    _cyclesPerSec;   // engine cycle freq, set from OnTelemetry / TestUpdate
+        private double    _wavetableAmp;   // amp set on the synth path (parallel to _osc.Amp)
+
+        public override bool IsActive
+            => IsTesting
+            || (Enabled && (_firingOrderEnabled
+                              ? _wavetableAmp > 0
+                              : _osc.IsActive));
 
         public override double ActivityLevel
         {
@@ -146,7 +240,8 @@ namespace TrueforceForAll.Plugin.Effects
             get
             {
                 double max = PeakAmp * Math.Max(0.01, Gain) * 1.5; // ThrottleBoost can push to 1.5×
-                return Math.Min(1.0, Math.Max(0.0, _osc.Amp / max));
+                double amp = _firingOrderEnabled ? _wavetableAmp : _osc.Amp;
+                return Math.Min(1.0, Math.Max(0.0, amp / max));
             }
         }
 
@@ -155,6 +250,12 @@ namespace TrueforceForAll.Plugin.Effects
             if (!Enabled && !IsTesting) return;
             float dm = DuckMultiplier;
             if (dm <= 0f) return;
+
+            if (_firingOrderEnabled)
+            {
+                RenderAddFiringOrder(buffer, count, dm);
+                return;
+            }
 
             bool needLp = LowpassHz > 0 && LowpassHz < 2000;
             bool needScratch = needLp || dm < 0.999f;
@@ -189,6 +290,139 @@ namespace TrueforceForAll.Plugin.Effects
             }
         }
         private float[] _scratch;
+
+        // -------------------- firing-order render --------------------
+
+        private void RenderAddFiringOrder(float[] buffer, int count, float dm)
+        {
+            // Lazy-regen the wavetable when the pattern fingerprint changes
+            // (config / cyl / waveform / custom-pattern). Cheap (one
+            // multiply-add per wavetable cell, ~2048 ops, <10µs) and rare —
+            // only fires on config change, not per render call.
+            int cyl = EffectiveCylinders;
+            if (_patternDirty || _wtCyl != cyl || _wavetable == null)
+            {
+                RegenerateWavetable(cyl);
+                _patternDirty = false;
+                _wtCyl = cyl;
+            }
+
+            float amp = (float)_wavetableAmp;
+            if (amp <= 0f) return;
+
+            double phaseStep = _cyclesPerSec * WavetableSize / _osc.SampleRate;
+            if (phaseStep <= 0) return;
+
+            bool needLp = LowpassHz > 0 && LowpassHz < 2000;
+            float alpha = needLp
+                ? (float)(1.0 - Math.Exp(-2.0 * Math.PI * LowpassHz / _osc.SampleRate))
+                : 0f;
+            float y = _lpY;
+
+            float[] wt = _wavetable;
+            int wtLen = wt.Length;
+            double phase = _wtPhase;
+            for (int i = 0; i < count; i++)
+            {
+                int i0 = (int)phase;
+                if (i0 >= wtLen) i0 = wtLen - 1;
+                int i1 = i0 + 1; if (i1 >= wtLen) i1 = 0;
+                double frac = phase - i0;
+                float v = (float)((1.0 - frac) * wt[i0] + frac * wt[i1]) * amp;
+                if (needLp)
+                {
+                    y += alpha * (v - y);
+                    v = y;
+                }
+                buffer[i] += v * dm;
+
+                phase += phaseStep;
+                if (phase >= wtLen) phase -= wtLen;
+            }
+            _wtPhase = phase;
+            if (needLp) _lpY = y;
+        }
+
+        private void RegenerateWavetable(int cyl)
+        {
+            // Resolve the active pattern. EngineConfig.Custom uses the user-
+            // supplied pattern when available, else falls back to even-fire
+            // for the configured cyl count.
+            FiringPattern pattern;
+            if (_engineConfig == EngineConfig.Custom && _customPattern != null && _customPattern.Pulses > 0)
+                pattern = _customPattern;
+            else
+                pattern = FiringPatternDb.Resolve(cyl, _engineConfig);
+            ActiveFiringPattern = pattern;
+
+            int n = pattern.Pulses;
+            if (n < 1) n = 1;
+
+            if (_wavetable == null || _wavetable.Length != WavetableSize)
+                _wavetable = new float[WavetableSize];
+            else
+                Array.Clear(_wavetable, 0, _wavetable.Length);
+
+            // Each firing event renders one cycle of the user's chosen
+            // Waveform with width 1/n of the wavetable. For even-fire
+            // patterns this tiles continuously and the result is a smooth
+            // periodic waveform at firing freq — same as the legacy single-
+            // oscillator path. For uneven patterns the pulses overlap or
+            // gap as designed, producing distinctive timbre.
+            int pulseWidth = WavetableSize / n;
+            if (pulseWidth < 1) pulseWidth = 1;
+            var pos  = pattern.Positions;
+            var amps = pattern.Amplitudes;   // null => uniform 1.0
+            Waveform w = _osc.Waveform;
+            for (int p = 0; p < n; p++)
+            {
+                int start = (int)(pos[p] * WavetableSize);
+                if (start < 0) start = 0;
+                if (start >= WavetableSize) start = WavetableSize - 1;
+                double a = amps != null ? amps[p] : 1.0;
+                for (int s = 0; s < pulseWidth; s++)
+                {
+                    double phase01 = (double)s / pulseWidth;
+                    float v = (float)(SampleWaveform(w, phase01) * a);
+                    int idx = start + s;
+                    if (idx >= WavetableSize) idx -= WavetableSize;
+                    _wavetable[idx] += v;
+                }
+            }
+
+            // Normalize to peak 1 so the configured amp covers [-1, 1] and
+            // swapping patterns with overlapping pulses doesn't blow up the
+            // output. Peak normalization preserves the relative pulse
+            // weighting (cross-plane V8's lope envelope is intact, just
+            // scaled to fit the available headroom).
+            float peak = 0f;
+            for (int i = 0; i < _wavetable.Length; i++)
+            {
+                float a = _wavetable[i];
+                if (a < 0) a = -a;
+                if (a > peak) peak = a;
+            }
+            if (peak > 1e-6f)
+            {
+                float scale = 1f / peak;
+                for (int i = 0; i < _wavetable.Length; i++) _wavetable[i] *= scale;
+            }
+        }
+
+        private static double SampleWaveform(Waveform w, double phase01)
+        {
+            switch (w)
+            {
+                case Waveform.Sine:     return Math.Sin(2.0 * Math.PI * phase01);
+                case Waveform.Square:   return phase01 < 0.5 ? 1.0 : -1.0;
+                case Waveform.Saw:      return 2.0 * phase01 - 1.0;
+                case Waveform.Triangle: return phase01 < 0.5
+                                            ? 4.0 * phase01 - 1.0
+                                            : 3.0 - 4.0 * phase01;
+                case Waveform.Noise:    // unstable as a wavetable seed; fall back to sine
+                default:                return Math.Sin(2.0 * Math.PI * phase01);
+            }
+        }
 
         public override int TestPlay()
         {
@@ -231,11 +465,15 @@ namespace TrueforceForAll.Plugin.Effects
             int cyl = EffectiveCylinders;
             if (cyl < 1) cyl = 1; else if (cyl > 12) cyl = 12;
             _osc.Freq = rpm / 60.0 * cyl / 2.0 * PitchMultiplier;
+            // Engine cycle freq = rpm/120 (one 720° cycle per 2 revolutions),
+            // pitch shifts the whole pattern proportionally to firing rate.
+            _cyclesPerSec = rpm / 120.0 * PitchMultiplier;
 
             double rpmAmp      = IdleAmp + (PeakAmp - IdleAmp) * rpmNorm;
             double throttleAmp = throttle * ThrottleBoost * PeakAmp;
             double amp = Math.Min(rpmAmp + throttleAmp, PeakAmp * 1.5) * Gain * AutoGainScale;
-            _osc.Amp = amp;
+            _osc.Amp      = amp;
+            _wavetableAmp = amp;
         }
 
         public override void OnTelemetry(TelemetryFrame f)
@@ -260,11 +498,12 @@ namespace TrueforceForAll.Plugin.Effects
             }
 
             double rpm = f.Rpms;
-            if (rpm < 100) { _osc.Amp = 0; return; }   // engine off
+            if (rpm < 100) { _osc.Amp = 0; _wavetableAmp = 0; return; }   // engine off
 
             int cyl = EffectiveCylinders;
             if (cyl < 1) cyl = 1; else if (cyl > 12) cyl = 12;
             _osc.Freq = rpm / 60.0 * cyl / 2.0 * PitchMultiplier;
+            _cyclesPerSec = rpm / 120.0 * PitchMultiplier;
 
             double maxRpm = f.MaxRpm > 0 ? f.MaxRpm : 8000.0;
             double rpmNorm = Math.Min(1.0, rpm / maxRpm);
@@ -276,6 +515,7 @@ namespace TrueforceForAll.Plugin.Effects
 
             double amp = Math.Min(rpmAmp + throttleAmp, PeakAmp * 1.5);
             _osc.Amp = amp * Gain * AutoGainScale;
+            _wavetableAmp = _osc.Amp;
         }
     }
 }

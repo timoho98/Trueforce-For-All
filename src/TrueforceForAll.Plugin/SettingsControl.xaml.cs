@@ -240,6 +240,13 @@ namespace TrueforceForAll.Plugin
                     if (EngineElectricModeCombo != null)
                         EngineElectricModeCombo.SelectedIndex =
                             es.ElectricMode == ElectricCarMode.Silent ? 1 : 0;
+
+                    // Firing-order pattern controls.
+                    if (EngineFiringOrderCheck != null)
+                        EngineFiringOrderCheck.IsChecked = es.FiringOrderEnabled;
+                    if (EngineConfigCombo != null)
+                        EngineConfigCombo.SelectedIndex = EngineConfigToIndex(es.EngineConfig);
+                    UpdateFiringPatternReadout(es);
                 }
                 // Bumps
                 var bs = _plugin.ActiveBumps;
@@ -1389,6 +1396,108 @@ namespace TrueforceForAll.Plugin
                 ? ElectricCarMode.Silent
                 : ElectricCarMode.MutedHum;
             Apply(EffectKind.Engine);
+        }
+
+        // ---------- Firing-order pattern (Batch 1) ----------
+
+        private void EngineFiringOrder_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            _plugin.ActiveEngine.FiringOrderEnabled = EngineFiringOrderCheck.IsChecked == true;
+            Apply(EffectKind.Engine);
+            UpdateFiringPatternReadout(_plugin.ActiveEngine);
+        }
+
+        private void EngineConfig_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            var es = _plugin.ActiveEngine;
+            es.EngineConfig = IndexToEngineConfig(EngineConfigCombo.SelectedIndex);
+            Apply(EffectKind.Engine);
+            UpdateFiringPatternReadout(es);
+        }
+
+        // User-edited the textbox under Custom layout; parse and apply on focus loss.
+        private void EngineFiringPattern_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            var es = _plugin.ActiveEngine;
+            if (es.EngineConfig != Effects.EngineConfig.Custom) return;   // editable only in Custom
+            es.CustomFiringPattern = EngineFiringPatternText.Text ?? "";
+            Apply(EffectKind.Engine);
+            UpdateFiringPatternReadout(es);
+        }
+
+        // Sync the read-only-ness, content, and tooltip of the pattern textbox
+        // to the current engine config + active resolved pattern.
+        private void UpdateFiringPatternReadout(EnginePulseSettings es)
+        {
+            if (EngineFiringPatternText == null || es == null) return;
+            bool isCustom = es.EngineConfig == Effects.EngineConfig.Custom;
+            EngineFiringPatternText.IsReadOnly = !isCustom;
+            // When Custom, show the user's saved string (lets them edit / paste).
+            // Otherwise, show what the resolver picked for the active cyl + config
+            // so they can copy / submit it back to us if it sounds wrong.
+            string display;
+            if (isCustom)
+            {
+                display = es.CustomFiringPattern ?? "";
+            }
+            else
+            {
+                int cyl = _plugin.EnginePulse?.EffectiveCylinders ?? 0;
+                if (cyl < 1) cyl = 4;
+                var pat = Effects.FiringPatternDb.Resolve(cyl, es.EngineConfig);
+                display = pat == null
+                    ? ""
+                    : $"{pat.Name}: {Effects.FiringPatternDb.Format(pat)}";
+            }
+            // Suppress LostFocus echo when we programmatically update the text.
+            bool oldSuppress = _suppressEvents;
+            _suppressEvents = true;
+            try { EngineFiringPatternText.Text = display; }
+            finally { _suppressEvents = oldSuppress; }
+        }
+
+        // EngineConfig <-> dropdown index. Order MUST match the XAML
+        // ComboBoxItem list under EngineConfigCombo.
+        private static Effects.EngineConfig IndexToEngineConfig(int i)
+        {
+            switch (i)
+            {
+                case 0:  return Effects.EngineConfig.Auto;
+                case 1:  return Effects.EngineConfig.Inline;
+                case 2:  return Effects.EngineConfig.Boxer;
+                case 3:  return Effects.EngineConfig.V60;
+                case 4:  return Effects.EngineConfig.V90Even;
+                case 5:  return Effects.EngineConfig.V8CrossPlane;
+                case 6:  return Effects.EngineConfig.V8FlatPlane;
+                case 7:  return Effects.EngineConfig.V6OddFire;
+                case 8:  return Effects.EngineConfig.VTwin90;
+                case 9:  return Effects.EngineConfig.VTwin45;
+                case 10: return Effects.EngineConfig.Rotary;
+                case 11: return Effects.EngineConfig.Custom;
+                default: return Effects.EngineConfig.Auto;
+            }
+        }
+        private static int EngineConfigToIndex(Effects.EngineConfig c)
+        {
+            switch (c)
+            {
+                case Effects.EngineConfig.Auto:         return 0;
+                case Effects.EngineConfig.Inline:       return 1;
+                case Effects.EngineConfig.Boxer:        return 2;
+                case Effects.EngineConfig.V60:          return 3;
+                case Effects.EngineConfig.V90Even:      return 4;
+                case Effects.EngineConfig.V8CrossPlane: return 5;
+                case Effects.EngineConfig.V8FlatPlane:  return 6;
+                case Effects.EngineConfig.V6OddFire:    return 7;
+                case Effects.EngineConfig.VTwin90:      return 8;
+                case Effects.EngineConfig.VTwin45:      return 9;
+                case Effects.EngineConfig.Rotary:       return 10;
+                case Effects.EngineConfig.Custom:       return 11;
+                default:                                return 0;
+            }
         }
 
         // ---------- Road bumps ----------

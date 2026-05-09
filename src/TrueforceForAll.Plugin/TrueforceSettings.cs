@@ -302,6 +302,29 @@ namespace TrueforceForAll.Plugin
         /// (or vice versa).</summary>
         [JsonConverter(typeof(StringEnumConverter))]
         public ElectricCarMode ElectricMode { get; set; } = ElectricCarMode.MutedHum;
+
+        // ---- Firing-order pattern (Batch 1) ----
+
+        /// <summary>When true, EnginePulse renders the engine's true firing
+        /// pattern instead of a uniform pulse train at firing frequency.
+        /// Distinguishes V8 cross-plane lope, Ducati L-twin gap, V6 odd-fire
+        /// lump, etc. Default false so an in-place upgrade preserves users'
+        /// current feel; they opt in to A/B against the legacy synthesis.</summary>
+        public bool FiringOrderEnabled { get; set; } = false;
+
+        /// <summary>Engine layout. Auto picks from cylinder count using the
+        /// modern-default config (V6 60° / V8 cross-plane / V12 60°).
+        /// Explicit values get the characterful patterns: V8 flat-plane,
+        /// V-twin variants, V6 odd-fire, rotary, custom.</summary>
+        [JsonConverter(typeof(StringEnumConverter))]
+        public EngineConfig EngineConfig { get; set; } = EngineConfig.Auto;
+
+        /// <summary>User-supplied firing pattern, used only when
+        /// EngineConfig == Custom. Format: comma-separated phase positions
+        /// in [0, 1), optionally with ":amplitude" suffix per pulse. See
+        /// FiringPatternDb.ParseCustom. Round-trips through the settings UI
+        /// textbox so users can copy / paste their tuning back to us.</summary>
+        public string CustomFiringPattern { get; set; } = "";
     }
 
     public sealed class RoadBumpsSettings

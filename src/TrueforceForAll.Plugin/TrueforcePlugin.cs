@@ -1178,13 +1178,18 @@ namespace TrueforceForAll.Plugin
         private void ApplyEngineSettings(EnginePulseSettings s)
         {
             if (EnginePulse == null || s == null) return;
-            EnginePulse.Enabled         = s.Enabled;
-            EnginePulse.Gain            = s.Gain;
-            EnginePulse.Cylinders       = s.Cylinders;
-            EnginePulse.PitchMultiplier = s.Pitch;
-            EnginePulse.LowpassHz       = s.LowpassHz;
-            EnginePulse.Waveform        = s.Waveform;
-            EnginePulse.ElectricMode    = s.ElectricMode;
+            EnginePulse.Enabled            = s.Enabled;
+            EnginePulse.Gain               = s.Gain;
+            EnginePulse.Cylinders          = s.Cylinders;
+            EnginePulse.PitchMultiplier    = s.Pitch;
+            EnginePulse.LowpassHz          = s.LowpassHz;
+            EnginePulse.Waveform           = s.Waveform;
+            EnginePulse.ElectricMode       = s.ElectricMode;
+            EnginePulse.EngineConfig       = s.EngineConfig;
+            EnginePulse.CustomPattern      = string.IsNullOrWhiteSpace(s.CustomFiringPattern)
+                ? null
+                : Effects.FiringPatternDb.ParseCustom(s.CustomFiringPattern);
+            EnginePulse.FiringOrderEnabled = s.FiringOrderEnabled;
             // Auto-cylinders precedence is now derived from s.Cylinders:
             // 0 = "use auto-detected", 1..16 = explicit manual override.
             // EnginePulseEffect.UseAutoCylinders is computed from this so we
@@ -1251,7 +1256,12 @@ namespace TrueforceForAll.Plugin
 
         // ----- shallow clones used when toggling override on -----
         private static EnginePulseSettings  Clone(EnginePulseSettings s)
-            => new EnginePulseSettings  { Enabled = s.Enabled, Gain = s.Gain, Cylinders = s.Cylinders, Pitch = s.Pitch, LowpassHz = s.LowpassHz, Waveform = s.Waveform, ElectricMode = s.ElectricMode };
+            => new EnginePulseSettings  {
+                Enabled = s.Enabled, Gain = s.Gain, Cylinders = s.Cylinders, Pitch = s.Pitch,
+                LowpassHz = s.LowpassHz, Waveform = s.Waveform, ElectricMode = s.ElectricMode,
+                FiringOrderEnabled = s.FiringOrderEnabled, EngineConfig = s.EngineConfig,
+                CustomFiringPattern = s.CustomFiringPattern,
+            };
         private static RoadBumpsSettings    Clone(RoadBumpsSettings s)
             => new RoadBumpsSettings    {
                 Enabled = s.Enabled, Gain = s.Gain, Waveform = s.Waveform, Freq = s.Freq,
@@ -1919,7 +1929,10 @@ namespace TrueforceForAll.Plugin
                 && EqF2(a.Pitch,     b.Pitch)
                 && EqI (a.LowpassHz, b.LowpassHz)
                 && a.Waveform == b.Waveform
-                && a.ElectricMode == b.ElectricMode;
+                && a.ElectricMode == b.ElectricMode
+                && a.FiringOrderEnabled == b.FiringOrderEnabled
+                && a.EngineConfig == b.EngineConfig
+                && string.Equals(a.CustomFiringPattern ?? "", b.CustomFiringPattern ?? "", System.StringComparison.Ordinal);
         }
         private static bool Eq(RoadBumpsSettings a, RoadBumpsSettings b)
         {
