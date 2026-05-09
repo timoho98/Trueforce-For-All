@@ -58,6 +58,17 @@ namespace TrueforceForAll.Core
         // to honor 1 ms instead of the OS default ~15 ms.
         private const int TickPeriodMs = 1;
 
+        // After this many consecutive read failures (~5 ms of bad reads),
+        // assume AC has restarted / closed and try to reopen the MMF. Without
+        // this the source becomes a zombie when the user restarts AC mid-
+        // session: the view accessor stays valid as a CLR object but every
+        // read throws, exceptions are swallowed, and no telemetry ever
+        // reaches effects.
+        private const int ReopenAfterConsecutiveErrors = 5;
+        // While in the reopen-retry state, slow the poll cadence so we don't
+        // spin at 1 kHz logging the same OpenExisting failure forever.
+        private const int RetryPeriodMs = 200;
+
         private MemoryMappedFile         _physicsMmf;
         private MemoryMappedViewAccessor _physicsView;
 
@@ -125,6 +136,24 @@ namespace TrueforceForAll.Core
             _physicsMmf  = null;
         }
 
+        // Returns true if the physics page is now open and readable. Quiet on
+        // failure (the caller is polling so a single missing-MMF means "AC
+        // hasn't restarted yet" and shouldn't log).
+        private bool TryReopenMmf()
+        {
+            try
+            {
+                _physicsMmf  = MemoryMappedFile.OpenExisting(PhysicsName, MemoryMappedFileRights.Read);
+                _physicsView = _physicsMmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
+                return true;
+            }
+            catch
+            {
+                CleanupMmf();
+                return false;
+            }
+        }
+
         private void PollLoop()
         {
             // Bump the system timer to 1 ms granularity for the duration of
@@ -139,36 +168,72 @@ namespace TrueforceForAll.Core
                 var sw = Stopwatch.StartNew();
                 long nextTickMs = 0;
 
+                int consecutiveErrors = 0;
+                bool reopenPending = false;
+
                 while (!_stopping)
                 {
-                    try
+                    int periodMs = TickPeriodMs;
+                    if (reopenPending)
                     {
-                        // Only emit when AC has actually written new physics data.
-                        // AC's solver runs at ~333 Hz; polling at 1 kHz keeps
-                        // event detection latency ≤1 ms but produces 2-3 polls
-                        // per real frame — emitting on every poll would re-run
-                        // every effect for the same inputs and inflate MeasuredHz.
-                        int pktId = _physicsView.ReadInt32(OFF_PACKET_ID);
-                        if (pktId != _lastPacketId)
+                        // AC restarted (or never started since the failure):
+                        // try to reopen the MMF. Success resets us to normal
+                        // 1 kHz cadence; failure stays in 200 ms retry mode.
+                        if (TryReopenMmf())
                         {
-                            _lastPacketId = pktId;
-                            EmitFrame(ReadFrame());
+                            consecutiveErrors = 0;
+                            reopenPending     = false;
+                            _lastPacketId     = -1;   // force re-emit on next observed packet
+                            Log("AC shared memory reopened after restart.");
+                        }
+                        else
+                        {
+                            periodMs = RetryPeriodMs;
                         }
                     }
-                    catch (Exception ex)
+                    else
                     {
-                        Log($"AC poll error: {ex.GetType().Name}: {ex.Message}");
+                        try
+                        {
+                            // Only emit when AC has actually written new physics data.
+                            // AC's solver runs at ~333 Hz; polling at 1 kHz keeps
+                            // event detection latency ≤1 ms but produces 2-3 polls
+                            // per real frame — emitting on every poll would re-run
+                            // every effect for the same inputs and inflate MeasuredHz.
+                            int pktId = _physicsView.ReadInt32(OFF_PACKET_ID);
+                            if (pktId != _lastPacketId)
+                            {
+                                _lastPacketId = pktId;
+                                EmitFrame(ReadFrame());
+                            }
+                            consecutiveErrors = 0;
+                        }
+                        catch (Exception ex)
+                        {
+                            consecutiveErrors++;
+                            // Only log the first error in a streak (and the
+                            // moment we cross into reopen mode). Otherwise a
+                            // sustained failure spams the log at 1 kHz.
+                            if (consecutiveErrors == 1)
+                                Log($"AC poll error: {ex.GetType().Name}: {ex.Message}");
+                            if (consecutiveErrors >= ReopenAfterConsecutiveErrors)
+                            {
+                                Log("AC shared memory unresponsive; will attempt reopen.");
+                                CleanupMmf();
+                                reopenPending = true;
+                            }
+                        }
                     }
 
                     // Stopwatch-paced cadence. If we fall behind (GC pause, etc.),
                     // reset the phase so we don't spin trying to catch up.
-                    nextTickMs += TickPeriodMs;
+                    nextTickMs += periodMs;
                     long elapsed = sw.ElapsedMilliseconds;
                     int sleepMs = (int)(nextTickMs - elapsed);
                     if (sleepMs <= 0)
                     {
-                        nextTickMs = elapsed + TickPeriodMs;
-                        sleepMs = TickPeriodMs;
+                        nextTickMs = elapsed + periodMs;
+                        sleepMs = periodMs;
                     }
                     Thread.Sleep(sleepMs);
                 }

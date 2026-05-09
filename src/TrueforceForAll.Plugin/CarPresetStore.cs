@@ -141,7 +141,7 @@ namespace TrueforceForAll.Plugin
                     IsBuiltin  = isBuiltin,
                     Override   = ovr,
                 };
-                File.WriteAllText(path, JsonConvert.SerializeObject(f, Formatting.Indented));
+                AtomicWriteAllText(path, JsonConvert.SerializeObject(f, Formatting.Indented));
             }
             catch (Exception ex)
             {
@@ -216,7 +216,7 @@ namespace TrueforceForAll.Plugin
                             catch { /* fall through to write */ }
                         }
 
-                        File.WriteAllText(path, json);
+                        AtomicWriteAllText(path, json);
                         written++;
                     }
                     catch (Exception ex)
@@ -266,7 +266,7 @@ namespace TrueforceForAll.Plugin
 
                         var newPath = PathFor(f.CarId, f.PresetName);
                         var newJson = JsonConvert.SerializeObject(f, Formatting.Indented);
-                        File.WriteAllText(newPath, newJson);
+                        AtomicWriteAllText(newPath, newJson);
                         if (!string.Equals(path, newPath, StringComparison.OrdinalIgnoreCase))
                             File.Delete(path);
                         migrated.Add(f.CarId);
@@ -305,5 +305,19 @@ namespace TrueforceForAll.Plugin
         private string PathFor(string carId, string presetName)
             => Path.Combine(_folderPath,
                 Sanitize(carId) + Separator + Sanitize(presetName) + FileExtension);
+
+        // Atomic write: stage to <path>.tmp then swap into place. A crash
+        // mid-write leaves either the old file (if the swap hadn't started)
+        // or a stray .tmp (cleaned up on next save) — never a truncated
+        // .tfcar.json that the loader would then have to skip.
+        private static void AtomicWriteAllText(string path, string content)
+        {
+            string tmp = path + ".tmp";
+            File.WriteAllText(tmp, content);
+            if (File.Exists(path))
+                File.Replace(tmp, path, destinationBackupFileName: null, ignoreMetadataErrors: true);
+            else
+                File.Move(tmp, path);
+        }
     }
 }
