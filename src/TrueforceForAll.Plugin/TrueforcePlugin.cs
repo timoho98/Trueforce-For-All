@@ -93,16 +93,23 @@ namespace TrueforceForAll.Plugin
         public  ITelemetrySource      TelemetrySource => _telemetrySource;
 
         // ---- Port discovery ----
-        // When a UDP source (Forza or F1) has been running for a few
-        // seconds without receiving anything, kick off a one-shot scan
-        // across known alternate ports to find where the game is actually
-        // sending. UI subscribes to DiscoveredAlternatePort to surface a
-        // "switch to port X?" banner. _discoveryStartedForSource ensures we
-        // run the scan at most once per source-instance — no nagging if
-        // the user dismisses or the game truly isn't sending packets.
+        // When a UDP source (Forza or F1) has been running without
+        // receiving anything, kick off a scan across known alternate
+        // ports to find where the game is actually sending. UI subscribes
+        // to DiscoveredAlternatePort to surface a "switch to port X?"
+        // banner. The first scan fires DiscoveryNoPacketsTriggerMs after
+        // the source starts; if it doesn't find anything (or finds
+        // nothing the user adopts) we retry every DiscoveryRetryIntervalMs
+        // while the source keeps receiving zero packets — covers the case
+        // where the user enables UDP in the game minutes after Trueforce
+        // started.
         private const int DiscoveryNoPacketsTriggerMs = 10_000;
         private const int DiscoveryScanTimeoutMs      = 8_000;
+        private const int DiscoveryRetryIntervalMs    = 60_000;
         private long  _discoverySourceStartedTicks;
+        // Ticks when the next scan attempt becomes eligible. 0 means
+        // "compute from source-start + initial trigger delay".
+        private long  _discoveryNextAttemptTicks;
         private object _discoverySourceKey;
         private int  _discoveredAlternatePort;
         public int DiscoveredAlternatePort => System.Threading.Volatile.Read(ref _discoveredAlternatePort);
@@ -1359,7 +1366,8 @@ namespace TrueforceForAll.Plugin
                     try
                     {
                         var bindIp = ParseIpOrAny(Settings.F1.BindAddress);
-                        var f1 = new F1UdpTelemetrySource(Settings.F1.Port, bindIp)
+                        var forwardTo = BuildF1ForwardEndpoint(Settings.F1);
+                        var f1 = new F1UdpTelemetrySource(Settings.F1.Port, bindIp, forwardTo)
                         {
                             Logger = msg => SimHub.Logging.Current.Info($"[Trueforce] {msg}"),
                         };
@@ -1391,8 +1399,9 @@ namespace TrueforceForAll.Plugin
 
             // Reset port-discovery state on every source swap so a fresh
             // start (Forza was idle, F1 just launched, port changed in
-            // settings, etc.) gets one new discovery attempt.
+            // settings, etc.) restarts the discovery cycle.
             _discoverySourceStartedTicks = Stopwatch.GetTimestamp();
+            _discoveryNextAttemptTicks   = 0;
             _discoverySourceKey = newSource;
             System.Threading.Volatile.Write(ref _discoveredAlternatePort, 0);
 
@@ -1409,13 +1418,15 @@ namespace TrueforceForAll.Plugin
 
         // ---------- Port discovery ----------
 
-        // Polled from DataUpdate. Triggers a one-shot scan when:
+        // Polled from DataUpdate. Triggers a scan when:
         //   - The active source is a UDP source (Forza or F1).
         //   - It's been running for >DiscoveryNoPacketsTriggerMs without
         //     receiving any packets.
-        //   - We haven't already scanned for THIS source instance.
-        // Runs the scan on a background thread so the SimHub data tick
-        // isn't blocked.
+        //   - The retry-interval gate has elapsed (DiscoveryRetryIntervalMs
+        //     between attempts) so we keep trying if the user enables UDP
+        //     in the game minutes after Trueforce starts.
+        // Runs each scan on a background thread so the SimHub data tick
+        // isn't blocked. _discoveryScanInFlight prevents overlapping runs.
         private bool _discoveryScanInFlight;
         private void MaybeStartPortDiscovery()
         {
@@ -1453,8 +1464,19 @@ namespace TrueforceForAll.Plugin
             if (received > 0) return;
 
             long now = Stopwatch.GetTimestamp();
-            long elapsedMs = (now - _discoverySourceStartedTicks) * 1000L / Stopwatch.Frequency;
-            if (elapsedMs < DiscoveryNoPacketsTriggerMs) return;
+            // First attempt: source must have been running at least
+            // DiscoveryNoPacketsTriggerMs. Subsequent attempts: gated by
+            // _discoveryNextAttemptTicks (set by the previous attempt's
+            // completion).
+            if (_discoveryNextAttemptTicks == 0)
+            {
+                long elapsedMs = (now - _discoverySourceStartedTicks) * 1000L / Stopwatch.Frequency;
+                if (elapsedMs < DiscoveryNoPacketsTriggerMs) return;
+            }
+            else if (now < _discoveryNextAttemptTicks)
+            {
+                return;
+            }
 
             // Filter the candidate list to skip the user's currently-configured
             // port — we already know that one isn't receiving (received==0).
@@ -1463,10 +1485,6 @@ namespace TrueforceForAll.Plugin
             if (filtered.Count == 0) return;
 
             _discoveryScanInFlight = true;
-            // Mark this source as scanned so we don't repeat unless the
-            // source is swapped again. Even on scan-failure we don't want
-            // to retry every 10 seconds for the rest of the session.
-            _discoverySourceKey = null;
 
             var bindIp = ParseIpOrAny(
                 kind == "forza" ? Settings?.Forza?.BindAddress : Settings?.F1?.BindAddress);
@@ -1485,6 +1503,15 @@ namespace TrueforceForAll.Plugin
                 finally
                 {
                     _discoveryScanInFlight = false;
+                    // Schedule the next allowed attempt. If the user has
+                    // already adopted a discovered port and the source is
+                    // now receiving packets, the receive-check at the top
+                    // of MaybeStartPortDiscovery will short-circuit; we
+                    // still set the gate so any future "back to zero"
+                    // window has a fresh deadline rather than firing
+                    // immediately.
+                    _discoveryNextAttemptTicks = Stopwatch.GetTimestamp()
+                        + Stopwatch.Frequency * DiscoveryRetryIntervalMs / 1000L;
                 }
 
                 if (hit > 0)
@@ -1543,6 +1570,27 @@ namespace TrueforceForAll.Plugin
         // invalid — the source treats null as "don't forward." Hostname (vs
         // IP) lookups go through Dns.GetHostAddresses so users can type
         // "localhost" or a NAS hostname; first resolved address wins.
+        /// <summary>Same as BuildForzaForwardEndpoint, for the F1 forwarder.</summary>
+        private static IPEndPoint BuildF1ForwardEndpoint(F1Settings fs)
+        {
+            if (fs == null || !fs.ForwardEnabled) return null;
+            if (fs.ForwardPort < 1 || fs.ForwardPort > 65535) return null;
+            string host = string.IsNullOrWhiteSpace(fs.ForwardHost) ? "127.0.0.1" : fs.ForwardHost.Trim();
+            try
+            {
+                if (IPAddress.TryParse(host, out var ip))
+                    return new IPEndPoint(ip, fs.ForwardPort);
+                var addrs = System.Net.Dns.GetHostAddresses(host);
+                foreach (var a in addrs)
+                {
+                    if (a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                        return new IPEndPoint(a, fs.ForwardPort);
+                }
+            }
+            catch { }
+            return null;
+        }
+
         private static IPEndPoint BuildForzaForwardEndpoint(ForzaSettings fs)
         {
             if (fs == null || !fs.ForwardEnabled) return null;

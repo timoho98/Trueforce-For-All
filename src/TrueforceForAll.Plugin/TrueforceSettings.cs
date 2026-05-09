@@ -266,6 +266,14 @@ namespace TrueforceForAll.Plugin
         /// the running game. Useful for future F1 titles before SimHub adds
         /// their game name.</summary>
         public bool   AlwaysListen  { get; set; } = false;
+
+        /// <summary>Re-broadcast every received F1 packet to a second
+        /// destination. Same coexistence problem as Forza: F1 only sends
+        /// to one IP+port, so the user points F1 at us and we relay
+        /// verbatim to SimHub. Default off.</summary>
+        public bool   ForwardEnabled { get; set; } = false;
+        public string ForwardHost    { get; set; } = "127.0.0.1";
+        public int    ForwardPort    { get; set; } = 0;
     }
 
     public sealed class PerformanceSettings

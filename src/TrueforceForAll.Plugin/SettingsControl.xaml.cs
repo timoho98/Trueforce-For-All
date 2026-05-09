@@ -211,10 +211,13 @@ namespace TrueforceForAll.Plugin
                 var f1 = _plugin.Settings?.F1;
                 if (f1 != null)
                 {
-                    F1EnabledCheck.IsChecked      = f1.Enabled;
-                    F1PortBox.Text                = f1.Port.ToString();
-                    F1BindBox.Text                = f1.BindAddress ?? "0.0.0.0";
-                    F1AlwaysListenCheck.IsChecked = f1.AlwaysListen;
+                    F1EnabledCheck.IsChecked        = f1.Enabled;
+                    F1PortBox.Text                  = f1.Port.ToString();
+                    F1BindBox.Text                  = f1.BindAddress ?? "0.0.0.0";
+                    F1AlwaysListenCheck.IsChecked   = f1.AlwaysListen;
+                    F1ForwardEnabledCheck.IsChecked = f1.ForwardEnabled;
+                    F1ForwardHostBox.Text           = f1.ForwardHost ?? "127.0.0.1";
+                    F1ForwardPortBox.Text           = f1.ForwardPort > 0 ? f1.ForwardPort.ToString() : "";
                 }
 
                 // Header strip context.
@@ -620,7 +623,7 @@ namespace TrueforceForAll.Plugin
                         if (show && ForzaDiscoveryText != null)
                         {
                             ForzaDiscoveryText.Text =
-                                $"Forza packets detected on port {alt}. Switch Trueforce to it?";
+                                $"Forza packets detected on port {alt}. Switch to it?";
                         }
                     }
                 }
@@ -679,7 +682,26 @@ namespace TrueforceForAll.Plugin
                         if (show && F1DiscoveryText != null)
                         {
                             F1DiscoveryText.Text =
-                                $"F1 packets detected on port {alt}. Switch Trueforce to it?";
+                                $"F1 packets detected on port {alt}. Switch to it?";
+                        }
+                    }
+
+                    // F1 forwarder status: mirrors the Forza shape.
+                    if (F1ForwardStatusText != null)
+                    {
+                        var fwd = _plugin.Settings?.F1;
+                        if (fwd == null || !fwd.ForwardEnabled)
+                        {
+                            F1ForwardStatusText.Text = "(disabled)";
+                        }
+                        else if (f1Src == null)
+                        {
+                            F1ForwardStatusText.Text = "(armed, will relay once an F1 title is detected)";
+                        }
+                        else
+                        {
+                            F1ForwardStatusText.Text =
+                                $"{f1Src.PacketsForwarded:N0} packets relayed to {fwd.ForwardHost}:{fwd.ForwardPort}";
                         }
                     }
                 }
@@ -2266,6 +2288,62 @@ namespace TrueforceForAll.Plugin
             {
                 _plugin.Settings.F1.BindAddress = raw;
                 _plugin.ApplyF1Settings();
+            }
+        }
+
+        private void F1ForwardEnabled_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_suppressEvents || _plugin?.Settings?.F1 == null) return;
+            _plugin.Settings.F1.ForwardEnabled = F1ForwardEnabledCheck.IsChecked == true;
+            _plugin.ApplyF1Settings();
+        }
+
+        private void F1ForwardHost_LostFocus(object sender, RoutedEventArgs e) => CommitF1ForwardHost();
+        private void F1ForwardHost_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Enter) CommitF1ForwardHost();
+        }
+        private void CommitF1ForwardHost()
+        {
+            if (_suppressEvents || _plugin?.Settings?.F1 == null) return;
+            string raw = F1ForwardHostBox.Text?.Trim() ?? "";
+            if (string.IsNullOrWhiteSpace(raw)) raw = "127.0.0.1";
+            if (_plugin.Settings.F1.ForwardHost != raw)
+            {
+                _plugin.Settings.F1.ForwardHost = raw;
+                _plugin.ApplyF1Settings();
+            }
+        }
+
+        private void F1ForwardPort_LostFocus(object sender, RoutedEventArgs e) => CommitF1ForwardPort();
+        private void F1ForwardPort_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Enter) CommitF1ForwardPort();
+        }
+        private void CommitF1ForwardPort()
+        {
+            if (_suppressEvents || _plugin?.Settings?.F1 == null) return;
+            string raw = F1ForwardPortBox.Text?.Trim();
+            if (string.IsNullOrEmpty(raw))
+            {
+                if (_plugin.Settings.F1.ForwardPort != 0)
+                {
+                    _plugin.Settings.F1.ForwardPort = 0;
+                    _plugin.ApplyF1Settings();
+                }
+                return;
+            }
+            if (int.TryParse(raw, out int port) && port >= 1 && port <= 65535)
+            {
+                if (_plugin.Settings.F1.ForwardPort != port)
+                {
+                    _plugin.Settings.F1.ForwardPort = port;
+                    _plugin.ApplyF1Settings();
+                }
+            }
+            else
+            {
+                F1ForwardPortBox.Text = _plugin.Settings.F1.ForwardPort > 0 ? _plugin.Settings.F1.ForwardPort.ToString() : "";
             }
         }
 

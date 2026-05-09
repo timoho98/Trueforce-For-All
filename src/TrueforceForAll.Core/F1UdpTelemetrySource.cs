@@ -102,7 +102,9 @@ namespace TrueforceForAll.Core
 
         private readonly int _port;
         private readonly IPAddress _bindAddress;
+        private readonly IPEndPoint _forwardTo;       // null = no forwarding
         private UdpClient _udp;
+        private Socket _forwardSocket;                 // separate so a forward error can't tear down receive
         private Thread _thread;
         private volatile bool _stopping;
         private int _running;
@@ -131,11 +133,18 @@ namespace TrueforceForAll.Core
         public long PacketsReceived => _packetsReceived;
         private long _packetsReceived;
 
-        public F1UdpTelemetrySource(int port, IPAddress bindAddress = null)
+        /// <summary>Number of packets successfully forwarded to the
+        /// secondary destination since Start(). Stays at 0 when no forward
+        /// target was configured.</summary>
+        public long PacketsForwarded => _packetsForwarded;
+        private long _packetsForwarded;
+
+        public F1UdpTelemetrySource(int port, IPAddress bindAddress = null, IPEndPoint forwardTo = null)
         {
             if (port < 1 || port > 65535) throw new ArgumentOutOfRangeException(nameof(port));
             _port        = port;
             _bindAddress = bindAddress ?? IPAddress.Any;
+            _forwardTo   = forwardTo;
         }
 
         public override void Start()
@@ -148,6 +157,11 @@ namespace TrueforceForAll.Core
                 _udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
                 _udp.Client.Bind(new IPEndPoint(_bindAddress, _port));
                 _udp.Client.ReceiveTimeout = 1000;
+
+                if (_forwardTo != null)
+                {
+                    _forwardSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                }
             }
             catch
             {
@@ -163,7 +177,10 @@ namespace TrueforceForAll.Core
                 Name         = "F1UdpTelemetrySource",
             };
             _thread.Start();
-            Log($"F1 UDP source listening on {_bindAddress}:{_port}.");
+            if (_forwardTo != null)
+                Log($"F1 UDP source listening on {_bindAddress}:{_port}, forwarding to {_forwardTo}.");
+            else
+                Log($"F1 UDP source listening on {_bindAddress}:{_port}.");
         }
 
         public override void Stop()
@@ -180,6 +197,9 @@ namespace TrueforceForAll.Core
         {
             try { _udp?.Dispose(); } catch { }
             _udp = null;
+            try { _forwardSocket?.Close(); } catch { }
+            try { _forwardSocket?.Dispose(); } catch { }
+            _forwardSocket = null;
         }
 
         private void ReceiveLoop()
@@ -207,6 +227,19 @@ namespace TrueforceForAll.Core
                 }
 
                 if (len < HEADER_SIZE) continue;
+
+                // Forward FIRST so a parse error in our pipeline can't
+                // strand SimHub without telemetry. Forward is fire-and-
+                // forget UDP — we don't care if the target listener exists.
+                if (_forwardSocket != null && _forwardTo != null)
+                {
+                    try
+                    {
+                        _forwardSocket.SendTo(scratch, 0, len, SocketFlags.None, _forwardTo);
+                        Interlocked.Increment(ref _packetsForwarded);
+                    }
+                    catch { /* swallowed; UI shows the counter so the user can see if it's stuck */ }
+                }
 
                 try
                 {
