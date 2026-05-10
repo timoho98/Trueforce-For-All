@@ -178,7 +178,11 @@
     </UserControl.Resources>
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="20">
-            <TextBlock Text="Trueforce For All" FontSize="22" FontWeight="Bold" Margin="0,0,0,4"/>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                <TextBlock Text="Trueforce For All" FontSize="22" FontWeight="Bold"/>
+                <TextBlock x:Name="HeaderVersionText" Text="" FontSize="13" Opacity="0.5"
+                           VerticalAlignment="Bottom" Margin="8,0,0,3"/>
+            </StackPanel>
             <TextBlock Text="Brings Trueforce-style haptics to any SimHub-enabled game. Unofficial — a reverse-engineered implementation of Logitech's Trueforce protocol, not affiliated with Logitech. Supports G PRO / RS50 wheels."
                        FontSize="13" Opacity="0.7" Margin="0,0,0,12" TextWrapping="Wrap"/>
 
@@ -247,6 +251,21 @@
                             <TextBlock x:Name="EnhancedBadgeText" Text="✨ Enhanced" Foreground="#1A1A1A" FontSize="12" FontWeight="Bold" VerticalAlignment="Center"/>
                         </Border>
                     </StackPanel>
+
+                    <!-- Logitech G HUB warning banner. G HUB claims the wheel's
+                         HID interface; while it's running we can't talk to the
+                         wheel. Surfaced as a dedicated red banner (separate from
+                         the WheelQuietDiagnostic below) so the user sees it even
+                         when other issues coexist (e.g., master gain also at 0).
+                         Hidden when G HUB isn't detected. -->
+                    <Border x:Name="GHubWarningBox" Visibility="Collapsed"
+                            Background="#D32F2F" CornerRadius="4" Padding="10,6" Margin="0,8,0,0">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="⚠" FontSize="14" Foreground="White" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock Foreground="White" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"
+                                       Text="Logitech G HUB is running. Close it, then reload the Trueforce plugin from SimHub's Plugins page (G HUB claims the wheel and blocks Trueforce)."/>
+                        </StackPanel>
+                    </Border>
 
                     <!-- Why-is-my-wheel-quiet diagnostic. Shown only when the
                          plugin detects a likely reason output is silent —
@@ -622,7 +641,7 @@
                                     HorizontalAlignment="Left" Padding="8,3"
                                     Click="ReportEngineDataButton_Click"
                                     Content="Submit engine data for this car…"
-                                    ToolTip="Opens a GitHub issue pre-filled with what's auto-detected and what you've selected in the dropdowns / slider. Just hit Submit on GitHub — no typing needed."/>
+                                    ToolTip="Opens a Google Form pre-filled with what's auto-detected and what you've selected in the dropdowns / slider. Just hit Submit on the form, no typing needed and no account required."/>
                         </Grid>
                         <!-- Coverage readout: how often the resolver is producing
                              specific layout info this session, broken down by

@@ -102,6 +102,12 @@ namespace TrueforceForAll.Plugin
         {
             _plugin = plugin;
 
+            // Header version readout. Read once at construction; doesn't change
+            // at runtime within a session. ToString(3) drops the build/revision
+            // components so users see "0.1.0" not "0.1.0.0".
+            var asmVersion = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            HeaderVersionText.Text = asmVersion != null ? "v" + asmVersion.ToString(3) : "";
+
             // Diagnostics expander (collapsed by default) — verbose status.
             WheelText.Text  = plugin.WheelStatus;
             StreamText.Text = plugin.StreamStatus;
@@ -559,16 +565,24 @@ namespace TrueforceForAll.Plugin
                     if (EngineCoverageText != null)
                         EngineCoverageText.Text = _plugin.EngineConfigCoverageText;
 
-                    // Report-engine-data button: shown whenever a car is loaded.
-                    // Label is fixed — the issue body captures both the auto-
-                    // detected values and the user's selections, so the same
-                    // button works whether they're correcting our bake or
-                    // contributing fresh data for an uncached car.
+                    // Report-engine-data button: shown when a car is loaded
+                    // AND there's something worth submitting (the resolver
+                    // detected something, OR the user has set at least one
+                    // engine value). Hidden otherwise to avoid noise rows in
+                    // the response sheet stamped CONFIRM but containing no
+                    // actual data to confirm.
                     if (ReportEngineDataButton != null)
                     {
-                        ReportEngineDataButton.Visibility = string.IsNullOrEmpty(activeCar)
-                            ? System.Windows.Visibility.Collapsed
-                            : System.Windows.Visibility.Visible;
+                        var engine = _plugin.ActiveEngine;
+                        bool hasAnyData =
+                            (ep != null && !string.IsNullOrEmpty(ep.AutoCylinderSource))
+                            || (engine?.Cylinders ?? 0) != 0
+                            || (engine?.EngineConfig ?? Effects.EngineConfig.Auto) != Effects.EngineConfig.Auto
+                            || !string.IsNullOrEmpty(engine?.CustomFiringPattern);
+                        ReportEngineDataButton.Visibility =
+                            (string.IsNullOrEmpty(activeCar) || !hasAnyData)
+                                ? System.Windows.Visibility.Collapsed
+                                : System.Windows.Visibility.Visible;
                     }
                 }
 
@@ -771,6 +785,13 @@ namespace TrueforceForAll.Plugin
                     if (WheelQuietDiagnosticText.Text != diag)
                         WheelQuietDiagnosticText.Text = diag;
                 }
+            }
+
+            if (GHubWarningBox != null)
+            {
+                GHubWarningBox.Visibility = (_plugin?.IsLogitechGHubRunning ?? false)
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
             }
 
             // Performance counters update every meter tick (cheap — array sum
@@ -1576,8 +1597,6 @@ namespace TrueforceForAll.Plugin
         // and prefill the field via &entry.<id>=<body>. No GitHub account
         // required; submissions land in a Google Sheet for batch triage.
         // Form: TF4ALL Engine Data (https://forms.gle/yeQ8CNNyp7QRBxnj9).
-        // To swap forms, regenerate via scripts/create_engine_data_form.gs
-        // and replace these two constants.
         private const string EngineDataFormUrl =
             "https://docs.google.com/forms/d/e/1FAIpQLSfgNM3AfFV9uIGYhajQtAxpE_e1Lo34-mFtsGrbP1u-nH60ng/viewform";
         private const string EngineDataFormEntry = "entry.551133954";
@@ -1625,10 +1644,10 @@ namespace TrueforceForAll.Plugin
                 diff.Add($"- Cylinders: detected `{autoCyl}`, user says `{sliderCyl}`");
             else if (sliderCyl != 0 && !autoCyl.HasValue)
                 diff.Add($"- Cylinders: not detected, user says `{sliderCyl}`");
-            if (userCfg != Effects.EngineConfig.Auto && userCfg.ToString() != detectedLayout)
-                diff.Add($"- Engine layout: detected `{detectedLayout}`, user says `{userCfg}`");
-            else if (userCfg != Effects.EngineConfig.Auto && string.IsNullOrEmpty(cylSrc))
+            if (userCfg != Effects.EngineConfig.Auto && string.IsNullOrEmpty(cylSrc))
                 diff.Add($"- Engine layout: not detected, user says `{userCfg}`");
+            else if (userCfg != Effects.EngineConfig.Auto && userCfg.ToString() != detectedLayout)
+                diff.Add($"- Engine layout: detected `{detectedLayout}`, user says `{userCfg}`");
             if (userCfg == Effects.EngineConfig.Custom && !string.IsNullOrEmpty(customRaw))
                 diff.Add($"- Custom firing pattern: `{customRaw}`");
 
@@ -1667,7 +1686,7 @@ namespace TrueforceForAll.Plugin
                   + (string.IsNullOrEmpty(customRaw)
                         ? ""
                         : $"- Custom firing pattern: `{customRaw}`  \n")
-                  + "\n**Notes** (optional — engine codename, mod page link, anything else):\n"
+                  + "\n**Notes** (optional - engine codename, mod page link, anything else):\n"
                   + "\n";
 
             string url = EngineDataFormUrl
@@ -1682,8 +1701,22 @@ namespace TrueforceForAll.Plugin
             }
             catch (Exception ex)
             {
+                // Browser launch failed (rare). Try to copy the prefilled
+                // URL to the clipboard so the user can paste it instead of
+                // having to retype the whole submission. Fall back to the
+                // bare form URL if clipboard access is also unavailable.
+                string clipboardNote;
+                try
+                {
+                    Clipboard.SetText(url);
+                    clipboardNote = "The full prefilled URL has been copied to your clipboard. Paste it into your browser.";
+                }
+                catch
+                {
+                    clipboardNote = "Open this URL manually:\n" + EngineDataFormUrl;
+                }
                 MessageBox.Show(
-                    $"Couldn't open browser:\n{ex.Message}\n\nYou can manually open the form at:\n{EngineDataFormUrl}",
+                    $"Couldn't open browser:\n{ex.Message}\n\n{clipboardNote}",
                     "Trueforce", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }

@@ -26,7 +26,10 @@ using TrueforceForAll.Plugin.Effects;
 
 namespace TrueforceForAll.Plugin
 {
-    [PluginDescription("Logitech Trueforce-compatible haptics for any SimHub-supported game on G PRO and RS50 wheels.")]
+    // PluginDescription is a compile-time constant attribute, so the version
+    // must be hard-coded here. Keep it in sync with <Version> in the csproj
+    // and the latest GitHub release tag on every bump.
+    [PluginDescription("Logitech Trueforce-compatible haptics for any SimHub-supported game on G PRO and RS50 wheels. (v0.1.0)")]
     [PluginAuthor("Mhytee")]
     [PluginName("Trueforce For All")]
     public sealed class TrueforcePlugin : IDataPlugin, IWPFSettingsV2
@@ -150,6 +153,26 @@ namespace TrueforceForAll.Plugin
         // would strand us on SimHub fallback for the whole session.
         private long _lastEnhancedRetryTicks;
 
+        // Logitech G HUB process detection. G HUB claims the wheel's HID
+        // interface and blocks our HidSharp open call, so when it's running
+        // the plugin can't talk to the wheel. We poll the process list once
+        // every ~5 s (cheap; one allocation) and surface the result both as
+        // a dedicated status banner in the settings UI and as the most-
+        // blocking item in WheelQuietDiagnostic so users land on the real
+        // root cause instead of "wheel not detected." _gHubLastLoggedState
+        // ensures we only log on transitions, not every poll.
+        private long _lastGHubCheckTicks;
+        private volatile bool _isGHubRunning;
+        private bool _gHubLastLoggedState;
+        private const string GHubProcessName = "lghub";
+        private const string GHubAgentProcessName = "lghub_agent";
+        private static readonly long GHubCheckIntervalTicks = Stopwatch.Frequency * 5;
+
+        /// <summary>True when Logitech G HUB (or its agent) is detected
+        /// running. UI binds to this to show a warning banner. Updated on a
+        /// 5-second poll from DataUpdate; first-detection logs to SimHub log.</summary>
+        public bool IsLogitechGHubRunning => _isGHubRunning;
+
         // Auto-ratchet state. Snapshots the underrun/glitch counters once per
         // second; when delta crosses RatchetThreshold, the corresponding ring
         // is bumped one notch (UP). The "survived" capacity is persisted to
@@ -266,7 +289,13 @@ namespace TrueforceForAll.Plugin
                 if (Settings.MasterGain <= 0.005f)
                     return "Master gain is at 0. Slide it up in the Master section.";
 
-                // 3. Wheel device state. WheelStatus is set by the discovery
+                // 3. G HUB blocking wheel access. Ranks higher than "wheel not
+                //    detected" because G HUB is the actual cause; surfacing the
+                //    real fix saves the user a debugging detour.
+                if (_isGHubRunning)
+                    return "Logitech G HUB is running. It claims the wheel and blocks Trueforce. Close G HUB, then reload this plugin from SimHub's Plugins page.";
+
+                // 4. Wheel device state. WheelStatus is set by the discovery
                 //    + open path; "Not detected" is the default.
                 string wheel = WheelStatus ?? "";
                 if (wheel.StartsWith("Not detected", StringComparison.OrdinalIgnoreCase))
@@ -275,12 +304,12 @@ namespace TrueforceForAll.Plugin
                  || wheel.IndexOf("error", StringComparison.OrdinalIgnoreCase) >= 0)
                     return $"Wheel reports: {wheel}. Try unplugging and reconnecting the wheel.";
 
-                // 4. HID stream state.
+                // 5. HID stream state.
                 string stream = StreamStatus ?? "";
                 if (!stream.StartsWith("Streaming", StringComparison.OrdinalIgnoreCase))
                     return $"Wheel stream is '{stream}'. The plugin is opened but not actively driving the wheel — check the Diagnostics panel.";
 
-                // 5. No game / not in session
+                // 6. No game / not in session
                 if (string.IsNullOrEmpty(_activeGame))
                     return "No game running. Start a supported game and load into a session.";
 
@@ -289,7 +318,7 @@ namespace TrueforceForAll.Plugin
                 if (hz <= 0)
                     return $"'{_activeGame}' is detected but no telemetry is arriving. You may be in a menu or paused.";
 
-                // 6. All telemetry-driven effects disabled. Engine pulse,
+                // 7. All telemetry-driven effects disabled. Engine pulse,
                 //    bumps, traction, gear, ABS, pit limiter, DRS — if all
                 //    seven are off and audio capture is also off, nothing
                 //    can produce output.
@@ -305,7 +334,7 @@ namespace TrueforceForAll.Plugin
                 if (!anyEffectOn)
                     return "Every effect channel is disabled. Enable at least one effect or turn on audio capture.";
 
-                // 7. Audio capture configured-on but not actually attached
+                // 8. Audio capture configured-on but not actually attached
                 //    to a game process. Common when the user enabled audio
                 //    capture but didn't pick the game's process.
                 if (_audio != null && _audio.Enabled && _audio.IsActive == false
@@ -315,7 +344,7 @@ namespace TrueforceForAll.Plugin
                     return $"Audio capture is enabled but not attached to '{_activeGame}'. Pick the game process in the Audio section.";
                 }
 
-                // 8. Sidechain ducker over-aggressive (engine pulse muted
+                // 9. Sidechain ducker over-aggressive (engine pulse muted
                 //    near to silence). Detects misconfigured ducker depth
                 //    that swallows everything.
                 if (EnginePulse != null && EnginePulse.DuckMultiplier < 0.05f
@@ -936,6 +965,37 @@ namespace TrueforceForAll.Plugin
                 ApplyActiveCarOverride();
             }
 
+            // G HUB presence check. Polled every ~5 s; logs on transitions.
+            // Surfaced in the UI as a warning banner because G HUB blocks our
+            // HID open call and is by far the most common "wheel doesn't
+            // respond" cause.
+            {
+                long nowG = Stopwatch.GetTimestamp();
+                if (nowG - _lastGHubCheckTicks > GHubCheckIntervalTicks)
+                {
+                    _lastGHubCheckTicks = nowG;
+                    bool running = false;
+                    try
+                    {
+                        if (System.Diagnostics.Process.GetProcessesByName(GHubProcessName).Length > 0
+                         || System.Diagnostics.Process.GetProcessesByName(GHubAgentProcessName).Length > 0)
+                        {
+                            running = true;
+                        }
+                    }
+                    catch { /* process enumeration can fail under some sandbox conditions; treat as not-running */ }
+                    if (running != _gHubLastLoggedState)
+                    {
+                        _gHubLastLoggedState = running;
+                        SimHub.Logging.Current.Info(
+                            running
+                                ? "[Trueforce] Logitech G HUB detected. It claims the wheel's HID interface and blocks Trueforce. Close G HUB and reload the plugin."
+                                : "[Trueforce] Logitech G HUB no longer detected. Wheel access should be available again.");
+                    }
+                    _isGHubRunning = running;
+                }
+            }
+
             // Retry enhanced-source acquisition once per second while we have
             // an enhanced-eligible game running but are still on the SimHub
             // fallback. Covers the AC menu→session window (MMF not yet
@@ -1219,6 +1279,7 @@ namespace TrueforceForAll.Plugin
         private bool IsEnhancedEligible(string game)
         {
             if (game == "AssettoCorsa") return true;
+            if (game == "PCars2") return true;
             if (IsForzaGameName(game)) return true;
             // Always-listen lets users force the Forza source on for an FH6
             // build SimHub doesn't know yet, etc.
@@ -1289,12 +1350,20 @@ namespace TrueforceForAll.Plugin
         private static bool IsNativeTrueforceGame(string game)
         {
             if (string.IsNullOrEmpty(game)) return false;
+            // Forza Motorsport (2023 reboot, internally FM8) ships native
+            // Trueforce per Logitech's Aug 2024 announcement. FM7 does NOT
+            // ship native Trueforce, so it falls through to the Forza UDP
+            // source for our enhanced effects.
             return game == "ForzaMotorsport"
                 || game == "ForzaMotorsport8"
-                || game == "ForzaMotorsport7"
                 || game == "iRacing"
                 || game == "AssettoCorsaRally"
-                || game == "AssettoCorsaEVO";
+                || game == "AssettoCorsaEVO"
+                || game == "F12022"
+                || game == "F12023"
+                || game == "F12024"
+                || game == "F12025"
+                || game == "LMU";
         }
 
         /// <summary>Pick the right ITelemetrySource for <paramref name="game"/>
@@ -1327,6 +1396,28 @@ namespace TrueforceForAll.Plugin
                     {
                         SimHub.Logging.Current.Info(
                             $"[Trueforce] AC enhanced source unavailable ({ex.GetType().Name}): {ex.Message}; falling back to SimHub.");
+                    }
+                }
+            }
+            else if (game == "PCars2")
+            {
+                var pc2 = new Pcars2SharedMemoryTelemetrySource
+                {
+                    Logger = msg => SimHub.Logging.Current.Info($"[Trueforce] {msg}"),
+                };
+                try
+                {
+                    pc2.Start();
+                    newSource = pc2;
+                }
+                catch (Exception ex)
+                {
+                    try { pc2.Dispose(); } catch { }
+                    if (!silent)
+                    {
+                        SimHub.Logging.Current.Info(
+                            $"[Trueforce] PC2 enhanced source unavailable ({ex.GetType().Name}): {ex.Message}; falling back to SimHub. " +
+                            "If PC2 is running, ensure 'Use Shared Memory' is enabled in Options > Visuals.");
                     }
                 }
             }
