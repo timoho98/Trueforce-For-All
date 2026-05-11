@@ -5,9 +5,6 @@
 Logitech ships Trueforce for only a handful of officially-supported titles. This
 plugin makes it work everywhere SimHub does. Built on top of the wire
 protocol reverse-engineered by the [mescon Linux driver project][mescon].
-No Logitech SDK, no G HUB integration, no whitelist.
-
-Tested on a G PRO wheel with Assetto Corsa and Wreckfest 2.
 
 ## Telemetry
 
@@ -20,21 +17,18 @@ SimHub is free but the 60 Hz feed requires a licensed copy of SimHub, which carr
 
 Additional per-title enhancements/bypasses will be added over time. 
 
-**Bonus: optional FFB spike reduction.**  Some games deliver curb and
-collision FFB spikes wildly out of proportion to what's safe or
-comfortable. On a strong wheelbase they can be sharp enough to ruin a racing line, or cause real wrist
-strain over a session. Assetto Corsa is the worst offender we've seen
-and was the original motivation, but the feature works in any game
-whose FFB goes through standard HID++ force feedback. iRacing has a
-built-in option to soften this; most other games don't. The plugin
-taps the game's outgoing FFB on the USB bus and attenuates spikes only,
-so curbs land as confident pushes instead of yanks; sustained cornering
-load and weight transfer pass through untouched. This still requires
-one of the supported Logitech Trueforce wheels in the table below,
-since the modified FFB reaches the wheel through the Trueforce
-endpoint; support for non-Trueforce wheels would need a different
-attenuation point and isn't implemented yet. Useful on its own, even with
-all Trueforce effects turned off.
+**Bonus: optional FFB spike reduction.** Some games (Assetto Corsa being
+the worst offender we've seen) deliver curb and collision FFB spikes
+wildly out of proportion to what's safe or comfortable. On a strong
+wheelbase they can ruin a racing line or cause real wrist strain over
+a session. iRacing has a built-in softener; most other games don't. The
+plugin taps the game's outgoing FFB on the USB bus and attenuates spikes
+only, so curbs land as confident pushes instead of yanks while sustained
+cornering load and weight transfer pass through untouched. Works in any
+game whose FFB goes through standard HID++. Requires one of the supported
+Trueforce wheels below (the attenuated signal reaches the wheel through
+the Trueforce endpoint). Useful on its own, even with all Trueforce
+effects turned off.
 
 
 ## Supported wheels
@@ -45,9 +39,8 @@ all Trueforce effects turned off.
 | Logitech G PRO Racing Wheel (PS/PC) | `046D:C268` |
 | Logitech RS50 | `046D:C276` |
 
-The G PRO and RS50 use byte-identical Trueforce packets (verified by the
-[mescon Linux driver project][mescon]). 
-G923 support may come in the future.
+The G PRO and RS50 use byte-identical Trueforce packets. G923 support may
+come in the future.
 
 > **Status:** v0.x, actively developed. The plugin is functional today; the
 > default presets are still being tuned. Feedback welcome.
@@ -76,13 +69,10 @@ in real time, mixing several signal sources:
   doesn't expose, and works even for games which do not output telemetry data
   since capture targets the game process directly.
   
-- **FFB pass-through with spike reduction.** When a game already drives
-  the wheel via standard HID++ force feedback (Assetto Corsa does), the
-  plugin transparently taps that signal off the USB bus and mirrors it
-  into the Trueforce stream so cornering load coexists with the haptic
-  effects above. An optional spike-reduction filter brings AC's
-  notoriously over-the-top curb and collision FFB down to comfortable
-  levels (see the bonus note above).
+- **FFB pass-through.** When a game already drives the wheel via standard
+  HID++ force feedback (Assetto Corsa does), the plugin transparently taps
+  that signal off the USB bus and mirrors it into the Trueforce stream so
+  cornering load coexists with the haptic effects above.
 
 All of it is configurable per-game, per-car, via SimHub's settings UI:
 master gain, individual effect tuning, sidechain ducking between
@@ -140,11 +130,10 @@ plugins that share those keep working.
   plugin is driving Trueforce. Once we take over the ep3 stream, the
   wheel's own Trueforce intensity scaling stops responding to the dial.
   Use the in-plugin Master Gain and per-effect Gain controls to set
-  intensity instead; the [mescon Linux driver project][mescon] hit the
-  same limitation and works around it the same way.
-- **Validated only on G PRO + AC + Wreckfest 2** so far. Other supported
-  wheels (RS50) and other SimHub-supported games should work but
-  haven't been tested by us yet. Feedback welcome.
+  intensity instead.
+- **Validated only on G PRO + AC + Wreckfest 2 + FH5** so far. Other
+  supported wheels (RS50) and other SimHub-supported games should work
+  but haven't been tested by us yet. Feedback welcome.
 
 ## Build from source
 
@@ -166,13 +155,11 @@ automatically.
 
 ## How it works
 
-The wire protocol (init sequence and ep3 streaming format) was
-reverse-engineered by the [mescon Linux driver project][mescon]. This
-repo is the Windows-side glue on top of that: a SimHub plugin that opens
-the wheel, the telemetry- and audio-derived effect synthesis, the per-game
-tuning, and a USBPcap-based tap that reads the game's outgoing HID++ FFB
-target off the USB bus and mirrors it into bytes 6-9 of the Trueforce ep3
-stream so cornering load coexists with the synthesized effects.
+This repo is the Windows-side glue on top of the upstream wire protocol
+(see Acknowledgments): a SimHub plugin that opens the wheel, synthesizes
+the telemetry- and audio-derived effects, handles per-game tuning, and
+runs the USBPcap-based FFB tap that mirrors the game's HID++ output into
+bytes 6-9 of the Trueforce ep3 stream.
 
 ## License
 
