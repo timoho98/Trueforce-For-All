@@ -188,6 +188,9 @@ The wire protocol and init sequence are derived from the
   without their work.
 - **[USBPcap][usbpcap]** by Tomasz Mon: the kernel-mode USB filter that
   lets us tap the wheel's bus traffic for FFB pass-through.
+- **[mdjarv/assettocorsasharedmemory][acshmem]**: community reference
+  for AC's shared-memory layout, used to validate our SPageFilePhysics
+  field offsets.
 - **[HidSharp][hidsharp]**: cross-platform HID library used for the
   control-side of wheel communication.
 - **[NAudio][naudio]**: audio I/O library used for the per-process
@@ -200,6 +203,7 @@ project is not affiliated with, endorsed by, or sponsored by Logitech.
 
 [mescon]: https://github.com/mescon/logitech-rs50-linux-driver
 [usbpcap]: https://github.com/desowin/usbpcap
+[acshmem]: https://github.com/mdjarv/assettocorsasharedmemory
 [hidsharp]: https://github.com/treehopper-electronics/HIDSharp
 [naudio]: https://github.com/naudio/NAudio
 [simhub]: https://www.simhubdash.com/

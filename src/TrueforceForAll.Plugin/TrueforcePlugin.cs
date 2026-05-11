@@ -1432,8 +1432,8 @@ namespace TrueforceForAll.Plugin
         {
             if (string.IsNullOrEmpty(game)) return false;
             // Forza Motorsport (2023 reboot, internally FM8) ships native
-            // Trueforce per Logitech's Aug 2024 announcement. FM7 does NOT
-            // ship native Trueforce, so it falls through to the Forza UDP
+            // Trueforce per Logitech's announcement. FM7 does NOT ship
+            // native Trueforce, so it falls through to the Forza UDP
             // source for our enhanced effects.
             return game == "ForzaMotorsport"
                 || game == "ForzaMotorsport8"
