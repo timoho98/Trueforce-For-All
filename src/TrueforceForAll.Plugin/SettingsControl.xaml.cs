@@ -17,6 +17,12 @@ namespace TrueforceForAll.Plugin
         private bool _suppressEvents;
         private string _lastShownCarId;
         private string _lastShownGame;
+        // CarIds we've already prompted to submit engine data for in this
+        // SimHub session. The save-time prompt only fires for cars with no
+        // resolver-cached engine info AND only once per car so a user who
+        // declines isn't badgered every save. Cleared on plugin reload.
+        private readonly HashSet<string> _enginePromptedThisSession
+            = new HashSet<string>(StringComparer.Ordinal);
         // Dirty = current tuning has drifted from the active preset's saved
         // snapshot. Set by user changes; cleared by Apply/Save/Import and by
         // game-change auto-apply. Drives the "★ unsaved" suffix and the
@@ -32,8 +38,8 @@ namespace TrueforceForAll.Plugin
         // Values mirror TrueforcePlugin.SectionKind so we can pass through.
         // Numeric values mirror TrueforcePlugin.SectionKind so we can pass
         // through with a cast.
-        private enum EffectKind { Master = 0, Ducking = 1, Audio = 2, Engine = 3, Bumps = 4, Traction = 5, Shift = 6, Abs = 7, SpikeReduction = 8, PitLimiter = 9, Drs = 10 }
-        private readonly bool[] _effectDirty = new bool[11];
+        private enum EffectKind { Master = 0, Ducking = 1, Audio = 2, Engine = 3, Bumps = 4, Traction = 5, Shift = 6, Abs = 7, SpikeReduction = 8, PitLimiter = 9, Drs = 10, Collision = 11 }
+        private readonly bool[] _effectDirty = new bool[12];
         private System.Windows.Controls.Button GetEffectSaveBtn(EffectKind which)
         {
             switch (which)
@@ -49,6 +55,7 @@ namespace TrueforceForAll.Plugin
                 case EffectKind.SpikeReduction: return SpikeReductionSaveBtn;
                 case EffectKind.PitLimiter:     return PitLimiterSaveBtn;
                 case EffectKind.Drs:            return DrsSaveBtn;
+                case EffectKind.Collision:      return CollisionSaveBtn;
             }
             return null;
         }
@@ -67,6 +74,7 @@ namespace TrueforceForAll.Plugin
                 case EffectKind.SpikeReduction: return SpikeReductionRevertBtn;
                 case EffectKind.PitLimiter:     return PitLimiterRevertBtn;
                 case EffectKind.Drs:            return DrsRevertBtn;
+                case EffectKind.Collision:      return CollisionRevertBtn;
             }
             return null;
         }
@@ -85,6 +93,7 @@ namespace TrueforceForAll.Plugin
                 case EffectKind.SpikeReduction: return "FFB spike reduction";
                 case EffectKind.PitLimiter:     return "Pit limiter";
                 case EffectKind.Drs:            return "DRS";
+                case EffectKind.Collision:      return "Collision";
             }
             return "section";
         }
@@ -374,6 +383,22 @@ namespace TrueforceForAll.Plugin
                     DrsSustainedAmpSlider.Value     = drs.SustainedAmp;
                     DrsSustainedAmpText.Text        = drs.SustainedAmp.ToString("F2");
                 }
+                // Collision (per-car overridable like the other effects)
+                var coll = _plugin.ActiveCollision;
+                if (coll != null && CollisionEnabledCheck != null)
+                {
+                    CollisionEnabledCheck.IsChecked    = coll.Enabled;
+                    CollisionGainSlider.Value          = coll.Gain;
+                    CollisionGainText.Text             = coll.Gain.ToString("F2");
+                    CollisionMinThresholdSlider.Value  = coll.MinThreshold;
+                    CollisionMinThresholdText.Text     = coll.MinThreshold.ToString("F2");
+                    CollisionMaxAmpSlider.Value        = coll.MaxAmp;
+                    CollisionMaxAmpText.Text           = coll.MaxAmp.ToString("F2");
+                    CollisionFreqSlider.Value          = coll.Freq;
+                    CollisionFreqText.Text             = ((int)coll.Freq).ToString();
+                    CollisionEnvelopeMsSlider.Value    = coll.EnvelopeMs;
+                    CollisionEnvelopeMsText.Text       = coll.EnvelopeMs.ToString();
+                }
 
                 // Override badges in expander headers — visible only when this
                 // section has its own per-car override active.
@@ -387,6 +412,8 @@ namespace TrueforceForAll.Plugin
                     PitLimiterOverrideBadge.Visibility = (_plugin.IsPitLimiterOverridden && carDetected) ? Visibility.Visible : Visibility.Collapsed;
                 if (DrsOverrideBadge != null)
                     DrsOverrideBadge.Visibility        = (_plugin.IsDrsOverridden        && carDetected) ? Visibility.Visible : Visibility.Collapsed;
+                if (CollisionOverrideBadge != null)
+                    CollisionOverrideBadge.Visibility  = (_plugin.IsCollisionOverridden  && carDetected) ? Visibility.Visible : Visibility.Collapsed;
 
                 // Conditional dimming/hiding on dependent settings:
                 //  - Traction noise LP/HP only matter for the Noise waveform.
@@ -537,27 +564,6 @@ namespace TrueforceForAll.Plugin
                         EngineCylindersAutoText.Text = "";
                     }
 
-                    // Context-aware label on the report button: "Report wrong"
-                    // when we have a value (user's correcting it); "Report this
-                    // car's cylinder count" when we missed detection entirely
-                    // (user's filling in the gap). Hide the button when no car
-                    // is loaded — there's nothing to report against.
-                    if (ReportWrongCylindersButton != null)
-                    {
-                        if (string.IsNullOrEmpty(activeCar))
-                        {
-                            ReportWrongCylindersButton.Visibility = System.Windows.Visibility.Collapsed;
-                        }
-                        else
-                        {
-                            ReportWrongCylindersButton.Visibility = System.Windows.Visibility.Visible;
-                            bool detected = ep != null && ep.AutoCylinders.HasValue;
-                            ReportWrongCylindersButton.Content = detected
-                                ? "Report wrong cylinder count for this car…"
-                                : "Help us add this car: report its cylinder count…";
-                        }
-                    }
-
                     // Engine-config resolver coverage. Updates each tick with
                     // a single text line summarizing baked + heuristic hits
                     // for both cyl and config so users can see how complete
@@ -565,24 +571,48 @@ namespace TrueforceForAll.Plugin
                     if (EngineCoverageText != null)
                         EngineCoverageText.Text = _plugin.EngineConfigCoverageText;
 
-                    // Report-engine-data button: shown when a car is loaded
-                    // AND there's something worth submitting (the resolver
-                    // detected something, OR the user has set at least one
-                    // engine value). Hidden otherwise to avoid noise rows in
-                    // the response sheet stamped CONFIRM but containing no
-                    // actual data to confirm.
+                    // Report/submit engine-data button. The save-time popup
+                    // is the primary submission path; this button is a
+                    // persistent fallback for: (a) users who declined the
+                    // popup and changed their mind later in the session,
+                    // (b) users who clicked Yes but never actually hit
+                    // Submit on the Google Form (we can't detect form
+                    // submission, so the button stays available as a resume
+                    // path), and (c) cars loaded with prior-session
+                    // overrides where no save event has fired this session.
+                    //
+                    // Visibility + label are driven by the shared classifier:
+                    //   * Hidden if no car is loaded, the engine section is
+                    //     mid-tweak (dirty), or there's nothing worth
+                    //     submitting (CONFIRM / no data).
+                    //   * "Submit engine data for this car..." in CONTRIB
+                    //     mode (no detection, user has tuned).
+                    //   * "Report wrong engine data for this car..." in
+                    //     CORRECTION mode (detection present, user's
+                    //     committed values disagree).
+                    // Gating on !engineDirty ensures submissions reflect
+                    // committed values, not mid-tweak slider positions.
+                    // No popup-shown gate: the popup is modal so it visually
+                    // takes priority at the save moment, and dropping the
+                    // gate means prior-session overrides have an immediate
+                    // entry point without needing to re-save.
                     if (ReportEngineDataButton != null)
                     {
-                        var engine = _plugin.ActiveEngine;
-                        bool hasAnyData =
-                            (ep != null && !string.IsNullOrEmpty(ep.AutoCylinderSource))
-                            || (engine?.Cylinders ?? 0) != 0
-                            || (engine?.EngineConfig ?? Effects.EngineConfig.Auto) != Effects.EngineConfig.Auto
-                            || !string.IsNullOrEmpty(engine?.CustomFiringPattern);
-                        ReportEngineDataButton.Visibility =
-                            (string.IsNullOrEmpty(activeCar) || !hasAnyData)
-                                ? System.Windows.Visibility.Collapsed
-                                : System.Windows.Visibility.Visible;
+                        var submitState = GetEngineSubmitState();
+                        bool engineDirty = _effectDirty[(int)EffectKind.Engine];
+                        bool show = !string.IsNullOrEmpty(activeCar)
+                                 && !engineDirty
+                                 && submitState != EngineSubmitState.None;
+                        ReportEngineDataButton.Visibility = show
+                            ? System.Windows.Visibility.Visible
+                            : System.Windows.Visibility.Collapsed;
+                        if (show)
+                        {
+                            ReportEngineDataButton.Content =
+                                submitState == EngineSubmitState.Contribute
+                                    ? "Submit engine data for this car..."
+                                    : "Report wrong engine data for this car...";
+                        }
                     }
                 }
 
@@ -1360,6 +1390,7 @@ namespace TrueforceForAll.Plugin
                 }
             }
             RefreshFromPlugin();
+            MaybePromptToSubmitEngineData(carId);
         }
 
         private void DeleteCarPreset_Click(object sender, RoutedEventArgs e)
@@ -1539,57 +1570,57 @@ namespace TrueforceForAll.Plugin
             }
         }
 
-        private void ReportWrongCylindersButton_Click(object sender, RoutedEventArgs e)
+        // Engine-data submission state. Drives both the Engine-section
+        // button (visibility + label) and the save-time prompt:
+        //   None       = nothing worth submitting (no detection AND no user
+        //                data, OR detection present and user agrees -- the
+        //                "CONFIRM" case that adds noise without info).
+        //   Contribute = no resolver/telemetry detection, user has tuned
+        //                non-default engine values. Form is a contribution.
+        //   Correct    = resolver/telemetry produced a value, user has
+        //                tuned something that disagrees (cylinder count,
+        //                layout, custom pattern, or "we said EV, user
+        //                implies combustion"). Form is a correction.
+        private enum EngineSubmitState { None, Contribute, Correct }
+
+        // Classifier shared by the button visibility logic, the save-time
+        // prompt, and the form body's CONFIRM/CONTRIB/CORRECTION marker.
+        // Reads live UI/preset values via _plugin.EnginePulse + ActiveEngine.
+        private EngineSubmitState GetEngineSubmitState()
         {
-            if (_plugin == null) return;
-            string carId   = _plugin.ActiveCarId ?? "(no car loaded)";
-            string game    = _plugin.ActiveGame ?? "(unknown)";
+            if (_plugin == null) return EngineSubmitState.None;
             var ep = _plugin.EnginePulse;
-            int? autoCyl   = ep?.AutoCylinders;
-            string source  = ep?.AutoCylinderSource ?? "(none)";
-            int effective  = ep?.EffectiveCylinders ?? 0;
-            int sliderCyl  = _plugin.ActiveEngine?.Cylinders ?? 0;
-            string elec    = ep != null && ep.IsElectric ? "yes" : "no";
-            string elecMode = ep?.ElectricMode.ToString() ?? "MutedHum";
-            string version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "?";
+            var es = _plugin.ActiveEngine;
+            if (ep == null || es == null) return EngineSubmitState.None;
 
-            // Body uses GitHub-flavored markdown so the plain text renders cleanly.
-            string body =
-                  "**Car / detection state**\n"
-                + $"- Game: `{game}`\n"
-                + $"- Car ID: `{carId}`\n"
-                + $"- Auto-detected cylinders: {(autoCyl?.ToString() ?? "(not detected)")}\n"
-                + $"- Detection source: `{source}`\n"
-                + $"- Currently in effect (EffectiveCylinders): {effective}\n"
-                + $"- Slider value (Cylinders): {sliderCyl}\n"
-                + $"- Flagged as electric: {elec} (mode: {elecMode})\n"
-                + $"- Plugin version: {version}\n\n"
-                + "**Your correction**\n"
-                + "- Correct cylinder count: <FILL IN, e.g. 8>\n"
-                + "- Engine type: <e.g. \"LS3 V8 swap\" or \"stock 2JZ-GTE I6\" — manufacturer / mod author info if known>\n"
-                + "- Source / link to mod page: <optional>\n\n"
-                + "**Notes** (any other context):\n"
-                + "<optional>\n";
+            int? autoCyl = ep.AutoCylinders;
+            string cylSrc = ep.AutoCylinderSource;
+            int sliderCyl = es.Cylinders;
+            var userCfg = es.EngineConfig;
+            string customRaw = es.CustomFiringPattern;
+            bool autoEv = ep.IsElectric;
+            bool detected = !string.IsNullOrEmpty(cylSrc);
+            string detectedLayout = detected ? ep.EngineConfig.ToString() : null;
 
-            string title = $"Wrong cylinder count: {carId}";
-            string url = ReportIssuesBase
-                       + "?title=" + Uri.EscapeDataString(title)
-                       + "&body="  + Uri.EscapeDataString(body)
-                       + "&labels=" + Uri.EscapeDataString("cylinder-count");
+            bool cylDiff = (sliderCyl != 0 && autoCyl.HasValue && sliderCyl != autoCyl.Value)
+                        || (sliderCyl != 0 && !autoCyl.HasValue);
+            bool layoutDiff = userCfg != Effects.EngineConfig.Auto
+                           && (!detected || userCfg.ToString() != detectedLayout);
+            bool customDiff = userCfg == Effects.EngineConfig.Custom
+                           && !string.IsNullOrEmpty(customRaw);
+            // EV mismatch: resolver flagged this car as electric but the
+            // user has set a non-zero cylinder count or picked a layout.
+            // That's a vote that the EV flag is wrong, worth surfacing.
+            bool evDiff = autoEv && (sliderCyl >= 1 || userCfg != Effects.EngineConfig.Auto);
 
-            try
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url)
-                {
-                    UseShellExecute = true,  // .NET Framework 4.8 launches the URL via default browser
-                });
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    $"Couldn't open browser:\n{ex.Message}\n\nYou can manually file an issue at:\n{ReportIssuesBase}",
-                    "Trueforce", MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
+            bool anyDiff = cylDiff || layoutDiff || customDiff || evDiff;
+            bool userHasData = sliderCyl > 0
+                            || userCfg != Effects.EngineConfig.Auto
+                            || !string.IsNullOrEmpty(customRaw);
+
+            if (!detected)
+                return userHasData ? EngineSubmitState.Contribute : EngineSubmitState.None;
+            return anyDiff ? EngineSubmitState.Correct : EngineSubmitState.None;
         }
 
         // Engine-data submission target: a Google Form with a single
@@ -1607,6 +1638,55 @@ namespace TrueforceForAll.Plugin
         // values ARE the proposed values; submission is one click on the
         // form. Maintainers read the response sheet to find diffs.
         private void ReportEngineDataButton_Click(object sender, RoutedEventArgs e)
+        {
+            OpenEngineDataForm();
+        }
+
+        // Save-time prompt: nudges the user to submit their committed engine
+        // tuning. Fires after a car-preset save (or an Engine-section save)
+        // because the values just written to disk are, by definition, the
+        // user's settled answer for this car. That's a much higher-signal
+        // moment than catching a click on a discoverable button while values
+        // are still being tweaked.
+        //
+        // Fires for both submission states the form actually wants:
+        //   Contribute: no detection, user added data. "Submit engine data".
+        //   Correct: detection present, user's saved values disagree.
+        //            "Report wrong engine data".
+        // CONFIRM cases (user agrees with detection) and "no data" cases
+        // skip the prompt: those add noise without info.
+        //
+        // Dedupes per car per session so a user who declines isn't badgered
+        // on every subsequent save of the same car.
+        private void MaybePromptToSubmitEngineData(string carId)
+        {
+            if (_plugin == null || string.IsNullOrEmpty(carId)) return;
+            var state = GetEngineSubmitState();
+            if (state == EngineSubmitState.None) return;
+            if (!_enginePromptedThisSession.Add(carId)) return;
+
+            string ask;
+            if (state == EngineSubmitState.Contribute)
+            {
+                ask = $"We don't have engine data for '{carId}' yet.\n\n"
+                    + "Submit your settings to help other users? Opens a Google form "
+                    + "pre-filled with your tuning. Just hit Submit on the form, no account needed.";
+            }
+            else
+            {
+                ask = $"You've corrected the auto-detected engine data for '{carId}'.\n\n"
+                    + "Submit your correction to help other users? Opens a Google form "
+                    + "pre-filled with your tuning. Just hit Submit on the form, no account needed.";
+            }
+
+            var r = MessageBox.Show(
+                ask,
+                "Trueforce: share engine data?",
+                MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (r == MessageBoxResult.Yes) OpenEngineDataForm();
+        }
+
+        private void OpenEngineDataForm()
         {
             if (_plugin == null) return;
             string carId  = _plugin.ActiveCarId ?? "(no car loaded)";
@@ -1636,9 +1716,11 @@ namespace TrueforceForAll.Plugin
             var userElec  = es?.ElectricMode ?? ElectricCarMode.MutedHum;
             string customRaw = es?.CustomFiringPattern ?? "";
 
-            // Diff lines — the meat of the submission. Show only the axes
-            // where the user's value differs from auto so the maintainer sees
-            // exactly what's being proposed as a change.
+            // Diff lines. Show only the axes where the user's value differs
+            // from auto so the maintainer sees exactly what's being proposed
+            // as a change. Includes an explicit EV-mismatch line so a user
+            // who tunes cylinders on an EV-flagged car is unambiguously
+            // saying "this car isn't actually electric".
             var diff = new System.Collections.Generic.List<string>();
             if (sliderCyl != 0 && autoCyl.HasValue && sliderCyl != autoCyl.Value)
                 diff.Add($"- Cylinders: detected `{autoCyl}`, user says `{sliderCyl}`");
@@ -1650,6 +1732,10 @@ namespace TrueforceForAll.Plugin
                 diff.Add($"- Engine layout: detected `{detectedLayout}`, user says `{userCfg}`");
             if (userCfg == Effects.EngineConfig.Custom && !string.IsNullOrEmpty(customRaw))
                 diff.Add($"- Custom firing pattern: `{customRaw}`");
+            bool autoEv = ep != null && ep.IsElectric;
+            bool userImpliesCombustion = sliderCyl >= 1 || userCfg != Effects.EngineConfig.Auto;
+            if (autoEv && userImpliesCombustion)
+                diff.Add("- Electric flag: detected `yes`, user implies `no` (set cylinders/layout)");
 
             // Submission category — same three buckets as before, just used
             // here as a leading marker line so the response sheet is sortable
@@ -1682,11 +1768,14 @@ namespace TrueforceForAll.Plugin
                   + "**My settings on the panel (proposed)**\n"
                   + $"- Cylinders slider: `{sliderText}`  \n"
                   + $"- Engine layout dropdown: `{userCfg}`  \n"
-                  + $"- Electric mode: `{userElec}`  \n"
+                  // ElectricMode only matters for cars the plugin flagged as
+                  // electric (it's the response curve for that case). Omit
+                  // for combustion cars so the row isn't noise.
+                  + (autoEv ? $"- Electric mode: `{userElec}`  \n" : "")
                   + (string.IsNullOrEmpty(customRaw)
                         ? ""
                         : $"- Custom firing pattern: `{customRaw}`  \n")
-                  + "\n**Notes** (optional - engine codename, mod page link, anything else):\n"
+                  + "\n**Notes** (optional: engine codename, mod page link, anything else):\n"
                   + "\n";
 
             string url = EngineDataFormUrl
@@ -2136,6 +2225,56 @@ namespace TrueforceForAll.Plugin
             _plugin.ActiveDrs.SustainedAmp = v;
             Apply(EffectKind.Drs);
         }
+
+        // ---------- Collision ----------
+
+        private void CollisionEnabled_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            _plugin.ActiveCollision.Enabled = CollisionEnabledCheck.IsChecked == true;
+            Apply(EffectKind.Collision);
+        }
+        private void CollisionGainSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            float v = (float)e.NewValue;
+            CollisionGainText.Text = v.ToString("F2");
+            _plugin.ActiveCollision.Gain = v;
+            Apply(EffectKind.Collision);
+        }
+        private void CollisionMinThresholdSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            float v = (float)e.NewValue;
+            CollisionMinThresholdText.Text = v.ToString("F2");
+            _plugin.ActiveCollision.MinThreshold = v;
+            Apply(EffectKind.Collision);
+        }
+        private void CollisionMaxAmpSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            float v = (float)e.NewValue;
+            CollisionMaxAmpText.Text = v.ToString("F2");
+            _plugin.ActiveCollision.MaxAmp = v;
+            Apply(EffectKind.Collision);
+        }
+        private void CollisionFreqSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            float v = (float)e.NewValue;
+            CollisionFreqText.Text = ((int)v).ToString();
+            _plugin.ActiveCollision.Freq = v;
+            Apply(EffectKind.Collision);
+        }
+        private void CollisionEnvelopeMsSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            int v = (int)e.NewValue;
+            CollisionEnvelopeMsText.Text = v.ToString();
+            _plugin.ActiveCollision.EnvelopeMs = v;
+            Apply(EffectKind.Collision);
+        }
+        private void CollisionTest_Click(object sender, RoutedEventArgs e) => _plugin?.TestEffect(_plugin.Collision);
 
         // ---------- ABS ----------
 
@@ -2648,6 +2787,11 @@ namespace TrueforceForAll.Plugin
                 }
             }
             RefreshFromPlugin();
+            // Prompt only on Engine-section saves — that's where the user
+            // committed cylinder/layout values worth submitting. Saves on
+            // other sections (Bumps, Traction, etc.) shouldn't trigger a
+            // form-submission ask; their data isn't what we're collecting.
+            if (which == EffectKind.Engine) MaybePromptToSubmitEngineData(carId);
         }
 
         /// <summary>Update active preset in place — whole-snapshot save.
@@ -2820,6 +2964,7 @@ namespace TrueforceForAll.Plugin
             bool   onBuiltin  = !string.IsNullOrEmpty(activeName)
                                 && _plugin.IsCarPresetBuiltin(carId, activeName);
 
+            bool ok;
             if (string.IsNullOrEmpty(activeName) || onBuiltin)
             {
                 string suggestion = onBuiltin ? StripDefaultSuffix(activeName) : carId;
@@ -2832,9 +2977,14 @@ namespace TrueforceForAll.Plugin
                     existing: _plugin.GetCarPresets(carId));
                 if (string.IsNullOrEmpty(newName)) return false; // cancelled
                 _plugin.SaveActiveCarPresetAs(newName);
-                return true;
+                ok = true;
             }
-            return _plugin.PersistActiveCarOverride();
+            else
+            {
+                ok = _plugin.PersistActiveCarOverride();
+            }
+            if (ok) MaybePromptToSubmitEngineData(carId);
+            return ok;
         }
 
         /// <summary>Fork-on-save flow: create a new user preset named after
@@ -3394,6 +3544,14 @@ namespace TrueforceForAll.Plugin
             double oldMs = oldCap * 0.25;
             double newMs = newCap * 0.25;
 
+            // Programmatically-created Window doesn't inherit SimHub's dark
+            // theme styles, so explicit colors are required: dark grey
+            // background and light foreground on every TextBlock. Without
+            // these, default WPF colors render as black-on-near-white which
+            // is unreadable against SimHub's dark chrome.
+            var bg = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1E, 0x1E, 0x1E));
+            var fg = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xEE, 0xEE, 0xEE));
+
             var win = new Window
             {
                 Title = "Trueforce — auto-tuned ring buffer",
@@ -3403,6 +3561,8 @@ namespace TrueforceForAll.Plugin
                 ResizeMode = ResizeMode.NoResize,
                 ShowInTaskbar = false,
                 Owner = Window.GetWindow(this),
+                Background = bg,
+                Foreground = fg,
             };
             if (win.Owner == null) win.WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
@@ -3411,11 +3571,13 @@ namespace TrueforceForAll.Plugin
             {
                 Text = $"{ringName} ring buffer auto-tuned",
                 FontSize = 14, FontWeight = FontWeights.SemiBold,
+                Foreground = fg,
                 Margin = new Thickness(0, 0, 0, 8),
             });
             sp.Children.Add(new TextBlock
             {
                 TextWrapping = TextWrapping.Wrap,
+                Foreground = fg,
                 Text =
                     $"The {ringName.ToLower()} ring was at {oldCap} samples ({oldMs:0.#} ms) " +
                     $"but has had repeated dropouts. Bumped to {newCap} samples ({newMs:0.#} ms) " +

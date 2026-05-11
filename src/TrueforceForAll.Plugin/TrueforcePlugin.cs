@@ -82,6 +82,7 @@ namespace TrueforceForAll.Plugin
         public AbsClickEffect     AbsClick     { get; private set; }
         public PitLimiterEffect   PitLimiter   { get; private set; }
         public DrsEffect          Drs          { get; private set; }
+        public CollisionEffect    Collision    { get; private set; }
         private TelemetryEffect[] _effects;
 
         // Active telemetry source. The plugin currently always uses
@@ -191,13 +192,25 @@ namespace TrueforceForAll.Plugin
         // descent and accelerate. UP fires fast (1s window); if noise
         // returns mid-descent it re-arms the long 5min cooldown.
         private const int  RatchetWindowMs           = 1000;
-        private const long RatchetThreshold          = 3;     // underruns/laps in 1 s to trigger UP
+        // UP trigger: a single noisy window isn't enough — too easy to trip
+        // on a one-off CPU stall, USB hiccup, or game stutter that doesn't
+        // reflect sustained pressure on the ring. Require BOTH the current
+        // and previous 1-second windows to cross the threshold. Threshold
+        // raised from 3→5 to filter brief blips even further; with the
+        // 2-window requirement, sustained UP fire only happens after ≥10
+        // underruns over 2 seconds.
+        private const long RatchetThreshold          = 5;     // underruns/laps in 1 s, REQUIRED IN 2 CONSECUTIVE WINDOWS
         private const int  RatchetDownQuietMs        = 60_000;   // 60 s of zero deltas → eligible for any DOWN step
         private const int  RatchetDownCooldownMs     = 300_000;  // 5 min after an UP before the FIRST DOWN allowed
         private const int  RatchetDownFastCooldownMs = 30_000;   // 30 s between subsequent DOWN steps once descent has started
         private long _autoRatchetLastCheckTicks;
         private long _autoRatchetLastTfCount;
         private long _autoRatchetLastAudioCount;
+        // Previous window's deltas, for the "2 consecutive windows" UP gate.
+        // Both _prevTfOverThreshold and the current tfDelta must cross
+        // RatchetThreshold before UP fires.
+        private bool _prevTfOverThreshold;
+        private bool _prevAudioOverThreshold;
         // Stopwatch ticks of the most recent non-zero delta. Reset to "now"
         // any time we see ANY underrun/glitch in the 1s window. The 60s
         // quiet test compares (now - lastSeen) against RatchetDownQuietMs.
@@ -555,7 +568,18 @@ namespace TrueforceForAll.Plugin
                     }
                 }
                 catch { }
-                finally { System.Threading.Interlocked.Decrement(ref _activeTestTasks); }
+                finally
+                {
+                    // Clear any state TestPlay/TestUpdate latched (amplitudes,
+                    // envelopes, hold timers) so it doesn't bleed into other
+                    // effects on subsequent renders. Without this, e.g. ABS
+                    // Pulse mode leaves _amp = ActiveAmp*Gain set after the
+                    // test ends; with no telemetry to zero it back out (user
+                    // is in the settings panel, no game running), the pulse
+                    // keeps rendering and contaminates every later test.
+                    try { effect.Reset(); } catch { }
+                    System.Threading.Interlocked.Decrement(ref _activeTestTasks);
+                }
             });
         }
 
@@ -635,11 +659,13 @@ namespace TrueforceForAll.Plugin
                 _device.FfbTargetProvider = () =>
                 {
                     // SkipFfbPassthrough: return Some(0) so the device sends
-                    // active packets (audio plays) but writes center to ep3
-                    // bytes 6-9, leaving the wheel's actual force to the
-                    // game's native FFB path. Used for games with built-in
-                    // Trueforce (AC Rally, iRacing) where mirroring our
-                    // captured FFB target fights with the game's own writes.
+                    // active packets (audio plays) with cur = 0x8000. The
+                    // wheel uses cur as motor torque and IGNORES ep0 once
+                    // active packets are streaming, so this means zero motor
+                    // force from the FFB-target path. Only correct for games
+                    // that drive the wheel's motor through their own native
+                    // ep3 path (Forza Horizon, AC Rally, iRacing); for games
+                    // that rely on ep0 (vanilla AC, F1, PC2), this kills FFB.
                     if (Settings != null && Settings.SkipFfbPassthrough) return (short?)0;
                     return _ffbTap?.TryGetFreshFfbTarget(_device.FfbTargetMaxAgeMs);
                 };
@@ -724,7 +750,8 @@ namespace TrueforceForAll.Plugin
             AbsClick     = new AbsClickEffect();
             PitLimiter   = new PitLimiterEffect();
             Drs          = new DrsEffect();
-            _effects = new TelemetryEffect[] { EnginePulse, RoadBumps, TractionLoss, GearShift, AbsClick, PitLimiter, Drs };
+            Collision    = new CollisionEffect();
+            _effects = new TelemetryEffect[] { EnginePulse, RoadBumps, TractionLoss, GearShift, AbsClick, PitLimiter, Drs, Collision };
             foreach (var fx in _effects) _mixer.Add(fx);
             // Pull initial values from globals (no car detected yet).
             ApplyActiveCarOverride();
@@ -885,6 +912,23 @@ namespace TrueforceForAll.Plugin
 
             // Track car changes and apply per-car override (or revert).
             string carId = data?.NewData?.CarId ?? data?.NewData?.CarModel;
+            // Forza un-sets the active car whenever the game loses focus
+            // (alt-tab, screensaver, etc.), then re-sets it the moment focus
+            // returns. Treating those transient nulls as a real "car gone"
+            // event resets every effect's auto-cylinder / IIR state and
+            // strands the user on a no-car-selected settings UI while
+            // they're trying to tune. Latch the previous carId across null
+            // gaps for Forza specifically; a real car switch (going to a
+            // different car) still passes through because the next non-null
+            // carId differs from _activeCarId. A real game-exit changes
+            // _activeGame first (handled above), so this latch doesn't
+            // hold a stale Forza car into another game.
+            if (string.IsNullOrEmpty(carId)
+                && !string.IsNullOrEmpty(_activeCarId)
+                && IsForzaGameName(_activeGame))
+            {
+                carId = _activeCarId;
+            }
             if (carId != _activeCarId)
             {
                 _activeCarId = carId;
@@ -1061,6 +1105,30 @@ namespace TrueforceForAll.Plugin
                 if (frame.DrsActive        == null) frame.DrsActive        = _lastSimHubDrsActive;
             }
 
+            // Universal collision derivation: if the source didn't populate
+            // CollisionMagnitude (only PC2's opponent-collision signal does
+            // directly), derive from a sudden three-axis accel spike.
+            // Threshold ≈ 5g (≈49 m/s²) — well above hard cornering
+            // (~1.5-2g) and hard braking (~1g), squarely in "something hit
+            // something" territory. Surge (longitudinal) catches head-on /
+            // rear-end impacts; sway catches T-bones; heave catches hard
+            // landings and curb slams. Normalized: each ~50 m/s² over the
+            // threshold = 1.0 magnitude unit, capped in the effect.
+            if (frame.CollisionMagnitude == null)
+            {
+                const double CollisionThresholdMps2 = 49.0;   // ≈ 5g
+                const double NormalizePerMps2       = 0.02;   // 1.0 magnitude per ~50 m/s² over threshold
+                double sway  = frame.AccelerationSway  ?? 0;
+                double heave = frame.AccelerationHeave ?? 0;
+                double surge = frame.AccelerationSurge ?? 0;
+                double peak  = Math.Max(Math.Abs(surge),
+                               Math.Max(Math.Abs(sway), Math.Abs(heave)));
+                if (peak > CollisionThresholdMps2)
+                {
+                    frame.CollisionMagnitude = (peak - CollisionThresholdMps2) * NormalizePerMps2;
+                }
+            }
+
             if (_audio != null)
                 _audio.ThrottleNormalized = (float)frame.Throttle01;
 
@@ -1138,29 +1206,42 @@ namespace TrueforceForAll.Plugin
             var fz = _telemetrySource as ForzaUdpTelemetrySource;
             if (fz != null && !fz.LastIsRaceOn) suppressUp = true;
 
-            if (!suppressUp && tfDelta >= RatchetThreshold && perf.TfRingSize < TrueforceDevice.MaxRingSize)
+            // Two-window confirmation gate: only fire UP when BOTH the
+            // previous and current window crossed the threshold. Filters
+            // out one-off blips (single CPU stall, brief USB hiccup) that
+            // aren't actually sustained pressure on the ring.
+            bool tfOver    = tfDelta    >= RatchetThreshold;
+            bool audioOver = audioDelta >= RatchetThreshold;
+            bool tfFireUp    = tfOver    && _prevTfOverThreshold;
+            bool audioFireUp = audioOver && _prevAudioOverThreshold;
+            _prevTfOverThreshold    = tfOver;
+            _prevAudioOverThreshold = audioOver;
+
+            if (!suppressUp && tfFireUp && perf.TfRingSize < TrueforceDevice.MaxRingSize)
             {
                 int oldCap = perf.TfRingSize;
                 int newCap = oldCap * 2;
                 if (newCap > TrueforceDevice.MaxRingSize) newCap = TrueforceDevice.MaxRingSize;
                 ApplyTfRingSize(newCap);
                 SimHub.Logging.Current.Info(
-                    $"[Trueforce] Auto-ratchet UP: Trueforce ring {oldCap} → {newCap} after {tfDelta} underruns/s.");
+                    $"[Trueforce] Auto-ratchet UP: Trueforce ring {oldCap} → {newCap} after {tfDelta} underruns/s (sustained 2 windows).");
                 _tfLastRatchetActionTicks = now;
                 _tfLastActionWasDown = false;
+                _prevTfOverThreshold = false;   // re-arm the 2-window requirement
                 FireRatchetEvent(true, oldCap, newCap);
             }
 
-            if (!suppressUp && audioDelta >= RatchetThreshold && perf.AudioRingSize < AudioCaptureSource.MaxRingSamples)
+            if (!suppressUp && audioFireUp && perf.AudioRingSize < AudioCaptureSource.MaxRingSamples)
             {
                 int oldCap = perf.AudioRingSize;
                 int newCap = oldCap * 2;
                 if (newCap > AudioCaptureSource.MaxRingSamples) newCap = AudioCaptureSource.MaxRingSamples;
                 ApplyAudioRingSize(newCap);
                 SimHub.Logging.Current.Info(
-                    $"[Trueforce] Auto-ratchet UP: audio ring {oldCap} → {newCap} after {audioDelta} glitches/s.");
+                    $"[Trueforce] Auto-ratchet UP: audio ring {oldCap} → {newCap} after {audioDelta} glitches/s (sustained 2 windows).");
                 _audioLastRatchetActionTicks = now;
                 _audioLastActionWasDown = false;
+                _prevAudioOverThreshold = false;   // re-arm the 2-window requirement
                 FireRatchetEvent(false, oldCap, newCap);
             }
 
@@ -1778,6 +1859,7 @@ namespace TrueforceForAll.Plugin
             ApplyAbsSettings   (ovr?.AbsClick     ?? Settings.AbsClick);
             ApplyPitLimiterSettings(ovr?.PitLimiter ?? Settings.PitLimiter);
             ApplyDrsSettings   (ovr?.Drs          ?? Settings.Drs);
+            ApplyCollisionSettings(ovr?.Collision ?? Settings.Collision);
             ApplyAudioCaptureSettings(ovr?.AudioCapture ?? Settings.AudioCapture);
         }
 
@@ -1789,6 +1871,7 @@ namespace TrueforceForAll.Plugin
         public bool IsAbsOverridden        => GetActiveCarOverride()?.AbsClick     != null;
         public bool IsPitLimiterOverridden => GetActiveCarOverride()?.PitLimiter   != null;
         public bool IsDrsOverridden        => GetActiveCarOverride()?.Drs          != null;
+        public bool IsCollisionOverridden  => GetActiveCarOverride()?.Collision    != null;
         public bool IsAudioOverridden      => GetActiveCarOverride()?.AudioCapture != null;
 
         // ----- per-section: toggle override on/off (snapshots globals when on) -----
@@ -1799,6 +1882,7 @@ namespace TrueforceForAll.Plugin
         public void SetAbsOverride(bool on)        => ToggleSectionOverride(on, get: o => o.AbsClick,     set: (o, v) => o.AbsClick     = v, snapshot: () => Clone(Settings.AbsClick));
         public void SetPitLimiterOverride(bool on) => ToggleSectionOverride(on, get: o => o.PitLimiter,   set: (o, v) => o.PitLimiter   = v, snapshot: () => Clone(Settings.PitLimiter));
         public void SetDrsOverride(bool on)        => ToggleSectionOverride(on, get: o => o.Drs,          set: (o, v) => o.Drs          = v, snapshot: () => Clone(Settings.Drs));
+        public void SetCollisionOverride(bool on)  => ToggleSectionOverride(on, get: o => o.Collision,    set: (o, v) => o.Collision    = v, snapshot: () => Clone(Settings.Collision));
         public void SetAudioOverride(bool on)      => ToggleSectionOverride(on, get: o => o.AudioCapture, set: (o, v) => o.AudioCapture = v, snapshot: () => CloneOrNull(Settings.AudioCapture));
 
         private void ToggleSectionOverride<T>(bool on,
@@ -1828,6 +1912,7 @@ namespace TrueforceForAll.Plugin
         public AbsClickSettings     ActiveAbs        => GetActiveCarOverride()?.AbsClick     ?? Settings.AbsClick;
         public PitLimiterSettings   ActivePitLimiter => GetActiveCarOverride()?.PitLimiter   ?? Settings.PitLimiter;
         public DrsSettings          ActiveDrs        => GetActiveCarOverride()?.Drs          ?? Settings.Drs;
+        public CollisionSettings    ActiveCollision  => GetActiveCarOverride()?.Collision    ?? Settings.Collision;
         public AudioCaptureSettings ActiveAudio    => GetActiveCarOverride()?.AudioCapture ?? Settings.AudioCapture;
 
         // ----- apply settings to live effect -----
@@ -1924,6 +2009,20 @@ namespace TrueforceForAll.Plugin
             Drs.SustainedAmp   = s.SustainedAmp;
             Drs.Waveform       = s.Waveform;
         }
+        private void ApplyCollisionSettings(CollisionSettings s)
+        {
+            if (Collision == null || s == null) return;
+            Collision.Enabled            = s.Enabled;
+            Collision.Gain               = s.Gain;
+            Collision.Freq               = s.Freq;
+            Collision.EnvelopeMs         = s.EnvelopeMs;
+            Collision.MinThreshold       = s.MinThreshold;
+            Collision.MinAmp             = s.MinAmp;
+            Collision.MaxAmp             = s.MaxAmp;
+            Collision.NormalizationScale = s.NormalizationScale;
+            Collision.RefractoryMs       = s.RefractoryMs;
+            Collision.Waveform           = s.Waveform;
+        }
         private void ApplyAudioCaptureSettings(AudioCaptureSettings s)
         {
             if (_audio == null || s == null) return;
@@ -1959,6 +2058,8 @@ namespace TrueforceForAll.Plugin
             => new PitLimiterSettings   { Enabled = s.Enabled, Gain = s.Gain, Freq = s.Freq, PulseFreq = s.PulseFreq, DutyCycle = s.DutyCycle, ActiveAmp = s.ActiveAmp, Waveform = s.Waveform };
         private static DrsSettings          Clone(DrsSettings s)
             => new DrsSettings          { Enabled = s.Enabled, Gain = s.Gain, ActivationFreq = s.ActivationFreq, ActivationMs = s.ActivationMs, ActivationAmp = s.ActivationAmp, SustainedFreq = s.SustainedFreq, SustainedAmp = s.SustainedAmp, Waveform = s.Waveform };
+        private static CollisionSettings    Clone(CollisionSettings s)
+            => new CollisionSettings    { Enabled = s.Enabled, Gain = s.Gain, Freq = s.Freq, EnvelopeMs = s.EnvelopeMs, MinThreshold = s.MinThreshold, MinAmp = s.MinAmp, MaxAmp = s.MaxAmp, NormalizationScale = s.NormalizationScale, RefractoryMs = s.RefractoryMs, Waveform = s.Waveform };
 
         // ---------- preset library ----------
 
@@ -2138,6 +2239,7 @@ namespace TrueforceForAll.Plugin
                 AbsClick     = o.AbsClick     == null ? null : Clone(o.AbsClick),
                 PitLimiter   = o.PitLimiter   == null ? null : Clone(o.PitLimiter),
                 Drs          = o.Drs          == null ? null : Clone(o.Drs),
+                Collision    = o.Collision    == null ? null : Clone(o.Collision),
                 AudioCapture = CloneOrNull(o.AudioCapture),
             };
         }
@@ -2343,6 +2445,7 @@ namespace TrueforceForAll.Plugin
                 case SectionKind.Abs:        if (ovr.AbsClick     == null) ovr.AbsClick     = Clone(Settings.AbsClick);       break;
                 case SectionKind.PitLimiter: if (ovr.PitLimiter   == null) ovr.PitLimiter   = Clone(Settings.PitLimiter);     break;
                 case SectionKind.Drs:        if (ovr.Drs          == null) ovr.Drs          = Clone(Settings.Drs);            break;
+                case SectionKind.Collision:  if (ovr.Collision    == null) ovr.Collision    = Clone(Settings.Collision);      break;
                 case SectionKind.Audio:      if (ovr.AudioCapture == null) ovr.AudioCapture = CloneOrNull(Settings.AudioCapture); break;
                 default: return;  // Master / Ducking aren't per-car
             }
@@ -2369,6 +2472,7 @@ namespace TrueforceForAll.Plugin
                 case SectionKind.Abs:        if (ovr.AbsClick     != null) { Settings.AbsClick     = Clone(ovr.AbsClick);       ovr.AbsClick     = null; } break;
                 case SectionKind.PitLimiter: if (ovr.PitLimiter   != null) { Settings.PitLimiter   = Clone(ovr.PitLimiter);     ovr.PitLimiter   = null; } break;
                 case SectionKind.Drs:        if (ovr.Drs          != null) { Settings.Drs          = Clone(ovr.Drs);            ovr.Drs          = null; } break;
+                case SectionKind.Collision:  if (ovr.Collision    != null) { Settings.Collision    = Clone(ovr.Collision);      ovr.Collision    = null; } break;
                 case SectionKind.Audio:      if (ovr.AudioCapture != null) { Settings.AudioCapture = CloneOrNull(ovr.AudioCapture); ovr.AudioCapture = null; } break;
                 default: return;
             }
@@ -2478,6 +2582,7 @@ namespace TrueforceForAll.Plugin
                     case SectionKind.Abs:        return !EffectEquals(snap, EffectField.Abs);
                     case SectionKind.PitLimiter: return !EffectEquals(snap, EffectField.PitLimiter);
                     case SectionKind.Drs:        return !EffectEquals(snap, EffectField.Drs);
+                    case SectionKind.Collision:  return !EffectEquals(snap, EffectField.Collision);
                 }
                 return false;
             }
@@ -2502,6 +2607,7 @@ namespace TrueforceForAll.Plugin
                     case SectionKind.Abs:        if (liveCo?.AbsClick     != null) return !Eq(liveCo.AbsClick,     savedCo?.AbsClick);     break;
                     case SectionKind.PitLimiter: if (liveCo?.PitLimiter   != null) return !Eq(liveCo.PitLimiter,   savedCo?.PitLimiter);   break;
                     case SectionKind.Drs:        if (liveCo?.Drs          != null) return !Eq(liveCo.Drs,          savedCo?.Drs);          break;
+                    case SectionKind.Collision:  if (liveCo?.Collision    != null) return !Eq(liveCo.Collision,    savedCo?.Collision);    break;
                 }
             }
             return false;
@@ -2536,6 +2642,7 @@ namespace TrueforceForAll.Plugin
                 case SectionKind.Abs:        return liveCo.AbsClick     != null;
                 case SectionKind.PitLimiter: return liveCo.PitLimiter   != null;
                 case SectionKind.Drs:        return liveCo.Drs          != null;
+                case SectionKind.Collision:  return liveCo.Collision    != null;
             }
             return false;
         }
@@ -2571,7 +2678,7 @@ namespace TrueforceForAll.Plugin
         private static bool EqF1(double a, double b) => Math.Abs(a - b) < 0.05;
         private static bool EqI (double a, double b) => Math.Abs(a - b) < 0.5;
 
-        private enum EffectField { Audio, Engine, Bumps, Traction, Shift, Abs, PitLimiter, Drs }
+        private enum EffectField { Audio, Engine, Bumps, Traction, Shift, Abs, PitLimiter, Drs, Collision }
 
         /// <summary>Scope-aware equals for dirty detection.
         ///
@@ -2617,6 +2724,9 @@ namespace TrueforceForAll.Plugin
                 case EffectField.Drs:
                     if (liveCo?.Drs          != null) return Eq(liveCo.Drs,          savedCo?.Drs);
                     return Eq(Settings.Drs,          snap.Drs);
+                case EffectField.Collision:
+                    if (liveCo?.Collision    != null) return Eq(liveCo.Collision,    savedCo?.Collision);
+                    return Eq(Settings.Collision,    snap.Collision);
             }
             return true;
         }
@@ -2705,6 +2815,20 @@ namespace TrueforceForAll.Plugin
                 && EqF2(a.SustainedAmp,   b.SustainedAmp)
                 && a.Waveform == b.Waveform;
         }
+        private static bool Eq(CollisionSettings a, CollisionSettings b)
+        {
+            if (a == null || b == null) return a == b;
+            return a.Enabled == b.Enabled
+                && EqF2(a.Gain,               b.Gain)
+                && EqI (a.Freq,               b.Freq)
+                && a.EnvelopeMs == b.EnvelopeMs
+                && EqF2(a.MinThreshold,       b.MinThreshold)
+                && EqF2(a.MinAmp,             b.MinAmp)
+                && EqF2(a.MaxAmp,             b.MaxAmp)
+                && EqF2(a.NormalizationScale, b.NormalizationScale)
+                && a.RefractoryMs == b.RefractoryMs
+                && a.Waveform == b.Waveform;
+        }
         private static bool Eq(AudioCaptureSettings a, AudioCaptureSettings b)
         {
             if (a == null || b == null) return a == b;
@@ -2720,7 +2844,7 @@ namespace TrueforceForAll.Plugin
         /// Mirrors the per-section "Save…" / "Revert" buttons in the UI:
         /// Master and Ducking are global-only; the rest have a per-car
         /// override component that revert respects.</summary>
-        public enum SectionKind { Master, Ducking, Audio, Engine, Bumps, Traction, Shift, Abs, SpikeReduction, PitLimiter, Drs }
+        public enum SectionKind { Master, Ducking, Audio, Engine, Bumps, Traction, Shift, Abs, SpikeReduction, PitLimiter, Drs, Collision }
 
         /// <summary>Revert one section to the active preset's saved snapshot.
         /// Scope-aware: if the snapshot has a per-car override for the
@@ -2841,6 +2965,17 @@ namespace TrueforceForAll.Plugin
                         s => Settings.Drs = Clone(s),
                         (co, v) => co.Drs = Clone(v),
                         co => co.Drs = null);
+                    ApplyActiveCarOverride();
+                    return true;
+
+                case SectionKind.Collision:
+                    RevertEffectScopeAware(
+                        snap.Collision,
+                        snap.CarOverrides,
+                        co => co?.Collision,
+                        s => Settings.Collision = Clone(s),
+                        (co, v) => co.Collision = Clone(v),
+                        co => co.Collision = null);
                     ApplyActiveCarOverride();
                     return true;
 
@@ -3008,6 +3143,7 @@ namespace TrueforceForAll.Plugin
             if (snap.AbsClick     != null) Settings.AbsClick     = Clone(snap.AbsClick);
             if (snap.PitLimiter   != null) Settings.PitLimiter   = Clone(snap.PitLimiter);
             if (snap.Drs          != null) Settings.Drs          = Clone(snap.Drs);
+            if (snap.Collision    != null) Settings.Collision    = Clone(snap.Collision);
             // Per-car overrides are no longer carried by game presets (Model G):
             // they live in <plugin data>/Cars/<carId>.tfcar.json files,
             // independent of the active preset. Switching presets doesn't
@@ -3056,6 +3192,7 @@ namespace TrueforceForAll.Plugin
                     AbsClick     = o.AbsClick     == null ? null : Clone(o.AbsClick),
                     PitLimiter   = o.PitLimiter   == null ? null : Clone(o.PitLimiter),
                     Drs          = o.Drs          == null ? null : Clone(o.Drs),
+                    Collision    = o.Collision    == null ? null : Clone(o.Collision),
                     AudioCapture = CloneOrNull(o.AudioCapture),
                 };
             }
@@ -3092,6 +3229,7 @@ namespace TrueforceForAll.Plugin
                 AbsClick                = Clone(Settings.AbsClick),
                 PitLimiter              = Clone(Settings.PitLimiter),
                 Drs                     = Clone(Settings.Drs),
+                Collision               = Clone(Settings.Collision),
                 // CarOverrides intentionally omitted — per-car tuning is
                 // managed via per-car .tfcar.json files post-Model-G.
             };

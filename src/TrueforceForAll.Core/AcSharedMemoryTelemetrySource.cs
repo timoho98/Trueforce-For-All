@@ -44,6 +44,7 @@ namespace TrueforceForAll.Core
         private const int OFF_SPEED_KMH       = 28;    // float
         private const int OFF_ACC_G_X         = 44;    // float, lateral, g
         private const int OFF_ACC_G_Y         = 48;    // float, vertical, g
+        private const int OFF_ACC_G_Z         = 52;    // float, longitudinal, g (positive = forward)
         // wheelSlip[4] — float[4] starting at offset 56. Order is FL/FR/RL/RR;
         // 0 = perfect grip, larger magnitude = more slip. We take max-abs
         // across all four (any slipping tire shakes the wheel).
@@ -51,6 +52,12 @@ namespace TrueforceForAll.Core
         private const int OFF_WHEEL_SLIP_FR   = 60;
         private const int OFF_WHEEL_SLIP_RL   = 64;
         private const int OFF_WHEEL_SLIP_RR   = 68;
+        // pitLimiterOn (int) tracks the LIMITER BUTTON state, not pit-lane
+        // geometry. Reading this directly bypasses SimHub's mapping, which
+        // surfaces "in pit lane" as PitLimiterOn for AC and produces false
+        // positives whenever the car sits in the pit area (e.g., spawn box
+        // on touge maps that the AC track defines as pit lane).
+        private const int OFF_PIT_LIMITER_ON  = 248;
         private const int OFF_LOCAL_ANG_VEL_Y = 300;   // float, yaw rad/s
 
         // 1 kHz poll cadence — see header comment for rationale. Requires
@@ -258,10 +265,12 @@ namespace TrueforceForAll.Core
             float speedKmh = _physicsView.ReadSingle(OFF_SPEED_KMH);
             float accGX    = _physicsView.ReadSingle(OFF_ACC_G_X);
             float accGY    = _physicsView.ReadSingle(OFF_ACC_G_Y);
+            float accGZ    = _physicsView.ReadSingle(OFF_ACC_G_Z);
             float wsFL     = _physicsView.ReadSingle(OFF_WHEEL_SLIP_FL);
             float wsFR     = _physicsView.ReadSingle(OFF_WHEEL_SLIP_FR);
             float wsRL     = _physicsView.ReadSingle(OFF_WHEEL_SLIP_RL);
             float wsRR     = _physicsView.ReadSingle(OFF_WHEEL_SLIP_RR);
+            int   pitLimit = _physicsView.ReadInt32 (OFF_PIT_LIMITER_ON);
             float yawRadS  = _physicsView.ReadSingle(OFF_LOCAL_ANG_VEL_Y);
 
             const float  G        = 9.80665f;
@@ -283,10 +292,15 @@ namespace TrueforceForAll.Core
                 SpeedKmh          = speedKmh,
                 AccelerationSway  = accGX * G,
                 AccelerationHeave = accGY * G,
+                AccelerationSurge = accGZ * G,
                 YawRateDegPerSec  = yawRadS * RadToDeg,
 
                 Gear      = GearString(gear),
                 WheelSlip = maxSlip,
+                // pitLimiterOn read directly from AC's physics page so the
+                // PitLimiterEffect sees the actual button state instead of
+                // the SimHub overlay's pit-lane-geometry mapping.
+                PitLimiterActive = pitLimit,
                 // MaxRpm and AbsActive are deliberately left at their defaults;
                 // TrueforcePlugin.DispatchFrame overlays them from the latest
                 // SimHub reading, which is the right authority for both.

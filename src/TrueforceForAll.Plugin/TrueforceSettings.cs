@@ -76,12 +76,14 @@ namespace TrueforceForAll.Plugin
         public bool  FfbSpikeTamingEnabled    { get; set; } = false;
         public float FfbSpikeMaxLsbPerMs      { get; set; } = 2060.923f;
 
-        // For games with native Trueforce support (AC Rally, iRacing, etc.):
-        // when on, the plugin still streams audio-haptic effects on ep3
-        // but leaves bytes 6-9 (cur) at center so the wheel's actual force
-        // comes from the game's own FFB path rather than our captured /
-        // mirrored value. Avoids fighting with the game's native ep3 cur
-        // writes. Default off.
+        // Skip the captured-FFB → ep3 cur mirror. With this on, our active
+        // packets carry cur = 0x8000 (silence center). The wheel uses cur
+        // as motor torque and ignores ep0 whenever active packets are
+        // streaming, so this means zero motor force from our path —
+        // appropriate ONLY for games that drive the wheel's motor through
+        // their own native ep3 path (Forza Horizon, AC Rally, iRacing). For
+        // games that rely on ep0 for FFB (vanilla AC, F1, PC2), enabling
+        // this kills FFB entirely. Default off.
         public bool  SkipFfbPassthrough       { get; set; } = false;
 
         public float FfbPeakSoftLimitLsb      { get; set; } = 1561.78564f;
@@ -103,6 +105,7 @@ namespace TrueforceForAll.Plugin
         public AbsClickSettings     AbsClick     { get; set; } = new AbsClickSettings();
         public PitLimiterSettings   PitLimiter   { get; set; } = new PitLimiterSettings();
         public DrsSettings          Drs          { get; set; } = new DrsSettings();
+        public CollisionSettings    Collision    { get; set; } = new CollisionSettings();
 
         // Per-machine performance tuning. Lives outside GameSettingsSnapshot
         // because ring sizes are a property of the machine (CPU, scheduler
@@ -182,6 +185,7 @@ namespace TrueforceForAll.Plugin
         public AbsClickSettings     AbsClick     { get; set; }
         public PitLimiterSettings   PitLimiter   { get; set; }
         public DrsSettings          Drs          { get; set; }
+        public CollisionSettings    Collision    { get; set; }
 
         public Dictionary<string, CarOverride> CarOverrides { get; set; }
     }
@@ -470,6 +474,22 @@ namespace TrueforceForAll.Plugin
         public Waveform Waveform { get; set; } = Waveform.Sine;
     }
 
+    public sealed class CollisionSettings
+    {
+        public bool  Enabled            { get; set; } = true;
+        public float Gain               { get; set; } = 1.0f;
+        public float Freq               { get; set; } = 50.0f;
+        public int   EnvelopeMs         { get; set; } = 120;
+        public float MinThreshold       { get; set; } = 0.20f;
+        public float MinAmp             { get; set; } = 0.20f;
+        public float MaxAmp             { get; set; } = 0.85f;
+        public float NormalizationScale { get; set; } = 2.0f;
+        public int   RefractoryMs       { get; set; } = 250;
+
+        [JsonConverter(typeof(StringEnumConverter))]
+        public Waveform Waveform { get; set; } = Waveform.Square;
+    }
+
     /// <summary>Standalone preset file. Wraps a GameSettingsSnapshot with a
     /// user-chosen name so it can be imported into any user's library and
     /// applied to any game. Format used by "Export preset" and shared between
@@ -567,11 +587,12 @@ namespace TrueforceForAll.Plugin
         public AbsClickSettings     AbsClick     { get; set; }
         public PitLimiterSettings   PitLimiter   { get; set; }
         public DrsSettings          Drs          { get; set; }
+        public CollisionSettings    Collision    { get; set; }
         public AudioCaptureSettings AudioCapture { get; set; }
 
         public bool IsEmpty =>
             EnginePulse == null && RoadBumps == null && TractionLoss == null &&
             GearShift   == null && AbsClick  == null && AudioCapture == null &&
-            PitLimiter  == null && Drs       == null;
+            PitLimiter  == null && Drs       == null && Collision    == null;
     }
 }

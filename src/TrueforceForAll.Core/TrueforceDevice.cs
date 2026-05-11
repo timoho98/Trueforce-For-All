@@ -147,21 +147,39 @@ namespace TrueforceForAll.Core
         public float FfbSpikeMaxLsbPerMs { get; set; } = 2060.923f;
         private float _slewLimitedFfb;
 
-        // Spike-attenuation cap. Detection sidechains off the raw input's
-        // SLEW RATE (rate of change in LSB/ms): a curb hit changes FFB at
+        // Spike-attenuation cap. Detection sidechains off RAW input slew rate
+        // (rate of change in LSB/ms): a curb / wall hit changes FFB at
         // 4000-15000+ LSB/ms while normal cornering inputs change at
-        // 100-500 LSB/ms. We only attenuate when slew exceeds the spike-
-        // threshold, so corner entries / exits are untouched. The cap
-        // controls how aggressively to attenuate per LSB/ms of slew excess:
-        // at slew = SpikeThreshold + cap, gain factor = 0.5; as slew grows,
-        // factor approaches 0. Active only when FfbSpikeTamingEnabled is
-        // true.
+        // 100-500 LSB/ms. Above SpikeSlewThresholdLsbPerMs we attenuate; at
+        // slew = threshold + cap, gain factor = 0.5; as slew grows, factor
+        // approaches 0. Active only when FfbSpikeTamingEnabled is true.
+        //
+        // Crucially, raw slew alone can't distinguish a wall hit (one big
+        // unidirectional step) from a rumble strip (rapid +/-/+/- oscillation
+        // around the same average force) — both produce huge slew. We gate
+        // the slew-envelope update on a DIRECTIONALITY ratio (see
+        // _sumDeltas / _sumAbsDeltas below): unidirectional events ride at
+        // ~1.0, alternating-sign rumble drops to ~0.1-0.3. Slew only counts
+        // when directionality is high, so the envelope stays low through
+        // kerb buzz and pops on real impacts.
         public float FfbPeakSoftLimitLsb { get; set; } = 1561.78564f;
         // Below this slew rate, no attenuation regardless of cap setting.
         // 1000 LSB/ms is well above the rates produced by even hard cornering
         // and well below typical curb-hit slew. Hardcoded; could be exposed
         // if a game's cornering forces exceed this baseline.
         private const float SpikeSlewThresholdLsbPerMs = 1000f;
+        // Directionality threshold in [0, 1]. Ratio of |sum of recent signed
+        // deltas| to sum of |recent deltas|. 1.0 = every recent delta the
+        // same sign (clean unidirectional shift); 0.0 = perfectly alternating.
+        // 0.5 cleanly separates real spikes (typically 0.7-1.0 sustained
+        // through the impact) from rumble oscillation (0.1-0.3 sustained).
+        private const float SpikeDirectionalityMin = 0.5f;
+        // Decay applied per tick to both signed and absolute delta sums.
+        // ~10 ms time constant: long enough that 2-3 oscillation cycles of
+        // a 100 Hz rumble are in the window (so the alternating-sign cancel
+        // is observable), short enough that a clean step's directionality
+        // stays high through the entire envelope-rise.
+        private const float DirectionalityDecayPerTick = 0.909f;  // ~ 1 - 1/11 (TC ≈ 10 ms)
         // Half-life of the spike envelope in ms. Sets how long attenuation
         // persists after the actual slew event. AC sustains a curb-hit's
         // elevated force for ~50-100 ms; this half-life keeps attenuation
@@ -172,6 +190,11 @@ namespace TrueforceForAll.Core
         private static readonly float SpikeEnvDecayPerTick =
             (float)Math.Pow(0.5, 1.0 / SpikeEnvHalfLifeMs);
         private float _prevRawForSlew;
+        // Directionality state: exponentially-decayed sums of signed and
+        // absolute raw-FFB deltas. Their ratio gives the directionality
+        // metric in [0, 1]. Reset in ResetFfbFilters.
+        private float _sumDeltas;
+        private float _sumAbsDeltas;
         private float _spikeSlewEnv;
 
         // Force-active override. When the deadline is in the future, StreamTick
@@ -330,6 +353,8 @@ namespace TrueforceForAll.Core
             _smoothedFfb     = 0f;
             _slewLimitedFfb  = 0f;
             _prevRawForSlew  = 0f;
+            _sumDeltas       = 0f;
+            _sumAbsDeltas    = 0f;
             _spikeSlewEnv    = 0f;
         }
 
@@ -553,16 +578,31 @@ namespace TrueforceForAll.Core
 
                     // Update slew-rate sidechain. Peak-follow on rise (instant
                     // latch) + slow exponential decay (70 ms half-life) on
-                    // fall. Latching means a single-tick AC update is
-                    // captured at full magnitude; decay means the env stays
-                    // high for the duration AC actually sustains the spike's
-                    // elevated force, so attenuation covers the whole impact
-                    // rather than just the moment of change. Sidechains off
-                    // raw — has to, because the slew limiter downstream
-                    // already squashes rate of change.
-                    float slewInst = Math.Abs(raw - _prevRawForSlew);
+                    // fall. Latching means a single-tick spike is captured
+                    // at full magnitude; decay means the env stays high for
+                    // the duration AC actually sustains the elevated force.
+                    //
+                    // Directionality gate: rumble strips drive raw with rapid
+                    // alternating-sign deltas of similar magnitude — the
+                    // signed-sum cancels but the abs-sum doesn't, so
+                    // directionality drops to ~0.1-0.3 and we ignore the
+                    // (otherwise huge) raw slew. A real wall hit is
+                    // unidirectional, directionality stays high (~0.7-1.0),
+                    // and the slew event registers in full.
+                    float deltaRaw = raw - _prevRawForSlew;
                     _prevRawForSlew = raw;
-                    if (slewInst > _spikeSlewEnv)
+                    float slewInst = Math.Abs(deltaRaw);
+                    _sumDeltas    = _sumDeltas    * DirectionalityDecayPerTick + deltaRaw;
+                    _sumAbsDeltas = _sumAbsDeltas * DirectionalityDecayPerTick + slewInst;
+                    float directionality = (_sumAbsDeltas > 1f)
+                        ? Math.Abs(_sumDeltas) / _sumAbsDeltas
+                        : 0f;
+                    // Only let directional slew set the envelope. Non-
+                    // directional slew (rumble) decays the envelope as if
+                    // nothing happened, so a kerb traversal never builds
+                    // sustained attenuation.
+                    bool directional = directionality >= SpikeDirectionalityMin;
+                    if (directional && slewInst > _spikeSlewEnv)
                     {
                         _spikeSlewEnv = slewInst;
                     }

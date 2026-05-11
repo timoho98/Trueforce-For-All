@@ -69,6 +69,7 @@ namespace TrueforceForAll.Core
         private const int OFF_CURRENT_RPM        = 16;
         private const int OFF_ACCEL_X            = 20;
         private const int OFF_ACCEL_Y            = 24;
+        private const int OFF_ACCEL_Z            = 28;   // longitudinal (forward/backward)
         private const int OFF_ANG_VEL_Y          = 48;
         private const int OFF_NORM_SUSP_FL       = 68;
         private const int OFF_TIRE_SLIP_RATIO_FL = 84;
@@ -257,6 +258,7 @@ namespace TrueforceForAll.Core
             float curRpm   = ReadFloat(buf,  OFF_CURRENT_RPM);
             float accelY   = ReadFloat(buf,  OFF_ACCEL_Y);
             float accelX   = ReadFloat(buf,  OFF_ACCEL_X);
+            float accelZ   = ReadFloat(buf,  OFF_ACCEL_Z);
             float yawRad   = ReadFloat(buf,  OFF_ANG_VEL_Y);
 
             float susFL = ReadFloat(buf, OFF_NORM_SUSP_FL + 0);
@@ -343,6 +345,7 @@ namespace TrueforceForAll.Core
 
                 AccelerationHeave = accelY,                  // m/s², up
                 AccelerationSway  = accelX,                  // m/s², right
+                AccelerationSurge = accelZ,                  // m/s², forward
                 YawRateDegPerSec  = yawRad * RadToDeg,
 
                 Gear       = GearString(gearByte),

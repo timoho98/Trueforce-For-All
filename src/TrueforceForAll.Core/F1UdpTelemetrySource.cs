@@ -52,8 +52,9 @@ namespace TrueforceForAll.Core
 
         // ---- Per-car offsets (relative to start of the per-car struct) ----
         // CarMotionData is 60 bytes per car.
-        private const int MOT_GFORCE_LATERAL  = 36;        // float, lateral g
-        private const int MOT_GFORCE_VERTICAL = 44;        // float, vertical g
+        private const int MOT_GFORCE_LATERAL      = 36;        // float, lateral g
+        private const int MOT_GFORCE_LONGITUDINAL = 40;        // float, longitudinal g (forward = positive)
+        private const int MOT_GFORCE_VERTICAL     = 44;        // float, vertical g
         private const int MOT_YAW_ANGLE       = 48;        // float, radians (not rate)
         private const int CAR_MOTION_SIZE     = 60;
 
@@ -117,6 +118,7 @@ namespace TrueforceForAll.Core
         private byte  _ersDeployMode;
         private byte  _tractionControl;
         private float _gForceLateral;
+        private float _gForceLongitudinal;
         private float _gForceVertical;
         private float _yawRateRadPerSec;
         private float _wheelSlipMax;
@@ -274,8 +276,9 @@ namespace TrueforceForAll.Core
                 {
                     int playerOffset = HEADER_SIZE + playerIndex * CAR_MOTION_SIZE;
                     if (len < playerOffset + CAR_MOTION_SIZE) return;
-                    _gForceLateral  = ReadFloat(buf, playerOffset + MOT_GFORCE_LATERAL);
-                    _gForceVertical = ReadFloat(buf, playerOffset + MOT_GFORCE_VERTICAL);
+                    _gForceLateral      = ReadFloat(buf, playerOffset + MOT_GFORCE_LATERAL);
+                    _gForceLongitudinal = ReadFloat(buf, playerOffset + MOT_GFORCE_LONGITUDINAL);
+                    _gForceVertical     = ReadFloat(buf, playerOffset + MOT_GFORCE_VERTICAL);
                     // Yaw angle alone isn't useful for traction-loss; the
                     // angular-velocity-Y field in MotionEx is the yaw rate
                     // we actually feed effects. Read here just in case
@@ -352,8 +355,9 @@ namespace TrueforceForAll.Core
                         SpeedKmh   = speedKmh,
                         Gear       = GearString(gear),
 
-                        AccelerationHeave = _gForceVertical * G,
-                        AccelerationSway  = _gForceLateral  * G,
+                        AccelerationHeave = _gForceVertical     * G,
+                        AccelerationSway  = _gForceLateral      * G,
+                        AccelerationSurge = _gForceLongitudinal * G,
                         YawRateDegPerSec  = _yawRateRadPerSec * RadToDeg,
 
                         WheelSlip     = _wheelSlipMax,

@@ -536,17 +536,6 @@
                              the firing-frequency calc is actually using. Empty when
                              no auto value is available — slider value is in effect. -->
                         <TextBlock x:Name="EngineCylindersAutoText" Style="{StaticResource HelpText}" Margin="140,0,0,4" Text=""/>
-                        <!-- Report-wrong button: opens a pre-filled GitHub issue for
-                             the active car so users can correct bake / heuristic mistakes
-                             without needing to know the carId or source attribution. -->
-                        <Grid Margin="140,0,0,8">
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                            <Button x:Name="ReportWrongCylindersButton"
-                                    HorizontalAlignment="Left" Padding="8,3" Margin="0,2,0,0"
-                                    Click="ReportWrongCylindersButton_Click"
-                                    Content="Report wrong cylinder count for this car…"
-                                    ToolTip="Opens a pre-filled report on GitHub. Use this if the auto-detected count sounds wrong for the active car (most often for engine-swapped drift mods)."/>
-                        </Grid>
                         <Grid Margin="0,0,0,8">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Pitch:" Style="{StaticResource LabelText}"/>
@@ -627,20 +616,26 @@
                         <TextBlock Style="{StaticResource HelpText}" Margin="140,0,0,4"
                                    TextWrapping="Wrap"
                                    Text="Format: 0, 0.125, 0.25, ...  Optional weights: 0:1.0, 0.125:0.85, ..."/>
-                        <!-- Report-engine-data button: opens a pre-filled GitHub
-                             issue with the currently-cached engine state +
-                             whatever the user has manually overridden, so
-                             corrections / contributions are one click. The
-                             button label changes by context: existing cached
-                             car -> "Report wrong engine data"; uncached car
-                             with manual values -> "Submit engine data for
-                             this car". Hidden when no car is loaded. -->
+                        <!-- Submit/report engine-data button. Opens a Google
+                             Form pre-filled with what the plugin auto-detected
+                             and what the user has selected. Code sets label
+                             and visibility per the EngineSubmitState classifier:
+                               * no detection, user has tuned: "Submit engine
+                                 data for this car..." (CONTRIB).
+                               * detection present, user's committed values
+                                 disagree: "Report wrong engine data for this
+                                 car..." (CORRECTION).
+                               * detection agrees / nothing tuned / engine
+                                 section dirty: hidden.
+                             Hiding while the engine section is dirty means
+                             submissions reflect committed values, not
+                             mid-tweak slider positions. -->
                         <Grid Margin="140,4,0,8">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Button x:Name="ReportEngineDataButton"
                                     HorizontalAlignment="Left" Padding="8,3"
                                     Click="ReportEngineDataButton_Click"
-                                    Content="Submit engine data for this car…"
+                                    Content="Submit engine data for this car..."
                                     ToolTip="Opens a Google Form pre-filled with what's auto-detected and what you've selected in the dropdowns / slider. Just hit Submit on the form, no typing needed and no account required."/>
                         </Grid>
                         <!-- Coverage readout: how often the resolver is producing
@@ -1046,6 +1041,67 @@
                             <Slider     Grid.Column="1" x:Name="DrsSustainedAmpSlider" Minimum="0" Maximum="0.4" SmallChange="0.02" LargeChange="0.05"
                                         TickFrequency="0.05" ValueChanged="DrsSustainedAmpSlider_ValueChanged" VerticalAlignment="Center"/>
                             <TextBlock Grid.Column="2" x:Name="DrsSustainedAmpText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0.12"/>
+                        </Grid>
+                    </StackPanel>
+                </Expander>
+
+                <!-- Collision — variable-amplitude thud on impact. Magnitude
+                     comes from PC2's mLastOpponentCollisionMagnitude
+                     directly, or is derived from a sudden lateral/vertical
+                     accel spike (>5g) for any other source. Global-only
+                     for v1 — no per-car override slot yet. -->
+                <Expander x:Name="CollisionExpander" IsExpanded="False" Margin="0,0,0,16">
+                    <Expander.Header>
+                        <StackPanel Orientation="Horizontal">
+                            <CheckBox x:Name="CollisionEnabledCheck" Content="Collision"
+                                      FontWeight="SemiBold" VerticalAlignment="Center"
+                                      Checked="CollisionEnabled_Changed" Unchecked="CollisionEnabled_Changed"/>
+                            <TextBlock x:Name="CollisionOverrideBadge" Style="{StaticResource OverrideBadge}"/>
+                            <Button Content="Test" Style="{StaticResource EffectTestButton}" Click="CollisionTest_Click"/>
+                            <Button x:Name="CollisionRevertBtn" Content="↶" Tag="Collision" Style="{StaticResource EffectRevertButton}" Click="EffectRevert_Click"/>
+                            <Button x:Name="CollisionSaveBtn"   Content="Save…" Tag="Collision" Style="{StaticResource EffectSaveButton}" Click="EffectSave_Click"/>
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel Margin="0,8,0,0">
+                        <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" TextWrapping="Wrap"
+                                   Text="Single thud on impact, amplitude scales with collision force. Sources: PC2 reads its native impact magnitude directly; other sources derive from sudden lateral/vertical accel spikes above ~5g (well above hard cornering or curbs)."/>
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Gain:" Style="{StaticResource LabelText}"/>
+                            <Slider     Grid.Column="1" x:Name="CollisionGainSlider" Minimum="0" Maximum="2.0" SmallChange="0.05" LargeChange="0.1"
+                                        TickFrequency="0.25" ValueChanged="CollisionGainSlider_ValueChanged" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" x:Name="CollisionGainText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="1.00"/>
+                        </Grid>
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Min threshold:" Style="{StaticResource LabelText}"
+                                       ToolTip="Lower = lighter contacts trigger. Raise if light scrapes are too noisy."/>
+                            <Slider     Grid.Column="1" x:Name="CollisionMinThresholdSlider" Minimum="0.05" Maximum="1.0" SmallChange="0.05" LargeChange="0.1"
+                                        TickFrequency="0.1" ValueChanged="CollisionMinThresholdSlider_ValueChanged" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" x:Name="CollisionMinThresholdText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0.20"/>
+                        </Grid>
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Max amplitude:" Style="{StaticResource LabelText}"
+                                       ToolTip="Cap on the loudest hit. Safety knob for wrists / wheelbase."/>
+                            <Slider     Grid.Column="1" x:Name="CollisionMaxAmpSlider" Minimum="0.2" Maximum="1.0" SmallChange="0.05" LargeChange="0.1"
+                                        TickFrequency="0.1" ValueChanged="CollisionMaxAmpSlider_ValueChanged" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" x:Name="CollisionMaxAmpText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0.85"/>
+                        </Grid>
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Carrier (Hz):" Style="{StaticResource LabelText}"
+                                       ToolTip="Lower = deeper thud. 50 Hz default."/>
+                            <Slider     Grid.Column="1" x:Name="CollisionFreqSlider" Minimum="20" Maximum="120" SmallChange="1" LargeChange="5"
+                                        TickFrequency="10" ValueChanged="CollisionFreqSlider_ValueChanged" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" x:Name="CollisionFreqText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="50"/>
+                        </Grid>
+                        <Grid Margin="0,0,0,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Duration (ms):" Style="{StaticResource LabelText}"/>
+                            <Slider     Grid.Column="1" x:Name="CollisionEnvelopeMsSlider" Minimum="40" Maximum="300" SmallChange="5" LargeChange="20"
+                                        TickFrequency="20" ValueChanged="CollisionEnvelopeMsSlider_ValueChanged" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" x:Name="CollisionEnvelopeMsText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="120"/>
                         </Grid>
                     </StackPanel>
                 </Expander>

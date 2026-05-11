@@ -72,12 +72,17 @@ namespace TrueforceForAll.Core
         private const int OFF_THROTTLE                = OFF_BRAKE + 4;                            // 6864
         // mClutch (4) + mSteering (4) skipped.
         private const int OFF_GEAR                    = OFF_THROTTLE + 12;                       // 6876
-        // mNumGears (4) + mOdometerKM (4) +
-        // mAntiLockActive bool+pad (4) +
-        // mLastOpponentCollisionIndex (4) + mLastOpponentCollisionMagnitude (4) +
-        // mBoostActive bool+pad (4) + mBoostAmount (4) = 28 bytes.
-        // Then 7 vec3 floats = 7 * 12 = 84 bytes.
-        private const int OFF_TYRE_FLAGS_BLOCK        = OFF_GEAR + 4 + 28 + 84;                  // 6992
+        // From mGear (6876): mNumGears (4) + mOdometerKM (4) +
+        // mAntiLockActive bool+pad (4) + mLastOpponentCollisionIndex (4) =
+        // 16 bytes lands us at mLastOpponentCollisionMagnitude.
+        private const int OFF_LAST_COLLISION_MAG      = OFF_GEAR + 4 + 16;                       // 6896
+        // mLastOpponentCollisionMagnitude (4) +
+        // mBoostActive bool+pad (4) + mBoostAmount (4) = 12 more bytes.
+        // Then mOrientation (12) + mLocalVelocity (12) + mWorldVelocity (12) +
+        // mAngularVelocity (12) = 48 bytes lands us at mLocalAcceleration.
+        private const int OFF_LOCAL_ACCEL_BLOCK       = OFF_LAST_COLLISION_MAG + 12 + 48;        // 6956
+        // mLocalAcceleration (12) + mWorldAcceleration (12) + mExtentsCentre (12) = 36.
+        private const int OFF_TYRE_FLAGS_BLOCK        = OFF_LOCAL_ACCEL_BLOCK + 36;              // 6992
         private const int OFF_TERRAIN_BLOCK           = OFF_TYRE_FLAGS_BLOCK + 16;               // 7008
         // Skip mTyreY[4] = 16.
         private const int OFF_TYRE_RPS_BLOCK          = OFF_TERRAIN_BLOCK + 16 + 16;             // 7040
@@ -316,6 +321,12 @@ namespace TrueforceForAll.Core
             float brake     = _view.ReadSingle(OFF_BRAKE);     // 0..1
             float throttle  = _view.ReadSingle(OFF_THROTTLE);  // 0..1
             int   gear      = _view.ReadInt32 (OFF_GEAR);
+            float collisionMag = _view.ReadSingle(OFF_LAST_COLLISION_MAG);  // PC2 native units
+            // PC2 vec3 convention: [0]=X right (sway), [1]=Y up (heave),
+            // [2]=Z forward (surge). All in m/s² in local car space.
+            float accX     = _view.ReadSingle(OFF_LOCAL_ACCEL_BLOCK);
+            float accY     = _view.ReadSingle(OFF_LOCAL_ACCEL_BLOCK + 4);
+            float accZ     = _view.ReadSingle(OFF_LOCAL_ACCEL_BLOCK + 8);
 
             // Per-tire slip speed: max-abs across 4 tires.
             float slip0 = _view.ReadSingle(OFF_TYRE_SLIP_SPEED_BLOCK);
@@ -348,12 +359,13 @@ namespace TrueforceForAll.Core
                 Throttle01 = Clamp01(throttle),
 
                 SpeedKmh           = speedMps * MpsToKmh,
-                // PC2 doesn't expose vertical/lateral acceleration in shared
-                // memory in a way we can use without reading the full
-                // mLocalAcceleration vec3 (skipped above). DispatchFrame's
-                // SimHub overlay will fill these.
-                AccelerationHeave  = null,
-                AccelerationSway   = null,
+                // PC2's mLocalAcceleration[3] gives us full 3-axis accel
+                // in m/s². Required for the collision-effect's accel-spike
+                // fallback to fire on wall hits (the native opponent-
+                // collision field only catches car-on-car contact).
+                AccelerationSway   = accX,
+                AccelerationHeave  = accY,
+                AccelerationSurge  = accZ,
                 YawRateDegPerSec   = null,
 
                 Gear      = GearString(gear),
@@ -368,6 +380,15 @@ namespace TrueforceForAll.Core
                 // signal. RoadBumpsEffect folds this in like Forza's
                 // SurfaceRumble channel.
                 SurfaceRumble = surfaceRumble,
+
+                // mLastOpponentCollisionMagnitude is PC2's native impact
+                // signal (set whenever an opponent contacts you). Scale
+                // factor ≈ 0.05 so a "moderate" PC2 magnitude (~20 native
+                // units, observed) lands near 1.0 normalized, hitting the
+                // collision effect's mid-range. CollisionEffect's
+                // NormalizationScale further tunes the curve. >0 only when
+                // the field is non-zero — same frame as impact.
+                CollisionMagnitude = collisionMag > 0 ? collisionMag * 0.05 : (double?)null,
 
                 // OnRumbleStrip would need terrain-ID classification; defer.
                 // NumCylinders, MaxRpm overlays — leave to SimHub fallback /

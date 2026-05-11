@@ -43,6 +43,7 @@ namespace TrueforceForAll.Plugin
                 SpeedKmh           = d.SpeedKmh,
                 AccelerationHeave  = d.AccelerationHeave,
                 AccelerationSway   = d.AccelerationSway,
+                AccelerationSurge  = d.AccelerationSurge,
                 // YawChangeVelocity is filled per-game by SimHub's reader; the
                 // older OrientationYawVelocity is the universal fallback. Match
                 // the precedence TractionLossEffect used previously.

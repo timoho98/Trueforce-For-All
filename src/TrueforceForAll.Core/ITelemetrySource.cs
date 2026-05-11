@@ -68,6 +68,11 @@ namespace TrueforceForAll.Core
         public double? AccelerationHeave;
         /// <summary>Lateral acceleration in m/s². Null when source doesn't surface it.</summary>
         public double? AccelerationSway;
+        /// <summary>Longitudinal acceleration in m/s². Positive = forward.
+        /// Null when source doesn't surface it. Drives the head-on / rear-end
+        /// branch of CollisionEffect's spike detection — frontal impacts
+        /// register here, not in sway/heave.</summary>
+        public double? AccelerationSurge;
         /// <summary>Yaw rate in deg/s. Null when source doesn't surface it.</summary>
         public double? YawRateDegPerSec;
 
@@ -125,6 +130,17 @@ namespace TrueforceForAll.Core
         /// pulse in RoadBumpsEffect on rising edge so curb hits feel
         /// percussive even when the surface-rumble channel is also active.</summary>
         public bool? OnRumbleStrip;
+
+        // ---- Collision ----
+        /// <summary>Normalized collision magnitude this frame. ~0 = no
+        /// impact, 1.0 = moderate hit, 2.0+ = hard wreck. Source-defined
+        /// scale: PC2 populates from mLastOpponentCollisionMagnitude
+        /// directly; other sources derive from sudden lateral/vertical
+        /// accel spikes in DispatchFrame's overlay step. Null when the
+        /// source can't provide one (no accel data available). Effects
+        /// fire on rising edge above their MinThreshold and scale
+        /// amplitude by this value.</summary>
+        public double? CollisionMagnitude;
 
         // ---- Engine config (auto-detected from telemetry) ----
         /// <summary>Cylinder count reported by the sim for the active car

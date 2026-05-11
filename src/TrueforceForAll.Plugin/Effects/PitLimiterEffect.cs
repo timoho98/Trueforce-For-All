@@ -88,10 +88,21 @@ namespace TrueforceForAll.Plugin.Effects
             return 2000;
         }
 
+        // Standstill suppression threshold (km/h). Some games / SimHub
+        // mappings flag PitLimiterOn whenever the car sits in the pit-lane
+        // geometry rather than only when the limiter button is engaged
+        // (e.g., AC's spawn box on a non-traditional touge map sits inside
+        // the pit area and trips PitLimiterOn while parked). A real pit
+        // limiter does nothing at zero speed anyway, so suppressing the
+        // haptic below ~1 km/h removes that false positive without
+        // affecting normal pit-in / pit-out where you're rolling.
+        private const float StandstillKmh = 1.0f;
+
         public override void OnTelemetry(TelemetryFrame f)
         {
             if (IsTesting) return;
             int active = f.PitLimiterActive ?? 0;
+            if (active > 0 && f.SpeedKmh < StandstillKmh) active = 0;
             long now = System.Diagnostics.Stopwatch.GetTimestamp();
             if (active > 0) _lastActiveTicks = now;
             // Brief hold so a single dropped flag tick doesn't kill the pulse;

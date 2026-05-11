@@ -91,9 +91,11 @@ namespace TrueforceForAll.Plugin
         // ~0.4 so light slides actually trigger before the fully-saturated
         // hard drift state. Cylinders=4 is just the slider-default fallback;
         // EnginePulse.AutoCylinders takes over from Forza's NumCylinders the
-        // moment the user enters any car. SkipFfbPassthrough=true because
-        // Forza writes its own ep3 cur via the wheel's native path and our
-        // FFB tap mirroring would fight it.
+        // moment the user enters any car. SkipFfbPassthrough=false because
+        // FH does not ship native Trueforce — its FFB rides on ep0 like any
+        // standard DirectInput game, so we mirror the captured target into
+        // ep3 cur ourselves. (Forza Motorsport ships native Trueforce and
+        // would want this true, but FM is in the auto-disable list.)
         private const string ForzaHorizonJson = @"{
             ""MasterGain"":1.0,
             ""FfbScale"":1.0,
@@ -102,7 +104,7 @@ namespace TrueforceForAll.Plugin
             ""FfbSpikeTamingEnabled"":false,
             ""FfbSpikeMaxLsbPerMs"":2060.923,
             ""FfbPeakSoftLimitLsb"":1561.78564,
-            ""SkipFfbPassthrough"":true,
+            ""SkipFfbPassthrough"":false,
             ""DuckDepth"":0.6952232,
             ""DuckAttackMs"":5.0,
             ""DuckReleaseMs"":80.0,
