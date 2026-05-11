@@ -72,15 +72,22 @@ namespace TrueforceForAll.Core
 
         // Pass null/0 (the defaults) to auto-discover via WheelUsbDiscovery on
         // Start(). Pass explicit values only when overriding (env vars, tests).
-        public UsbPcapFfbTap(string usbPcapInterface = null, int deviceAddress = 0)
+        // usbPcapCmdPathOverride: absolute path to USBPcapCMD.exe; checked
+        // first before the env var / default-path probe. Used by the
+        // settings-panel Browse action when USBPcap is installed somewhere
+        // off the beaten path.
+        public UsbPcapFfbTap(string usbPcapInterface = null, int deviceAddress = 0, string usbPcapCmdPathOverride = null)
         {
             _usbPcapInterface = usbPcapInterface;
             _deviceAddress = deviceAddress;
-            _usbPcapCmdPath = LocateUsbPcapCmd();
+            _usbPcapCmdPath = LocateUsbPcapCmd(usbPcapCmdPathOverride);
         }
 
-        private static string LocateUsbPcapCmd()
+        // Public so the settings UI can validate a user-picked path with the
+        // same probe order the constructor uses.
+        public static string LocateUsbPcapCmd(string pathOverride = null)
         {
+            if (!string.IsNullOrEmpty(pathOverride) && File.Exists(pathOverride)) return pathOverride;
             string fromEnv = Environment.GetEnvironmentVariable("USBPCAPCMD");
             if (!string.IsNullOrEmpty(fromEnv) && File.Exists(fromEnv)) return fromEnv;
             foreach (var p in CandidatePaths)

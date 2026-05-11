@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -561,6 +562,18 @@ namespace TrueforceForAll.Plugin
                 FfbTapText.Text = _plugin.FfbTapStatus;
                 StreamText.Text = _plugin.StreamStatus;
                 VoicesText.Text = _plugin.ActiveVoiceCount.ToString();
+
+                // Surface USBPcap recovery actions only when USBPcap is
+                // missing. Keeps the diagnostics row uncluttered in the
+                // common case where everything's installed correctly.
+                if (UsbPcapBrowseButton != null && UsbPcapReinstallButton != null)
+                {
+                    var want = _plugin.IsUsbPcapAvailable
+                        ? System.Windows.Visibility.Collapsed
+                        : System.Windows.Visibility.Visible;
+                    if (UsbPcapBrowseButton.Visibility != want)    UsbPcapBrowseButton.Visibility    = want;
+                    if (UsbPcapReinstallButton.Visibility != want) UsbPcapReinstallButton.Visibility = want;
+                }
 
                 // Forza UDP section visibility — only relevant when running a
                 // Forza title or when AlwaysListen is on (lets users toggle
@@ -4032,6 +4045,47 @@ namespace TrueforceForAll.Plugin
             ShowUpdateModal();
         }
 
+        // Manual "Check for updates" link in the header. The plugin already
+        // fires a one-shot check on Init, but users opening the panel hours
+        // later need a way to re-poll without restarting SimHub. The
+        // settings-panel timer tick (RefreshFromPlugin) picks up the new
+        // result automatically, so this handler only has to drive the
+        // transient status label next to the button.
+        private async void CheckForUpdatesButton_Click(object sender, RoutedEventArgs e)
+        {
+            var upd = _plugin?.UpdateChecker;
+            if (upd == null) return;
+            if (CheckForUpdatesButton == null || CheckForUpdatesStatus == null) return;
+
+            CheckForUpdatesButton.IsEnabled = false;
+            CheckForUpdatesStatus.Text = "Checking…";
+            try
+            {
+                await upd.CheckAsync(_plugin.UpdateCheckerToken);
+                if (upd.IsUpdateAvailable)
+                    CheckForUpdatesStatus.Text = $"v{upd.LatestVersionDisplay} available";
+                else if (!string.IsNullOrEmpty(upd.LastError))
+                    CheckForUpdatesStatus.Text = "Couldn't reach GitHub";
+                else
+                    CheckForUpdatesStatus.Text = "You're up to date";
+            }
+            catch
+            {
+                CheckForUpdatesStatus.Text = "Check failed";
+            }
+            finally
+            {
+                CheckForUpdatesButton.IsEnabled = true;
+            }
+
+            // Fade the status after a few seconds. Captured snapshot avoids
+            // clobbering a newer status if the user clicks again quickly.
+            string captured = CheckForUpdatesStatus.Text;
+            await Task.Delay(TimeSpan.FromSeconds(4));
+            if (CheckForUpdatesStatus != null && CheckForUpdatesStatus.Text == captured)
+                CheckForUpdatesStatus.Text = "";
+        }
+
         /// <summary>Modal showing the latest release notes plus an "Update now"
         /// button that downloads the installer to %TEMP% with a progress bar
         /// and ShellExecutes it. The installer's IsSimHubRunning loop handles
@@ -4305,6 +4359,49 @@ namespace TrueforceForAll.Plugin
             };
 
             win.ShowDialog();
+        }
+
+        // Open a file picker for USBPcapCMD.exe and tell the plugin to persist
+        // it as the override path. Filtered to USBPcapCMD.exe specifically: the
+        // file the FFB tap actually invokes. After Apply, the plugin restarts
+        // the tap so the new path takes effect immediately.
+        private void UsbPcapBrowse_Click(object sender, RoutedEventArgs e)
+        {
+            if (_plugin == null) return;
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title       = "Locate USBPcapCMD.exe",
+                Filter      = "USBPcapCMD.exe|USBPcapCMD.exe|All executables (*.exe)|*.exe",
+                FileName    = "USBPcapCMD.exe",
+                CheckFileExists = true,
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            string path = dlg.FileName;
+            string leaf = System.IO.Path.GetFileName(path);
+            if (!string.Equals(leaf, "USBPcapCMD.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                MessageBox.Show(
+                    "That file isn't USBPcapCMD.exe. Pick USBPcapCMD.exe from your USBPcap install folder.",
+                    "Trueforce", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            _plugin.ApplyUsbPcapPathOverride(path);
+        }
+
+        // Launch the bundled USBPcap installer. Confirms first because it
+        // triggers a UAC prompt and modifies a kernel driver. The plugin
+        // runs the install + tap restart on a background thread; the
+        // FFB pass-through status will update through the normal tick.
+        private void UsbPcapReinstall_Click(object sender, RoutedEventArgs e)
+        {
+            if (_plugin == null) return;
+            if (MessageBox.Show(
+                    "Run the bundled USBPcap installer? This needs admin (UAC prompt) and reinstalls the USB capture driver. SimHub doesn't need to restart afterwards.",
+                    "Trueforce", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK)
+                return;
+            _plugin.ReinstallUsbPcapAsync();
         }
     }
 }

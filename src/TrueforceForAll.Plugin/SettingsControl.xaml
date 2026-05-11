@@ -235,6 +235,13 @@
                 <TextBlock Text="Trueforce For All" FontSize="22" FontWeight="Bold"/>
                 <TextBlock x:Name="HeaderVersionText" Text="" FontSize="13" Opacity="0.5"
                            VerticalAlignment="Bottom" Margin="8,0,0,3"/>
+                <Button x:Name="CheckForUpdatesButton" Content="Check for updates"
+                        Style="{StaticResource LinkButton}" Margin="12,0,0,3"
+                        VerticalAlignment="Bottom"
+                        Click="CheckForUpdatesButton_Click"
+                        ToolTip="Re-poll GitHub for a newer release. The plugin also checks once automatically on startup."/>
+                <TextBlock x:Name="CheckForUpdatesStatus" Text="" FontSize="11" Opacity="0.6"
+                           VerticalAlignment="Bottom" Margin="8,0,0,3"/>
             </StackPanel>
             <TextBlock Text="Brings Trueforce-style haptics to any SimHub-enabled game. Unofficial — a reverse-engineered implementation of Logitech's Trueforce protocol, not affiliated with Logitech. Supports G PRO / RS50 wheels."
                        FontSize="13" Opacity="0.7" Margin="0,0,0,12" TextWrapping="Wrap"/>
@@ -1597,7 +1604,23 @@
                     <TextBlock Grid.Row="1" Grid.Column="0" Text="Stream:" Style="{StaticResource LabelText}" Margin="0,4,0,0"/>
                     <TextBlock Grid.Row="1" Grid.Column="1" x:Name="StreamText" Text="(checking...)" Margin="0,4,0,0"/>
                     <TextBlock Grid.Row="2" Grid.Column="0" Text="FFB pass-through:" Style="{StaticResource LabelText}" Margin="0,4,0,0"/>
-                    <TextBlock Grid.Row="2" Grid.Column="1" x:Name="FfbTapText" Text="(checking...)" Margin="0,4,0,0"/>
+                    <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Margin="0,4,0,0">
+                        <TextBlock x:Name="FfbTapText" Text="(checking...)" VerticalAlignment="Center"/>
+                        <!-- Visible only when USBPcap can't be located. Lets users
+                             point at a non-standard install, or reinstall the
+                             driver from the bundled setup without re-running our
+                             installer. Toggled from code-behind on the tick. -->
+                        <Button x:Name="UsbPcapBrowseButton" Content="Browse..."
+                                Style="{StaticResource LinkButton}" Margin="10,0,0,0"
+                                Visibility="Collapsed"
+                                Click="UsbPcapBrowse_Click"
+                                ToolTip="Point at USBPcapCMD.exe if USBPcap is installed somewhere off the default Program Files path."/>
+                        <Button x:Name="UsbPcapReinstallButton" Content="Reinstall"
+                                Style="{StaticResource LinkButton}" Margin="10,0,0,0"
+                                Visibility="Collapsed"
+                                Click="UsbPcapReinstall_Click"
+                                ToolTip="Run the bundled USBPcap installer (requires admin). Use this if USBPcap was uninstalled or the install is broken."/>
+                    </StackPanel>
                     <TextBlock Grid.Row="3" Grid.Column="0" Text="Telemetry:" Style="{StaticResource LabelText}" Margin="0,4,0,0"/>
                     <TextBlock Grid.Row="3" Grid.Column="1" x:Name="TelemetrySourceText" Text="(checking...)" Margin="0,4,0,0"/>
                     <TextBlock Grid.Row="4" Grid.Column="0" Text="Active sources:" Style="{StaticResource LabelText}" Margin="0,4,0,0"/>

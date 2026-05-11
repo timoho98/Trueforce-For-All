@@ -18,6 +18,12 @@
          SimHub host process uses. -->
     <PlatformTarget>AnyCPU</PlatformTarget>
     <UseWPF>true</UseWPF>
+    <!-- WinForms is opted into ONLY for the FolderBrowserDialog used by the
+         Manage Presets dialog's bulk export action. WPF doesn't ship a
+         native folder picker; FolderBrowserDialog (System.Windows.Forms)
+         is the standard net48 stand-in. No actual WinForms controls in
+         the plugin's UI tree. -->
+    <UseWindowsForms>true</UseWindowsForms>
     <!-- This project is Windows-only (depends on SimHub install + WPF).
          Cross-compiles from non-Windows hosts need EnableWindowsTargeting,
          but the SimHub file refs below will fail there anyway. -->

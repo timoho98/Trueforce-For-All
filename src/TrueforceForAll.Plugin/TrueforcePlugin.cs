@@ -257,6 +257,22 @@ namespace TrueforceForAll.Plugin
         public IEnumerable<string> PresetNames =>
             Settings?.Presets != null ? (IEnumerable<string>)Settings.Presets.Keys : Array.Empty<string>();
 
+        // ---- Offline preset editing ----
+        //
+        // When the user picks Edit on a preset row in the Manage dialog, the
+        // SettingsControl flips the live state to that preset and shows a
+        // banner so users can author/edit without the matching game running.
+        // While the flag is set, the DataUpdate-driven "auto-apply this
+        // game's default" path is suppressed so a backgrounded game change
+        // doesn't quietly clobber the user's in-progress edits. Exit happens
+        // via Save / Save as new / Discard on the banner.
+        private string _offlineEditPresetName;
+        private GameSettingsSnapshot _preEditSnapshot;
+        private string _preEditActivePresetName;
+
+        public string OfflineEditingPresetName => _offlineEditPresetName;
+        public bool   IsOfflineEditing         => !string.IsNullOrEmpty(_offlineEditPresetName);
+
         /// <summary>Preset name bound as the auto-load default for the active
         /// game, or null if the active game has no default assigned.</summary>
         public string DefaultPresetForActiveGame
@@ -281,6 +297,12 @@ namespace TrueforceForAll.Plugin
         public string CaptureStatus  => _captureStatus;
         public string FfbTapStatus   => _ffbTap?.Status ?? "Not started";
         public int    ActiveVoiceCount => _mixer.SourceCount;
+
+        // True when USBPcapCMD.exe is locatable right now (override path, env
+        // var, or default Program Files paths). Cheap probe; the settings UI
+        // polls this on its tick to show/hide the Browse + Reinstall buttons.
+        public bool IsUsbPcapAvailable =>
+            UsbPcapFfbTap.LocateUsbPcapCmd(Settings?.UsbPcapCmdPathOverride) != null;
 
         /// <summary>Why-is-my-wheel-quiet diagnostic. Walks a decision tree
         /// of plausible "no haptic output" causes and returns the most-
@@ -664,7 +686,7 @@ namespace TrueforceForAll.Plugin
                 // for debugging or unusual setups.
                 string ifaceOverride = Environment.GetEnvironmentVariable("SIMHUBTF_USBPCAP_INTERFACE");
                 int.TryParse(Environment.GetEnvironmentVariable("SIMHUBTF_USBPCAP_DEVICE"), out var devOverride);
-                _ffbTap = new UsbPcapFfbTap(ifaceOverride, devOverride)
+                _ffbTap = new UsbPcapFfbTap(ifaceOverride, devOverride, Settings?.UsbPcapCmdPathOverride)
                 {
                     Logger = msg => SimHub.Logging.Current.Info($"[Trueforce] {msg}"),
                 };
@@ -934,7 +956,12 @@ namespace TrueforceForAll.Plugin
             {
                 _activeGame = gameName;
                 SwapTelemetrySource(gameName);
-                if (!string.IsNullOrEmpty(gameName) && Settings?.GameDefaults != null
+                // Auto-apply the bound game default — UNLESS the user is
+                // offline-editing a preset. In that case we don't clobber
+                // their in-progress edits; the SettingsControl banner stays
+                // up so they can decide (Save / Save as new / Discard).
+                if (!IsOfflineEditing
+                    && !string.IsNullOrEmpty(gameName) && Settings?.GameDefaults != null
                     && Settings.GameDefaults.TryGetValue(gameName, out var presetName)
                     && !string.IsNullOrEmpty(presetName)
                     && Settings.Presets != null
@@ -1012,65 +1039,45 @@ namespace TrueforceForAll.Plugin
                     }
                 }
                 _device?.ResetFfbFilters();
-                // New car — discard the previous car's auto-detected cylinder
-                // count so the next telemetry frame populates fresh from the
-                // new car's NumCylinders. (No-op for non-Forza sources that
-                // never fill it.)
+                // New car — discard the previous car's auto-detected layout so
+                // the next resolver hit (or first telemetry frame) populates
+                // fresh.
                 if (EnginePulse != null)
                 {
-                    EnginePulse.AutoCylinders = null;
-                    EnginePulse.IsElectric = false;
-                    EnginePulse.AutoCylinderSource = null;
+                    EnginePulse.AutoLayout = null;
+                    EnginePulse.AutoLayoutSource = null;
 
-                    // Seed AutoCylinders from baked lookup / heuristic for
-                    // games that don't ship cylinder count in telemetry
-                    // (AC, etc.). Forza sets NumCylinders directly each
-                    // frame and will overwrite this on the next tick — no
-                    // conflict, since the values agree for any car in both
-                    // lookups. EVs leave AutoCylinders null (so the user's
-                    // configured Cylinders stays in effect) and the IsElectric
-                    // flag drives AutoGainScale via the user's ElectricMode
-                    // setting (MutedHum=0.5x, Silent=0x). ApplyEngineSettings
-                    // below sets ElectricMode from the active preset.
+                    // Seed AutoLayout from baked lookup / heuristic for games
+                    // that don't ship cylinder count in telemetry (AC, etc.).
+                    // Forza populates NumCylinders directly each frame and
+                    // OnTelemetry converts that to AutoLayout — they agree on
+                    // any car in both lookups. The user's saved Layout
+                    // (when not Auto) always wins via EffectiveLayout, so this
+                    // is purely the auto-default cascade.
                     if (CarCylinderResolver.TryResolve(_activeGame, carId, out var carSpec))
                     {
-                        if (carSpec.IsElectric)
-                        {
-                            EnginePulse.IsElectric = true;
-                        }
-                        else
-                        {
-                            EnginePulse.AutoCylinders = carSpec.Cylinders;
-                        }
-                        EnginePulse.AutoCylinderSource = carSpec.Source;
-                        // Seed firing-order layout from the resolver. Only writes
-                        // when the active preset has EngineConfig=Auto so an
-                        // explicit user override (e.g. "I want this Mustang to
-                        // sound flat-plane") wins. Saved EngineConfig != Auto
-                        // is treated as the user's intentional choice.
-                        if (carSpec.EngineConfig != Effects.EngineConfig.Auto
-                            && EnginePulse.EngineConfig == Effects.EngineConfig.Auto)
-                        {
-                            EnginePulse.EngineConfig = carSpec.EngineConfig;
-                        }
+                        EnginePulse.AutoLayout = Effects.FiringPatternDb.LayoutFromLegacy(
+                            carSpec.Cylinders, carSpec.EngineConfig, carSpec.IsElectric);
+                        EnginePulse.AutoLayoutSource = carSpec.Source;
                         SimHub.Logging.Current.Info(
                             $"[Trueforce] Car '{carId}' resolved: cyl={carSpec.Cylinders}, "
                             + $"electric={carSpec.IsElectric}, source={carSpec.Source}, "
-                            + $"engineConfig={carSpec.EngineConfig} ({carSpec.EngineConfigSource ?? "auto"})");
+                            + $"engineConfig={carSpec.EngineConfig} ({carSpec.EngineConfigSource ?? "auto"})"
+                            + $" -> layout={EnginePulse.AutoLayout}");
                     }
                     else if (_telemetrySource?.ProvidesNumCylinders == true)
                     {
                         // Resolver missed but the active source will populate
                         // NumCylinders shortly (Forza UDP). Label the source
                         // now so the UI doesn't briefly show "couldn't detect"
-                        // between car-change and first frame. AutoCylinders
+                        // between car-change and first frame. AutoLayout
                         // itself stays null until OnTelemetry runs.
-                        EnginePulse.AutoCylinderSource = "telemetry";
+                        EnginePulse.AutoLayoutSource = "telemetry";
                     }
                     else if (!string.IsNullOrEmpty(carId))
                     {
                         SimHub.Logging.Current.Info(
-                            $"[Trueforce] Car '{carId}' not auto-resolved — user can set cylinders manually.");
+                            $"[Trueforce] Car '{carId}' not auto-resolved — user can set engine layout manually.");
                     }
                 }
                 ApplyActiveCarOverride();
@@ -1481,12 +1488,11 @@ namespace TrueforceForAll.Plugin
         private static bool IsForzaGameName(string game)
         {
             if (string.IsNullOrEmpty(game)) return false;
-            return game == "ForzaHorizon5"
-                || game == "ForzaHorizon6"
-                || game == "ForzaHorizon4"
-                || game == "ForzaMotorsport"
-                || game == "ForzaMotorsport8"
-                || game == "ForzaMotorsport7";
+            return game == "FH4"
+                || game == "FH5"
+                || game == "FH6"
+                || game == "FM7"
+                || game == "FM8";
         }
 
         /// <summary>True if the game ships native Trueforce on PC. Plugin
@@ -1502,15 +1508,23 @@ namespace TrueforceForAll.Plugin
             // Trueforce per Logitech's announcement. FM7 does NOT ship
             // native Trueforce, so it falls through to the Forza UDP
             // source for our enhanced effects.
-            return game == "ForzaMotorsport"
-                || game == "ForzaMotorsport8"
-                || game == "iRacing"
+            return game == "FM8"
+                || game == "IRacing"
+                || game == "AssettoCorsaCompetizione"
                 || game == "AssettoCorsaRally"
                 || game == "AssettoCorsaEVO"
+                || game == "Automobilista2"
+                || game == "BeamNgDrive"
                 || game == "F12022"
                 || game == "F12023"
                 || game == "F12024"
                 || game == "F12025"
+                || game == "EAWRC23"
+                || game == "PCars3"
+                || game == "CodemastersGrid2019"
+                || game == "WRC10"
+                || game == "WRCGenerations"
+                || game == "TDUSC"
                 || game == "LMU";
         }
 
@@ -1986,24 +2000,96 @@ namespace TrueforceForAll.Plugin
         private void ApplyEngineSettings(EnginePulseSettings s)
         {
             if (EnginePulse == null || s == null) return;
+
+            // One-shot legacy migration: pre-flat-enum settings carry
+            // (Cylinders, EngineConfig, FiringOrderEnabled) and a default-Auto
+            // Layout. Fold them into Layout and clear so we don't migrate
+            // again on the next apply. Layout != Auto means the user (or a
+            // prior migration) has already set the new field.
+            if (s.Layout == Effects.EngineLayout.Auto
+                && (s.Cylinders != 0 || s.EngineConfig != Effects.EngineConfig.Auto))
+            {
+                s.Layout = Effects.FiringPatternDb.LayoutFromLegacy(
+                    s.Cylinders, s.EngineConfig, false);
+                s.Cylinders     = 0;
+                s.EngineConfig  = Effects.EngineConfig.Auto;
+            }
+
+            // Custom-engine library migration: pre-library presets stored the
+            // custom pattern inline in CustomFiringPattern + Name. Mint a
+            // library entry (if one with this pattern doesn't exist yet),
+            // point CustomEngineId at it, and clear the inline strings so the
+            // next apply skips this branch.
+            if (s.Layout == Effects.EngineLayout.Custom
+                && string.IsNullOrEmpty(s.CustomEngineId)
+                && !string.IsNullOrWhiteSpace(s.CustomFiringPattern))
+            {
+                var def = new CustomEngineDef
+                {
+                    Id         = Guid.NewGuid().ToString("N"),
+                    Name       = string.IsNullOrWhiteSpace(s.CustomFiringPatternName)
+                                    ? "Imported custom"
+                                    : s.CustomFiringPatternName.Trim(),
+                    IsElectric = false,
+                    Pattern    = s.CustomFiringPattern,
+                };
+                if (Settings.CustomEngines == null)
+                    Settings.CustomEngines = new System.Collections.Generic.List<CustomEngineDef>();
+                Settings.CustomEngines.Add(def);
+                s.CustomEngineId           = def.Id;
+                s.CustomFiringPattern      = "";
+                s.CustomFiringPatternName  = "";
+            }
+
             EnginePulse.Enabled            = s.Enabled;
             EnginePulse.Gain               = s.Gain;
-            EnginePulse.Cylinders          = s.Cylinders;
             EnginePulse.PitchMultiplier    = s.Pitch;
             EnginePulse.LowpassHz          = s.LowpassHz;
             EnginePulse.Waveform           = s.Waveform;
-            EnginePulse.ElectricMode       = s.ElectricMode;
-            EnginePulse.EngineConfig       = s.EngineConfig;
-            EnginePulse.CustomPattern      = string.IsNullOrWhiteSpace(s.CustomFiringPattern)
-                ? null
-                : Effects.FiringPatternDb.ParseCustom(s.CustomFiringPattern);
-            EnginePulse.FiringOrderEnabled = s.FiringOrderEnabled;
-            // Auto-cylinders precedence is now derived from s.Cylinders:
-            // 0 = "use auto-detected", 1..16 = explicit manual override.
-            // EnginePulseEffect.UseAutoCylinders is computed from this so we
-            // don't need to flip an external flag here. The IsEngineOverridden
-            // flag still gates other plumbing (per-car preset detection,
-            // savability) but no longer controls auto-cyl behavior.
+            EnginePulse.Layout             = s.Layout;
+            EnginePulse.LoadLayerEnabled   = s.LoadLayerEnabled;
+            EnginePulse.LoadLayerGain      = s.LoadLayerGain;
+            EnginePulse.HighRpmBoostEnabled = s.HighRpmBoostEnabled;
+            EnginePulse.HighRpmBoostAmount = s.HighRpmBoostAmount;
+
+            // Custom-engine resolution. When Layout == Custom, look up the
+            // referenced entry in the global library and write its pattern /
+            // electric flag into the runtime effect. Missing entries fall
+            // back to silence (CustomPattern=null) and a logged warning so
+            // the user notices and can repick.
+            CustomEngineDef activeCustom = null;
+            if (s.Layout == Effects.EngineLayout.Custom
+                && !string.IsNullOrEmpty(s.CustomEngineId)
+                && Settings.CustomEngines != null)
+            {
+                foreach (var c in Settings.CustomEngines)
+                {
+                    if (string.Equals(c?.Id, s.CustomEngineId, StringComparison.Ordinal))
+                    {
+                        activeCustom = c;
+                        break;
+                    }
+                }
+                if (activeCustom == null)
+                {
+                    SimHub.Logging.Current.Info(
+                        $"[Trueforce] Preset references custom engine Id '{s.CustomEngineId}' "
+                        + "that's no longer in the library — falling back to silence.");
+                }
+            }
+            EnginePulse.ActiveCustomIsElectric = activeCustom != null && activeCustom.IsElectric;
+            EnginePulse.CustomPattern = activeCustom != null && !activeCustom.IsElectric
+                                        && !string.IsNullOrWhiteSpace(activeCustom.Pattern)
+                ? Effects.FiringPatternDb.ParseCustom(activeCustom.Pattern)
+                : null;
+
+            // ElectricMode cascade: if the active custom is electric, its mode
+            // wins (a per-custom override of the per-preset default). Else
+            // the per-preset setting drives EV behavior, matching the prior
+            // single-Electric-mode model.
+            EnginePulse.ElectricMode = (activeCustom != null && activeCustom.IsElectric)
+                ? activeCustom.ElectricMode
+                : s.ElectricMode;
         }
         private void ApplyBumpsSettings(RoadBumpsSettings s)
         {
@@ -2102,9 +2188,9 @@ namespace TrueforceForAll.Plugin
         // ----- shallow clones used when toggling override on -----
         private static EnginePulseSettings  Clone(EnginePulseSettings s)
             => new EnginePulseSettings  {
-                Enabled = s.Enabled, Gain = s.Gain, Cylinders = s.Cylinders, Pitch = s.Pitch,
+                Enabled = s.Enabled, Gain = s.Gain, Pitch = s.Pitch,
                 LowpassHz = s.LowpassHz, Waveform = s.Waveform, ElectricMode = s.ElectricMode,
-                FiringOrderEnabled = s.FiringOrderEnabled, EngineConfig = s.EngineConfig,
+                Layout = s.Layout, CustomEngineId = s.CustomEngineId,
                 CustomFiringPattern = s.CustomFiringPattern,
                 CustomFiringPatternName = s.CustomFiringPatternName,
             };
@@ -2373,6 +2459,59 @@ namespace TrueforceForAll.Plugin
             return true;
         }
 
+        /// <summary>Rename a car preset on disk. Updates CarDefaults for that
+        /// car if the renamed preset was the active one. Refuses on built-ins
+        /// and when the target name already exists for that car. Used by the
+        /// Manage Presets dialog.</summary>
+        public bool RenameCarPreset(string carId, string oldName, string newName)
+        {
+            if (_carStore == null || Settings == null) return false;
+            if (string.IsNullOrEmpty(carId) || string.IsNullOrEmpty(oldName) || string.IsNullOrEmpty(newName)) return false;
+            if (string.Equals(oldName, newName, StringComparison.Ordinal)) return true;
+            if (IsCarPresetBuiltin(carId, oldName))
+            {
+                SimHub.Logging.Current.Warn($"[Trueforce] Refusing to rename built-in car preset '{carId}/{oldName}'.");
+                return false;
+            }
+            if (_carStore.Exists(carId, newName)) return false;
+
+            var loaded = _carStore.LoadAll();
+            if (!loaded.TryGetValue(carId, out var perCar) || !perCar.TryGetValue(oldName, out var entry)) return false;
+
+            _carStore.Save(carId, newName, entry.GameName ?? "", entry.Override, isBuiltin: false);
+            _carStore.Delete(carId, oldName);
+
+            if (Settings.CarDefaults != null
+                && Settings.CarDefaults.TryGetValue(carId, out var active)
+                && string.Equals(active, oldName, StringComparison.Ordinal))
+            {
+                Settings.CarDefaults[carId] = newName;
+                this.SaveCommonSettings("GeneralSettings", Settings);
+            }
+            if (carId == _activeCarId) ReloadActiveCarOverrideFromStore();
+            SimHub.Logging.Current.Info($"[Trueforce] Renamed car preset '{carId}/{oldName}' to '{newName}'.");
+            return true;
+        }
+
+        /// <summary>Deep-copy a car preset under a new name (same carId).
+        /// JSON round-trip clone so the new file is independent. Refuses if
+        /// the target already exists.</summary>
+        public bool DuplicateCarPreset(string carId, string sourceName, string newName)
+        {
+            if (_carStore == null) return false;
+            if (string.IsNullOrEmpty(carId) || string.IsNullOrEmpty(sourceName) || string.IsNullOrEmpty(newName)) return false;
+            if (_carStore.Exists(carId, newName)) return false;
+
+            var loaded = _carStore.LoadAll();
+            if (!loaded.TryGetValue(carId, out var perCar) || !perCar.TryGetValue(sourceName, out var entry)) return false;
+
+            var json = Newtonsoft.Json.JsonConvert.SerializeObject(entry.Override);
+            var clone = Newtonsoft.Json.JsonConvert.DeserializeObject<CarOverride>(json);
+            _carStore.Save(carId, newName, entry.GameName ?? "", clone, isBuiltin: false);
+            SimHub.Logging.Current.Info($"[Trueforce] Duplicated car preset '{carId}/{sourceName}' as '{newName}'.");
+            return true;
+        }
+
         /// <summary>Re-resolve the active preset for the active car after a
         /// preset switch / delete and update Settings.CarOverrides + the
         /// persisted-snapshot baseline + the live effect parameters.</summary>
@@ -2434,6 +2573,19 @@ namespace TrueforceForAll.Plugin
             return loaded.TryGetValue(carId, out var perCar)
                 ? perCar
                 : new Dictionary<string, CarPresetEntry>();
+        }
+
+        /// <summary>Returns every car preset across every car, indexed by
+        /// carId then presetName. Single LoadAll pass for the Manage Presets
+        /// dialog (used when no specific car is active).</summary>
+        public IReadOnlyDictionary<string, IReadOnlyDictionary<string, CarPresetEntry>> GetAllCarPresets()
+        {
+            if (_carStore == null)
+                return new Dictionary<string, IReadOnlyDictionary<string, CarPresetEntry>>();
+            var raw = _carStore.LoadAll();
+            var wrapped = new Dictionary<string, IReadOnlyDictionary<string, CarPresetEntry>>(raw.Count);
+            foreach (var kv in raw) wrapped[kv.Key] = kv.Value;
+            return wrapped;
         }
 
         /// <summary>True iff the named car preset is a factory built-in.
@@ -2804,13 +2956,12 @@ namespace TrueforceForAll.Plugin
             if (a == null || b == null) return a == b;
             return a.Enabled == b.Enabled
                 && EqF2(a.Gain,      b.Gain)
-                && a.Cylinders == b.Cylinders
                 && EqF2(a.Pitch,     b.Pitch)
                 && EqI (a.LowpassHz, b.LowpassHz)
                 && a.Waveform == b.Waveform
                 && a.ElectricMode == b.ElectricMode
-                && a.FiringOrderEnabled == b.FiringOrderEnabled
-                && a.EngineConfig == b.EngineConfig
+                && a.Layout == b.Layout
+                && string.Equals(a.CustomEngineId ?? "", b.CustomEngineId ?? "", System.StringComparison.Ordinal)
                 && string.Equals(a.CustomFiringPattern ?? "", b.CustomFiringPattern ?? "", System.StringComparison.Ordinal)
                 && string.Equals(a.CustomFiringPatternName ?? "", b.CustomFiringPatternName ?? "", System.StringComparison.Ordinal);
         }
@@ -3314,6 +3465,156 @@ namespace TrueforceForAll.Plugin
             }
         }
 
+        /// <summary>Rename a game preset in the library. Updates any
+        /// GameDefaults entries that pointed to the old name and the
+        /// ActivePresetName if it was the renamed one. Refuses on built-ins
+        /// (factory names are part of the brand) and when the target name
+        /// already exists. Used by the Manage Presets dialog.</summary>
+        public bool RenamePreset(string oldName, string newName)
+        {
+            if (Settings?.Presets == null) return false;
+            if (string.IsNullOrEmpty(oldName) || string.IsNullOrEmpty(newName)) return false;
+            if (string.Equals(oldName, newName, StringComparison.Ordinal)) return true;
+            if (IsBuiltinPreset(oldName))
+            {
+                SimHub.Logging.Current.Warn($"[Trueforce] Refusing to rename built-in preset '{oldName}'.");
+                return false;
+            }
+            if (!Settings.Presets.TryGetValue(oldName, out var snap) || snap == null) return false;
+            if (Settings.Presets.ContainsKey(newName)) return false;
+
+            Settings.Presets.Remove(oldName);
+            Settings.Presets[newName] = snap;
+
+            if (Settings.GameDefaults != null)
+            {
+                var keys = new List<string>();
+                foreach (var kv in Settings.GameDefaults)
+                    if (kv.Value == oldName) keys.Add(kv.Key);
+                foreach (var k in keys) Settings.GameDefaults[k] = newName;
+            }
+
+            if (_activePresetName == oldName) _activePresetName = newName;
+            this.SaveCommonSettings("GeneralSettings", Settings);
+            SimHub.Logging.Current.Info($"[Trueforce] Renamed preset '{oldName}' to '{newName}'.");
+            return true;
+        }
+
+        /// <summary>Deep-copy a preset under a new name. JSON round-trip so the
+        /// clone is independent of the source. Refuses if the target already
+        /// exists in the library.</summary>
+        public bool DuplicatePreset(string sourceName, string newName)
+        {
+            if (Settings?.Presets == null) return false;
+            if (string.IsNullOrEmpty(sourceName) || string.IsNullOrEmpty(newName)) return false;
+            if (!Settings.Presets.TryGetValue(sourceName, out var snap) || snap == null) return false;
+            if (Settings.Presets.ContainsKey(newName)) return false;
+
+            var json = Newtonsoft.Json.JsonConvert.SerializeObject(snap);
+            var clone = Newtonsoft.Json.JsonConvert.DeserializeObject<GameSettingsSnapshot>(json);
+            Settings.Presets[newName] = clone;
+            this.SaveCommonSettings("GeneralSettings", Settings);
+            SimHub.Logging.Current.Info($"[Trueforce] Duplicated preset '{sourceName}' as '{newName}'.");
+            return true;
+        }
+
+        /// <summary>Bind a preset to auto-load for any game (not just the
+        /// active one). Used by the Manage Presets dialog's per-row Set
+        /// default action. Returns false if the named preset isn't in the
+        /// library.</summary>
+        public bool SetDefaultPresetForGame(string gameName, string presetName)
+        {
+            if (Settings == null) return false;
+            if (string.IsNullOrEmpty(gameName) || string.IsNullOrEmpty(presetName)) return false;
+            if (Settings.Presets == null || !Settings.Presets.ContainsKey(presetName)) return false;
+            if (Settings.GameDefaults == null) Settings.GameDefaults = new Dictionary<string, string>();
+            Settings.GameDefaults[gameName] = presetName;
+            this.SaveCommonSettings("GeneralSettings", Settings);
+            SimHub.Logging.Current.Info($"[Trueforce] '{presetName}' set as default for '{gameName}'.");
+            return true;
+        }
+
+        /// <summary>Drop the auto-load binding for a specific game.</summary>
+        public bool ClearDefaultPresetForGame(string gameName)
+        {
+            if (Settings?.GameDefaults == null || string.IsNullOrEmpty(gameName)) return false;
+            if (!Settings.GameDefaults.Remove(gameName)) return false;
+            this.SaveCommonSettings("GeneralSettings", Settings);
+            SimHub.Logging.Current.Info($"[Trueforce] Cleared default preset for '{gameName}'.");
+            return true;
+        }
+
+        /// <summary>Enter offline edit mode for a named preset. Snapshots the
+        /// current live settings (so Discard can restore them) then applies
+        /// the preset so the user can tweak its sections in the regular UI.
+        /// Returns false if the preset doesn't exist. Callers (the
+        /// SettingsControl) update their banner UI on success.</summary>
+        public bool EnterOfflineEdit(string presetName)
+        {
+            if (Settings?.Presets == null || string.IsNullOrEmpty(presetName)) return false;
+            if (!Settings.Presets.TryGetValue(presetName, out var snap) || snap == null) return false;
+            _preEditSnapshot = SnapshotCurrentAsPreset();
+            _preEditActivePresetName = _activePresetName;
+            ApplyGamePreset(snap);
+            _activePresetName = presetName;
+            _offlineEditPresetName = presetName;
+            SimHub.Logging.Current.Info($"[Trueforce] Offline edit mode: editing preset '{presetName}'.");
+            return true;
+        }
+
+        /// <summary>Exit offline edit mode by writing the in-memory edits
+        /// back into the preset being edited. Built-ins refuse in-place
+        /// overwrite — caller falls back to <see cref="ExitOfflineEditSaveAs"/>
+        /// for those. Returns false on the built-in case so the caller can
+        /// prompt for a new name.</summary>
+        public bool ExitOfflineEditSave()
+        {
+            if (!IsOfflineEditing) return true;
+            string name = _offlineEditPresetName;
+            if (IsBuiltinPreset(name))
+            {
+                SimHub.Logging.Current.Warn($"[Trueforce] Can't overwrite built-in preset '{name}' on edit-mode save; fork via Save as new.");
+                return false;
+            }
+            SavePresetAs(name);   // SavePresetAs persists + sets _activePresetName
+            _offlineEditPresetName = null;
+            _preEditSnapshot = null;
+            _preEditActivePresetName = null;
+            SimHub.Logging.Current.Info($"[Trueforce] Exited offline edit mode (saved '{name}').");
+            return true;
+        }
+
+        /// <summary>Exit offline edit mode by saving the in-memory edits as
+        /// a brand-new preset. Useful for forking off a built-in or just
+        /// keeping the original preset untouched.</summary>
+        public bool ExitOfflineEditSaveAs(string newName)
+        {
+            if (!IsOfflineEditing || string.IsNullOrEmpty(newName)) return false;
+            if (Settings.Presets != null && Settings.Presets.ContainsKey(newName)) return false;
+            SavePresetAs(newName);
+            _offlineEditPresetName = null;
+            _preEditSnapshot = null;
+            _preEditActivePresetName = null;
+            SimHub.Logging.Current.Info($"[Trueforce] Exited offline edit mode (saved as new '{newName}').");
+            return true;
+        }
+
+        /// <summary>Exit offline edit mode and restore the pre-edit live
+        /// state (everything the user had loaded before they clicked Edit).
+        /// Used by the banner's Discard button.</summary>
+        public void ExitOfflineEditDiscard()
+        {
+            if (!IsOfflineEditing) return;
+            if (_preEditSnapshot != null)
+                ApplyGamePreset(_preEditSnapshot);
+            _activePresetName = _preEditActivePresetName;
+            string was = _offlineEditPresetName;
+            _offlineEditPresetName = null;
+            _preEditSnapshot = null;
+            _preEditActivePresetName = null;
+            SimHub.Logging.Current.Info($"[Trueforce] Exited offline edit mode (discarded edits to '{was}').");
+        }
+
         /// <summary>Copy snapshot fields into Settings and re-push to live components.</summary>
         private void ApplyGamePreset(GameSettingsSnapshot snap)
         {
@@ -3564,6 +3865,34 @@ namespace TrueforceForAll.Plugin
             System.IO.File.WriteAllText(path,
                 Newtonsoft.Json.JsonConvert.SerializeObject(file, Newtonsoft.Json.Formatting.Indented));
             SimHub.Logging.Current.Info($"[Trueforce] Exported car preset '{file.PresetName}' for '{_activeCarId}' to {path}.");
+        }
+
+        /// <summary>Export a specific car preset (arbitrary carId / presetName)
+        /// to a shareable JSON file. Used by the Manage Presets dialog where
+        /// the user can pick any preset regardless of which car is currently
+        /// active. Returns false if the preset doesn't exist on disk.</summary>
+        public bool ExportCarPreset(string carId, string presetName, string path,
+            string author = null, string description = null, string authorVersion = null)
+        {
+            if (_carStore == null) return false;
+            if (string.IsNullOrEmpty(carId) || string.IsNullOrEmpty(presetName) || string.IsNullOrEmpty(path)) return false;
+            var loaded = _carStore.LoadAll();
+            if (!loaded.TryGetValue(carId, out var perCar) || !perCar.TryGetValue(presetName, out var entry)) return false;
+            var file = new CarPresetFile
+            {
+                GameName      = entry.GameName ?? "",
+                CarId         = carId,
+                PresetName    = StripDefaultSuffixForExport(presetName),
+                IsBuiltin     = false,
+                Author        = NullIfBlank(author),
+                Description   = NullIfBlank(description),
+                AuthorVersion = NullIfBlank(authorVersion),
+                Override      = entry.Override,
+            };
+            System.IO.File.WriteAllText(path,
+                Newtonsoft.Json.JsonConvert.SerializeObject(file, Newtonsoft.Json.Formatting.Indented));
+            SimHub.Logging.Current.Info($"[Trueforce] Exported car preset '{carId}/{presetName}' to {path}.");
+            return true;
         }
 
         // Strip a trailing " (default)" so an exported built-in doesn't
@@ -4349,6 +4678,90 @@ namespace TrueforceForAll.Plugin
             _ffbTap = null;
             try { _device?.Dispose(); } catch { }
             _device = null;
+        }
+
+        // Persist the user-picked USBPcap path and restart the FFB tap with
+        // the new probe. Returns true if the tap is now running. Called from
+        // the settings panel's Browse action. The caller has already
+        // validated the path; we don't re-validate here.
+        public bool ApplyUsbPcapPathOverride(string usbPcapCmdPath)
+        {
+            if (Settings == null) return false;
+            Settings.UsbPcapCmdPathOverride = usbPcapCmdPath ?? "";
+            try { this.SaveCommonSettings("GeneralSettings", Settings); } catch { }
+            return RestartFfbTap();
+        }
+
+        // Dispose the current FFB tap and spawn a fresh one. Used after the
+        // user changes the USBPcap override path or reinstalls USBPcap so
+        // the new binary takes effect without restarting SimHub. No-op when
+        // no device is active (the next device init will pick up the new
+        // setting automatically).
+        public bool RestartFfbTap()
+        {
+            if (_device == null) return false;
+
+            try { _ffbTap?.Dispose(); } catch { }
+            _ffbTap = null;
+
+            string ifaceOverride = Environment.GetEnvironmentVariable("SIMHUBTF_USBPCAP_INTERFACE");
+            int.TryParse(Environment.GetEnvironmentVariable("SIMHUBTF_USBPCAP_DEVICE"), out var devOverride);
+            _ffbTap = new UsbPcapFfbTap(ifaceOverride, devOverride, Settings?.UsbPcapCmdPathOverride)
+            {
+                Logger = msg => SimHub.Logging.Current.Info($"[Trueforce] {msg}"),
+            };
+            return _ffbTap.Start();
+        }
+
+        // Launches the bundled USBPcap installer (silent /S, elevated). Called
+        // from the settings panel's Reinstall action when USBPcap is missing
+        // or broken. Runs the wait + restart on a background thread so the
+        // SimHub UI thread doesn't freeze during the install. Status updates
+        // surface through the existing FfbTapStatus -> FfbTapText polling.
+        public void ReinstallUsbPcapAsync()
+        {
+            string pluginDir = System.IO.Path.GetDirectoryName(typeof(TrueforcePlugin).Assembly.Location);
+            string setup = System.IO.Path.Combine(pluginDir, "vendor", "USBPcapSetup.exe");
+            if (!System.IO.File.Exists(setup))
+            {
+                SimHub.Logging.Current.Warn($"[Trueforce] USBPcap setup not found at {setup}. Was the plugin installed via the official installer?");
+                return;
+            }
+
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    var psi = new ProcessStartInfo(setup, "/S")
+                    {
+                        UseShellExecute = true, // required for the runas verb
+                        Verb = "runas",         // triggers UAC; USBPcap install needs admin
+                        CreateNoWindow = true,
+                        WindowStyle = ProcessWindowStyle.Hidden,
+                    };
+                    using (var proc = Process.Start(psi))
+                    {
+                        proc?.WaitForExit();
+                    }
+                    SimHub.Logging.Current.Info("[Trueforce] USBPcap installer finished. Re-probing.");
+
+                    // Clear any user-set override so the fresh install gets
+                    // picked up from the default Program Files paths.
+                    if (Settings != null) Settings.UsbPcapCmdPathOverride = "";
+                    try { this.SaveCommonSettings("GeneralSettings", Settings); } catch { }
+                    RestartFfbTap();
+                }
+                catch (System.ComponentModel.Win32Exception)
+                {
+                    // User cancelled the UAC prompt, or another shell-execute
+                    // failure. Swallow without restarting the tap.
+                    SimHub.Logging.Current.Info("[Trueforce] USBPcap install cancelled or blocked by UAC.");
+                }
+                catch (Exception ex)
+                {
+                    SimHub.Logging.Current.Error("[Trueforce] USBPcap install failed", ex);
+                }
+            });
         }
     }
 }

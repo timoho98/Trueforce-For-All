@@ -30,9 +30,9 @@ namespace TrueforceForAll.Plugin
                 // Motorsport ships native Trueforce on PC and the plugin
                 // auto-disables for it (see IsNativeTrueforceGame), so no
                 // FM mapping here.
-                { "ForzaHorizon5",   "Forza Horizon (default)"     },
-                { "ForzaHorizon6",   "Forza Horizon (default)"     },
-                { "ForzaHorizon4",   "Forza Horizon (default)"     },
+                { "FH4",             "Forza Horizon (default)"     },
+                { "FH5",             "Forza Horizon (default)"     },
+                { "FH6",             "Forza Horizon (default)"     },
                 { "F12025",          "F1 25 (default)"             },
                 { "F12024",          "F1 25 (default)"             },
                 { "F12023",          "F1 25 (default)"             },

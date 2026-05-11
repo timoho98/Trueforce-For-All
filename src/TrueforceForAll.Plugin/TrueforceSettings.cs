@@ -86,6 +86,13 @@ namespace TrueforceForAll.Plugin
         // this kills FFB entirely. Default off.
         public bool  SkipFfbPassthrough       { get; set; } = false;
 
+        // Optional absolute path to USBPcapCMD.exe, set when the user picks a
+        // custom USBPcap location via the "Browse..." action in the diagnostics
+        // panel. Empty = use the standard auto-probe (env var, Program Files,
+        // Program Files (x86)). Only checked when set; falls through to
+        // auto-probe if the path no longer exists on disk.
+        public string UsbPcapCmdPathOverride   { get; set; } = "";
+
         public float FfbPeakSoftLimitLsb      { get; set; } = 1561.78564f;
 
         // Sidechain ducking applied to continuous effects (engine pulse, audio
@@ -176,6 +183,45 @@ namespace TrueforceForAll.Plugin
         // backward compat and migrated to Presets + GameDefaults on first
         // plugin Init after upgrade. New code never writes to it.
         public Dictionary<string, GameSettingsSnapshot> GamePresets { get; set; } = new Dictionary<string, GameSettingsSnapshot>();
+
+        // User-saved custom engines. Global (one library across all presets);
+        // EnginePulseSettings.CustomEngineId references entries by their Id.
+        // The settings UI's "Custom..." action adds entries here, "Manage
+        // customs..." edits/deletes them. Built-in engine layouts (V8 cross-
+        // plane, Rotary 2-rotor, etc.) are immutable and live in
+        // FiringPatternDb instead.
+        public List<CustomEngineDef> CustomEngines { get; set; } = new List<CustomEngineDef>();
+    }
+
+    /// <summary>User-authored engine definition. Stored in
+    /// <see cref="TrueforceSettings.CustomEngines"/> and referenced by per-
+    /// preset <see cref="EnginePulseSettings.CustomEngineId"/>. Holds either a
+    /// firing-pattern string (combustion) or an electric flag + mode (EV).</summary>
+    public sealed class CustomEngineDef
+    {
+        /// <summary>Stable identifier (Guid as string). Set on creation, never
+        /// changes — preset references survive renames.</summary>
+        public string Id { get; set; }
+
+        /// <summary>User-supplied display name. Surfaces in the dropdown and
+        /// the manage dialog. May be blank during in-progress edits, must be
+        /// non-blank before save (UI enforces).</summary>
+        public string Name { get; set; } = "";
+
+        /// <summary>True = electric engine (no firing pattern, behavior from
+        /// <see cref="ElectricMode"/>). False = combustion (pattern in
+        /// <see cref="Pattern"/>).</summary>
+        public bool IsElectric { get; set; }
+
+        /// <summary>Behavior when <see cref="IsElectric"/> = true. Ignored
+        /// for combustion entries.</summary>
+        [JsonConverter(typeof(StringEnumConverter))]
+        public ElectricCarMode ElectricMode { get; set; } = ElectricCarMode.MutedHum;
+
+        /// <summary>Firing-pattern string (positions[:amplitudes], comma-
+        /// separated). Used only when <see cref="IsElectric"/> = false. See
+        /// FiringPatternDb.ParseCustom. Empty string is treated as silence.</summary>
+        public string Pattern { get; set; } = "";
     }
 
     /// <summary>Whole-settings snapshot saved per-game. Mirrors the top-level
@@ -339,16 +385,6 @@ namespace TrueforceForAll.Plugin
         public bool   Enabled   { get; set; } = true;
         public float  Gain      { get; set; } = 1.0f;
 
-        // Cylinders=0 is the "use auto-detected count" sentinel. When 0,
-        // EnginePulseEffect.EffectiveCylinders returns AutoCylinders if
-        // the resolver populated one (or falls back to a sane default of
-        // 6 if there's no auto value). When non-zero, the user has dialed
-        // in a specific count and that value wins regardless of detection.
-        // Default is 0 (auto) so a fresh install or fresh per-car preset
-        // automatically uses the resolver's answer for the active car.
-        // Existing users' saved settings retain their explicit value and
-        // continue to behave as before — only fresh state defaults to auto.
-        public int    Cylinders { get; set; } = 0;
         public float  Pitch     { get; set; } = 1.0f;     // multiplier on firing-freq calc
         public double LowpassHz { get; set; } = 0.0;       // 0 = disabled
 
@@ -356,48 +392,91 @@ namespace TrueforceForAll.Plugin
         public Waveform Waveform { get; set; } = Waveform.Sine;
 
         /// <summary>How EnginePulse handles cars the resolver flags as
-        /// pure EVs. Per-car preset overrides the global default like
-        /// every other EnginePulseSettings field, so a user who likes the
-        /// muted hum globally can still pick Silent for one specific EV
-        /// (or vice versa).</summary>
+        /// pure EVs (or when the user explicitly picks
+        /// <see cref="EngineLayout.Electric"/>). Per-car preset overrides
+        /// the global default like every other EnginePulseSettings field.</summary>
         [JsonConverter(typeof(StringEnumConverter))]
         public ElectricCarMode ElectricMode { get; set; } = ElectricCarMode.MutedHum;
 
-        // ---- Firing-order pattern (Batch 1) ----
-
-        /// <summary>When true, EnginePulse renders the engine's true firing
-        /// pattern instead of a uniform pulse train at firing frequency.
-        /// Distinguishes V8 cross-plane lope, Ducati L-twin gap, V6 odd-fire
-        /// lump, etc. Defaults to true so new installs and fresh per-car
-        /// presets get the feel improvement automatically. The toggle is
-        /// still wired so existing users can A/B; long-term plan is to
-        /// remove the toggle entirely once it has been validated in the
-        /// wild.</summary>
-        public bool FiringOrderEnabled { get; set; } = true;
-
-        /// <summary>Engine layout. Auto picks from cylinder count using the
-        /// modern-default config (V6 60° / V8 cross-plane / V12 60°).
-        /// Explicit values get the characterful patterns: V8 flat-plane,
-        /// V-twin variants, V6 odd-fire, rotary, custom.</summary>
+        /// <summary>Engine layout. Auto defers to the resolver / telemetry;
+        /// any explicit value (V8 cross-plane, Rotary 2-rotor, Electric, etc.)
+        /// wins. Custom uses the user-authored engine identified by
+        /// <see cref="CustomEngineId"/> (or the legacy
+        /// <see cref="CustomFiringPattern"/> string as a fallback during
+        /// migration). Default Auto so fresh presets defer to detection.</summary>
         [JsonConverter(typeof(StringEnumConverter))]
-        public EngineConfig EngineConfig { get; set; } = EngineConfig.Auto;
+        public EngineLayout Layout { get; set; } = EngineLayout.Auto;
+
+        /// <summary>When <see cref="Layout"/> == Custom, the Id of the
+        /// <see cref="CustomEngineDef"/> in
+        /// <see cref="TrueforceSettings.CustomEngines"/> that defines the
+        /// pattern / electric behavior. Empty when Layout != Custom or
+        /// during legacy migration before the user has picked a saved
+        /// custom.</summary>
+        public string CustomEngineId { get; set; } = "";
 
         /// <summary>User-supplied firing pattern, used only when
-        /// EngineConfig == Custom. Format: comma-separated phase positions
-        /// in [0, 1), optionally with ":amplitude" suffix per pulse. See
-        /// FiringPatternDb.ParseCustom. Round-trips through the settings UI
-        /// textbox so users can copy / paste their tuning back to us.</summary>
+        /// <see cref="Layout"/> == Custom. Format: comma-separated phase
+        /// positions in [0, 1), optionally with ":amplitude" suffix per
+        /// pulse. See FiringPatternDb.ParseCustom. Round-trips through the
+        /// settings UI textbox so users can copy / paste their tuning back
+        /// to us.</summary>
         public string CustomFiringPattern { get; set; } = "";
 
         /// <summary>Optional human-friendly name for a custom firing pattern.
-        /// Built-in patterns ship with descriptive names ("V8 cross-plane",
-        /// "Ducati L-twin", etc.); this lets users tag their own custom
-        /// patterns the same way ("LS3 swap, dyno-tuned" / "Ferrari 360
-        /// flat-plane bias"). Surfaces in the engine-data submission body
-        /// so maintainers and downstream contributors get the user's
-        /// semantic intent alongside the raw phase numbers. Used only
-        /// when EngineConfig == Custom; ignored otherwise.</summary>
+        /// Built-in layouts ship with descriptive names; this lets users tag
+        /// their own custom patterns the same way ("LS3 swap, dyno-tuned" /
+        /// "Ferrari 360 flat-plane bias"). Surfaces in the engine-data
+        /// submission body. Used only when Layout == Custom; ignored
+        /// otherwise.</summary>
         public string CustomFiringPatternName { get; set; } = "";
+
+        // ---- Experimental high-RPM perceptibility helpers ----
+        //
+        // Wheel motors mechanically lowpass at high firing frequencies, so
+        // the pulse feels weak as RPM climbs. Two opt-in additions:
+        //
+        //   LoadLayer: adds a sine at the engine cycle frequency (RPM/120 Hz)
+        //     alongside the firing-rate wavetable. Phase-locked subharmonic
+        //     of the firing rate; sweeps 7-58 Hz across idle-to-redline,
+        //     right in the band the wheel responds to.
+        //
+        //   HighRpmBoost: ramps an extra gain factor on the firing pulse
+        //     from 0 at 50% RPM to (Amount) at redline, partially
+        //     compensating for the wheel's mechanical rolloff.
+        //
+        // Both default Off so existing presets / wheel feel are unchanged.
+        public bool   LoadLayerEnabled    { get; set; } = false;
+        public float  LoadLayerGain       { get; set; } = 0.3f;
+        public bool   HighRpmBoostEnabled { get; set; } = false;
+        public float  HighRpmBoostAmount  { get; set; } = 0.4f;
+
+        // ---- Legacy migration fields (pre-2026-05-11) ----
+        //
+        // Pre-flat-enum settings stored Cylinders (int) + EngineConfig (enum)
+        // + FiringOrderEnabled (bool) as the engine-shape definition. New
+        // code reads/writes Layout only. These fields are kept on the type
+        // so Newtonsoft can still deserialize old JSON (and serialize them
+        // back at minimal cost) — one-time migration in ApplyEngineSettings
+        // folds them into Layout on first load.
+
+        /// <summary>LEGACY (pre-flat-enum). Old per-cylinder count. Read on
+        /// load and folded into <see cref="Layout"/> via
+        /// FiringPatternDb.LayoutFromLegacy. Never read after migration.</summary>
+        public int Cylinders { get; set; } = 0;
+
+        /// <summary>LEGACY (pre-flat-enum). Old engine-layout enum paired
+        /// with <see cref="Cylinders"/>. Folded into <see cref="Layout"/>
+        /// on first load.</summary>
+        [JsonConverter(typeof(StringEnumConverter))]
+        public EngineConfig EngineConfig { get; set; } = EngineConfig.Auto;
+
+        /// <summary>LEGACY (pre-flat-enum). Toggle between firing-pattern
+        /// synthesis (true, the new default) and the uniform-pulse path
+        /// (false). The legacy path was removed when Layout was
+        /// introduced — this field exists only so old JSON still
+        /// deserializes. Ignored at runtime.</summary>
+        public bool FiringOrderEnabled { get; set; } = true;
     }
 
     public sealed class RoadBumpsSettings
