@@ -3002,11 +3002,20 @@ namespace TrueforceForAll.Plugin
             return false;
         }
 
-        /// <summary>Generic per-effect revert: routes the snapshot's saved
-        /// section into either the per-car override slot (if the snapshot
-        /// had one for the current car) or the global slot (otherwise,
-        /// dropping any current car override). Caller is responsible for
-        /// pushing the resulting state live (ApplyActiveCarOverride etc.).</summary>
+        /// <summary>Generic per-effect revert. Scope-aware:
+        ///   * If the live car override has this section, the user is
+        ///     editing in car-preset scope; restore from the on-disk car
+        ///     preset (cached as _lastPersistedCarOverrides). If the saved
+        ///     car preset didn't include this section, drop the override
+        ///     (section falls back to global).
+        ///   * Otherwise, restore the global section from the active
+        ///     game-preset snapshot.
+        ///   * The legacy snap.CarOverrides path is kept for old presets
+        ///     that still carry per-car data; modern (Model G) presets
+        ///     have snap.CarOverrides == null and only the live-override
+        ///     branch fires.
+        /// Caller is responsible for pushing the resulting state live
+        /// (ApplyActiveCarOverride etc.).</summary>
         private void RevertEffectScopeAware<TSection>(
             TSection snapGlobal,
             Dictionary<string, CarOverride> snapOverrides,
@@ -3016,24 +3025,45 @@ namespace TrueforceForAll.Plugin
             Action<CarOverride> clearCarOverride) where TSection : class
         {
             string carId = _activeCarId;
+
+            // Live car-preset override path: dirty came from car-preset
+            // edits, so revert restores the saved car preset's section.
+            if (carId != null && Settings.CarOverrides != null
+                && Settings.CarOverrides.TryGetValue(carId, out var liveCo) && liveCo != null
+                && getSnapCarSection(liveCo) != null)
+            {
+                _lastPersistedCarOverrides.TryGetValue(carId, out var savedCo);
+                var savedCarSection = savedCo != null ? getSnapCarSection(savedCo) : null;
+                if (savedCarSection != null)
+                {
+                    applyToCarOverride(liveCo, savedCarSection);
+                }
+                else
+                {
+                    // Section wasn't in the saved car preset; drop the
+                    // override so the section falls back to the game-preset
+                    // global (restored below).
+                    clearCarOverride(liveCo);
+                    if (snapGlobal != null) applyToGlobal(snapGlobal);
+                }
+                return;
+            }
+
+            // Legacy snap.CarOverrides path (pre-Model-G presets).
             CarOverride snapCar = null;
             if (carId != null && snapOverrides != null) snapOverrides.TryGetValue(carId, out snapCar);
             var snapCarSection = snapCar != null ? getSnapCarSection(snapCar) : null;
-
             if (snapCarSection != null && carId != null)
             {
                 if (Settings.CarOverrides == null) Settings.CarOverrides = new Dictionary<string, CarOverride>();
-                if (!Settings.CarOverrides.TryGetValue(carId, out var liveCo) || liveCo == null)
+                if (!Settings.CarOverrides.TryGetValue(carId, out liveCo) || liveCo == null)
                     Settings.CarOverrides[carId] = liveCo = new CarOverride();
                 applyToCarOverride(liveCo, snapCarSection);
+                return;
             }
-            else
-            {
-                if (carId != null && Settings.CarOverrides != null
-                    && Settings.CarOverrides.TryGetValue(carId, out var liveCo) && liveCo != null)
-                    clearCarOverride(liveCo);
-                if (snapGlobal != null) applyToGlobal(snapGlobal);
-            }
+
+            // Plain global revert: no per-car scope involved.
+            if (snapGlobal != null) applyToGlobal(snapGlobal);
         }
 
         /// <summary>Apply a named preset from the library. Sets it as the
@@ -3066,6 +3096,103 @@ namespace TrueforceForAll.Plugin
             _activePresetName = presetName;
             this.SaveCommonSettings("GeneralSettings", Settings);
             SimHub.Logging.Current.Info($"[Trueforce] Saved preset '{presetName}'.");
+        }
+
+        /// <summary>Save ONLY the targeted section into the active preset's
+        /// in-memory snapshot, leaving every other section untouched on disk.
+        /// Inverse of <see cref="RevertSection"/>. Returns false when the
+        /// active preset is missing or built-in (built-ins can't be
+        /// overwritten in place; caller forks instead). Caller is
+        /// responsible for clearing the section's dirty bit + refreshing
+        /// the UI.</summary>
+        public bool SaveSectionToActivePreset(SectionKind kind)
+        {
+            if (Settings?.Presets == null) return false;
+            if (string.IsNullOrEmpty(_activePresetName)) return false;
+            if (IsBuiltinPreset(_activePresetName)) return false;
+            if (!Settings.Presets.TryGetValue(_activePresetName, out var snap) || snap == null) return false;
+
+            switch (kind)
+            {
+                case SectionKind.Master:
+                    snap.MasterGain              = Settings.MasterGain;
+                    snap.FfbScale                = Settings.FfbScale;
+                    snap.FfbInvertSign           = Settings.FfbInvertSign;
+                    snap.FfbSmoothTimeConstantMs = Settings.FfbSmoothTimeConstantMs;
+                    snap.SkipFfbPassthrough      = Settings.SkipFfbPassthrough;
+                    break;
+                case SectionKind.SpikeReduction:
+                    snap.FfbSpikeTamingEnabled = Settings.FfbSpikeTamingEnabled;
+                    snap.FfbSpikeMaxLsbPerMs   = Settings.FfbSpikeMaxLsbPerMs;
+                    snap.FfbPeakSoftLimitLsb   = Settings.FfbPeakSoftLimitLsb;
+                    break;
+                case SectionKind.Ducking:
+                    snap.DuckDepth     = Settings.DuckDepth;
+                    snap.DuckAttackMs  = Settings.DuckAttackMs;
+                    snap.DuckReleaseMs = Settings.DuckReleaseMs;
+                    break;
+                case SectionKind.Engine:     snap.EnginePulse  = Clone(Settings.EnginePulse);     break;
+                case SectionKind.Bumps:      snap.RoadBumps    = Clone(Settings.RoadBumps);       break;
+                case SectionKind.Traction:   snap.TractionLoss = Clone(Settings.TractionLoss);    break;
+                case SectionKind.Shift:      snap.GearShift    = Clone(Settings.GearShift);       break;
+                case SectionKind.Abs:        snap.AbsClick     = Clone(Settings.AbsClick);        break;
+                case SectionKind.PitLimiter: snap.PitLimiter   = Clone(Settings.PitLimiter);      break;
+                case SectionKind.Drs:        snap.Drs          = Clone(Settings.Drs);             break;
+                case SectionKind.Collision:  snap.Collision    = Clone(Settings.Collision);       break;
+                case SectionKind.Audio:      snap.AudioCapture = CloneOrNull(Settings.AudioCapture); break;
+                default: return false;
+            }
+            this.SaveCommonSettings("GeneralSettings", Settings);
+            SimHub.Logging.Current.Info($"[Trueforce] Saved {kind} into preset '{_activePresetName}' (scoped).");
+            return true;
+        }
+
+        /// <summary>Save ONLY the targeted section into the active car's
+        /// preset file on disk. Patches the in-memory "last persisted" car
+        /// override snapshot for this section (using the live value),
+        /// writes the patched override out, and updates the persisted
+        /// snapshot. Other sections in the car preset file stay at their
+        /// previously-saved values. Returns false on built-ins (forks
+        /// instead) or when there's no active car / car preset.</summary>
+        public bool SaveSectionToActiveCarOverride(SectionKind kind)
+        {
+            if (_carStore == null || string.IsNullOrEmpty(_activeCarId)) return false;
+            string presetName = GetActiveCarPresetName(_activeCarId);
+            if (string.IsNullOrEmpty(presetName)) return false;
+            if (IsCarPresetBuiltin(_activeCarId, presetName)) return false;
+            if (Settings?.CarOverrides == null) return false;
+            if (!Settings.CarOverrides.TryGetValue(_activeCarId, out var live) || live == null) return false;
+
+            // Build the to-be-persisted override by starting from whatever's
+            // currently on disk (cached in _lastPersistedCarOverrides) and
+            // patching in just the targeted section from live.
+            CarOverride patched;
+            if (_lastPersistedCarOverrides.TryGetValue(_activeCarId, out var prev) && prev != null)
+                patched = CloneCarOverride(prev);
+            else
+                patched = new CarOverride();
+
+            switch (kind)
+            {
+                case SectionKind.Engine:     patched.EnginePulse  = live.EnginePulse  != null ? Clone(live.EnginePulse)  : null; break;
+                case SectionKind.Bumps:      patched.RoadBumps    = live.RoadBumps    != null ? Clone(live.RoadBumps)    : null; break;
+                case SectionKind.Traction:   patched.TractionLoss = live.TractionLoss != null ? Clone(live.TractionLoss) : null; break;
+                case SectionKind.Shift:      patched.GearShift    = live.GearShift    != null ? Clone(live.GearShift)    : null; break;
+                case SectionKind.Abs:        patched.AbsClick     = live.AbsClick     != null ? Clone(live.AbsClick)     : null; break;
+                case SectionKind.PitLimiter: patched.PitLimiter   = live.PitLimiter   != null ? Clone(live.PitLimiter)   : null; break;
+                case SectionKind.Drs:        patched.Drs          = live.Drs          != null ? Clone(live.Drs)          : null; break;
+                case SectionKind.Collision:  patched.Collision    = live.Collision    != null ? Clone(live.Collision)    : null; break;
+                case SectionKind.Audio:      patched.AudioCapture = CloneOrNull(live.AudioCapture); break;
+                default: return false;
+            }
+
+            _carStore.Save(_activeCarId, presetName, _activeGame ?? "", patched, isBuiltin: false);
+            if (patched.IsEmpty)
+                _lastPersistedCarOverrides.Remove(_activeCarId);
+            else
+                _lastPersistedCarOverrides[_activeCarId] = CloneCarOverride(patched);
+            SimHub.Logging.Current.Info($"[Trueforce] Saved {kind} into car preset '{presetName}' for '{_activeCarId}' (scoped).");
+            return true;
         }
 
         /// <summary>Delete a preset from the library. Also clears any

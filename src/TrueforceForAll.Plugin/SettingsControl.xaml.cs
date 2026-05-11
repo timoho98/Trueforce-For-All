@@ -2662,6 +2662,90 @@ namespace TrueforceForAll.Plugin
             }
         }
 
+        // Result of the save-scope modal: either Cancel, "save just the
+        // section the user clicked," or "save every dirty section." The
+        // modal only appears when there's actually a choice to make
+        // (i.e. more than one section is dirty AND the save target is an
+        // overwrite path -- forks always capture whole state).
+        private enum SaveScope { Cancel, JustThis, SaveAll }
+
+        // Detect dirty sections other than the targeted one and, if any,
+        // ask the user whether they want to save just the targeted section
+        // or all dirty sections. Returns SaveScope.JustThis without
+        // prompting when only the targeted section is dirty -- the modal
+        // would have no choices to offer.
+        private SaveScope PromptSaveScope(EffectKind targetSection, string saveTargetLabel)
+        {
+            var others = new List<EffectKind>();
+            for (int i = 0; i < _effectDirty.Length; i++)
+            {
+                if (i == (int)targetSection) continue;
+                if (_effectDirty[i]) others.Add((EffectKind)i);
+            }
+            if (others.Count == 0) return SaveScope.JustThis;
+
+            string othersLabel = string.Join(", ", others.ConvertAll(EffectLabel));
+            string targetLabel = EffectLabel(targetSection);
+            int totalDirty = others.Count + 1;
+
+            var win = new Window
+            {
+                Title = "Save scope",
+                Width = 480,
+                Height = 230,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ResizeMode    = ResizeMode.NoResize,
+                ShowInTaskbar = false,
+                Owner = Window.GetWindow(this),
+            };
+            if (win.Owner == null) win.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+
+            var sp = new StackPanel { Margin = new Thickness(14) };
+            sp.Children.Add(new TextBlock
+            {
+                Text = $"You also have unsaved changes in: {othersLabel}.",
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 6),
+            });
+            sp.Children.Add(new TextBlock
+            {
+                Text = $"What should we save to {saveTargetLabel}?",
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 10),
+            });
+
+            var result = SaveScope.Cancel;
+            var justBtn = new Button
+            {
+                Content = $"Save just {targetLabel}",
+                Height = 32, Margin = new Thickness(0, 0, 0, 6),
+                ToolTip = "Writes only the section you clicked Save next to. Other sections stay dirty until you save them individually.",
+            };
+            var allBtn = new Button
+            {
+                Content = $"Save all {totalDirty} dirty sections",
+                Height = 32, Margin = new Thickness(0, 0, 0, 6),
+                ToolTip = "Writes every section that currently has unsaved changes.",
+            };
+            sp.Children.Add(justBtn);
+            sp.Children.Add(allBtn);
+
+            var btnRow = new StackPanel
+            {
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+            };
+            var cancel = new Button { Content = "Cancel", Width = 80, IsCancel = true };
+            btnRow.Children.Add(cancel);
+            sp.Children.Add(btnRow);
+
+            win.Content = sp;
+            justBtn.Click += (s, a) => { result = SaveScope.JustThis; win.DialogResult = true; };
+            allBtn.Click  += (s, a) => { result = SaveScope.SaveAll;  win.DialogResult = true; };
+            win.ShowDialog();
+            return result;
+        }
+
         /// <summary>Per-effect Save popover. Two adaptive choices:
         ///   • "For [car]" — toggles the override on (snapshotting current
         ///     section values into the per-car override) when not already
@@ -2778,16 +2862,52 @@ namespace TrueforceForAll.Plugin
             }
             presetBtn.Click += (s, args) =>
             {
-                // If this section has a per-car override active, lift its
-                // values up to the global section first — so the values the
-                // user is looking at become the new game-default for this
-                // section. Drops the override (the new global takes effect
-                // for this car too).
-                _plugin.PromoteSectionToGlobal((TrueforcePlugin.SectionKind)(int)which);
+                // Fork paths (no preset / built-in) always capture whole
+                // state -- a freshly-forked preset IS the snapshot. The
+                // scope modal only applies when overwriting an existing
+                // user preset, where "just this section" is a real choice.
+                if (!hasPreset)
+                {
+                    _plugin.PromoteSectionToGlobal((TrueforcePlugin.SectionKind)(int)which);
+                    SaveAsNewPresetFromUi();
+                    win.DialogResult = true;
+                    return;
+                }
+                if (builtin)
+                {
+                    _plugin.PromoteSectionToGlobal((TrueforcePlugin.SectionKind)(int)which);
+                    ForkAndSaveAsGamePreset();
+                    win.DialogResult = true;
+                    return;
+                }
 
-                if (!hasPreset)        SaveAsNewPresetFromUi();
-                else if (builtin)      ForkAndSaveAsGamePreset();
-                else                   UpdateActivePresetFromUi();
+                // Overwrite path: ask whether to save just this section or
+                // all dirty sections. PromptSaveScope returns JustThis
+                // immediately when only the targeted section is dirty.
+                var scope = PromptSaveScope((EffectKind)(int)which, $"preset '{activeP}'");
+                if (scope == SaveScope.Cancel) { win.DialogResult = true; return; }
+
+                _plugin.PromoteSectionToGlobal((TrueforcePlugin.SectionKind)(int)which);
+                if (scope == SaveScope.JustThis)
+                {
+                    // Patch only the targeted section into the in-memory
+                    // snapshot + write GeneralSettings. Other sections in
+                    // the preset stay at their previously-saved values, so
+                    // their dirty bits remain set after refresh.
+                    _plugin.SaveSectionToActivePreset((TrueforcePlugin.SectionKind)(int)which);
+                    ClearEffectDirty(which);
+                    RefreshFromPlugin();
+                }
+                else
+                {
+                    // Save-all: whole-state snapshot. Lift every dirty
+                    // override up to global first so user's active values
+                    // (override or global) all land in the new preset.
+                    for (int i = 0; i < _effectDirty.Length; i++)
+                        if (_effectDirty[i] && i != (int)which)
+                            _plugin.PromoteSectionToGlobal((TrueforcePlugin.SectionKind)i);
+                    UpdateActivePresetFromUi();
+                }
                 win.DialogResult = true;
             };
 
@@ -2795,10 +2915,10 @@ namespace TrueforceForAll.Plugin
         }
 
         /// <summary>Per-car save for one effect: writes the section's
-        /// current values to the active car preset's file. When on a
-        /// built-in default, prompts for a new user-preset name and forks
-        /// instead of overwriting the factory file (built-ins are
-        /// read-only). On a user preset, in-place save.</summary>
+        /// current values to the active car preset's file. Forks to a new
+        /// user preset (whole-state) when on a built-in / no preset yet.
+        /// On a user car preset, asks the user whether to save just this
+        /// section or every dirty section.</summary>
         private void ApplyEffectSaveForCar(EffectKind which)
         {
             if (_plugin == null || string.IsNullOrEmpty(_plugin.ActiveCarId)) return;
@@ -2806,13 +2926,14 @@ namespace TrueforceForAll.Plugin
             string activeName = _plugin.GetActiveCarPresetName(carId);
             bool   onBuiltin  = !string.IsNullOrEmpty(activeName)
                                 && _plugin.IsCarPresetBuiltin(carId, activeName);
+            bool   isFork     = string.IsNullOrEmpty(activeName) || onBuiltin;
 
-            // Always snapshot the section values into the in-memory override
-            // first so a follow-up save / fork has the right state to write.
-            _plugin.SnapshotSectionToCarOverride((TrueforcePlugin.SectionKind)(int)which);
-
-            if (string.IsNullOrEmpty(activeName) || onBuiltin)
+            if (isFork)
             {
+                // Fork to a new user car preset: whole-state. The new file
+                // captures every section the user has tuned, since the
+                // preset IS the snapshot of the user's intent at fork time.
+                _plugin.SnapshotSectionToCarOverride((TrueforcePlugin.SectionKind)(int)which);
                 string suggestion = onBuiltin ? StripDefaultSuffix(activeName) : carId;
                 string newName = PromptForCarPresetName(
                     title: "Save as new car preset",
@@ -2826,7 +2947,35 @@ namespace TrueforceForAll.Plugin
             }
             else
             {
-                if (!_plugin.PersistActiveCarOverride())
+                // Overwrite existing user car preset: ask whether to write
+                // just this section or every dirty section.
+                var scope = PromptSaveScope(which, $"car preset '{activeName}'");
+                if (scope == SaveScope.Cancel) return;
+
+                _plugin.SnapshotSectionToCarOverride((TrueforcePlugin.SectionKind)(int)which);
+                bool ok;
+                if (scope == SaveScope.JustThis)
+                {
+                    // Patched save: read the on-disk override (cached as
+                    // _lastPersistedCarOverrides), patch in only the
+                    // targeted section, write back. Other sections in the
+                    // file keep their previously-saved values; their dirty
+                    // bits persist after RecomputeAllEffectDirty.
+                    ok = _plugin.SaveSectionToActiveCarOverride(
+                        (TrueforcePlugin.SectionKind)(int)which);
+                }
+                else
+                {
+                    // Save-all: snapshot every dirty section into the
+                    // override (so sections still living in global also
+                    // land in the car preset file), then persist the whole
+                    // override.
+                    for (int i = 0; i < _effectDirty.Length; i++)
+                        if (_effectDirty[i] && i != (int)which)
+                            _plugin.SnapshotSectionToCarOverride((TrueforcePlugin.SectionKind)i);
+                    ok = _plugin.PersistActiveCarOverride();
+                }
+                if (!ok)
                 {
                     MessageBox.Show("Save failed (see SimHub log for details).", "Trueforce");
                     return;
