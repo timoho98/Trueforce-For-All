@@ -20,16 +20,11 @@ The user never picks an install path — it's locked to wherever SimHub lives.
 
 ## How releases get built
 
-The GitHub Actions workflow at [.github/workflows/release.yml](../.github/workflows/release.yml)
-runs on `v*` tag pushes and:
-
-1. Builds `TrueforceForAll.Plugin` (`net48`, AnyCPU, Release).
-2. Publishes `TrueforceForAll.LoopbackHelper` (self-contained, single-file,
-   `win-x64`, Release).
-3. Downloads the bundled USBPcap installer to `installer/vendor/USBPcapSetup.exe`.
-4. Compiles `TrueforceForAll.iss` with the GitHub Actions runner's preinstalled
-   Inno Setup 6.
-5. Uploads the resulting `TrueforceForAll-Setup.exe` to a draft GitHub release.
+Releases are built **locally** by the maintainer. The full checklist
+(version bumps, changelog entries, tagging, draft-release upload) lives in
+[../RELEASING.md](../RELEASING.md). There is no CI build — the SimHub
+plugin csproj references SimHub's redistributable DLLs by hint path, so
+a runner without SimHub installed can't compile the plugin.
 
 ## Building locally
 
@@ -40,6 +35,7 @@ in place. From the repo root:
 dotnet build src\TrueforceForAll.Plugin\TrueforceForAll.Plugin.csproj -c Release
 dotnet publish src\TrueforceForAll.LoopbackHelper\TrueforceForAll.LoopbackHelper.csproj -c Release -r win-x64
 # Drop USBPcapSetup-1.5.4.0.exe (or current) into installer\vendor\USBPcapSetup.exe
+$env:TRUEFORCEFORALL_VERSION = 'X.Y.Z'  # match the csproj <Version>; iss falls back to 0.1.0-dev when empty
 & "C:\Program Files (x86)\Inno Setup 6\iscc.exe" installer\TrueforceForAll.iss
 ```
 
