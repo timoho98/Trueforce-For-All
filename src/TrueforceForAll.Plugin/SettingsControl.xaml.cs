@@ -492,6 +492,11 @@ namespace TrueforceForAll.Plugin
                     }
                 }
 
+                // "What's new" banner + per-effect NEW badges. Both driven by
+                // the plugin's SeenEffects / LastSeenVersion state.
+                RefreshChangelogBanner();
+                RefreshNewBadges();
+
                 // Forza listener status: the source object exposes packet
                 // count + last IsRaceOn. When the source isn't active (game
                 // isn't Forza, or AlwaysListen is off + no Forza game), we
@@ -928,10 +933,111 @@ namespace TrueforceForAll.Plugin
         // guard, so reaching it implies a real user change → push to live
         // device and recompute the affected effect's dirty state. Per-car
         // file is NOT auto-written: saves are explicit (Save… → For this car).
+        // First touch on an effect also clears its "NEW" badge.
         private void Apply(EffectKind which)
         {
             _plugin.ApplyActiveCarOverride();
             MarkEffectDirty(which);
+            string id = EffectIdFor(which);
+            if (id != null && _plugin.IsEffectUnseen(id))
+            {
+                _plugin.MarkEffectSeen(id);
+                RefreshNewBadges();
+            }
+        }
+
+        // Effect-ID strings shared with EffectChangelog.KnownEffectIds and
+        // the per-effect SeenEffects entries. Null for global-only sections
+        // (Master, Ducking, SpikeReduction) that don't get a NEW badge.
+        private static string EffectIdFor(EffectKind which)
+        {
+            switch (which)
+            {
+                case EffectKind.Audio:      return "Audio";
+                case EffectKind.Engine:     return "Engine";
+                case EffectKind.Bumps:      return "Bumps";
+                case EffectKind.Traction:   return "Traction";
+                case EffectKind.Shift:      return "Shift";
+                case EffectKind.Abs:        return "Abs";
+                case EffectKind.PitLimiter: return "PitLimiter";
+                case EffectKind.Drs:        return "Drs";
+                case EffectKind.Collision:  return "Collision";
+                default:                    return null;
+            }
+        }
+
+        // Maps an effect-ID string to its NEW-badge Border in the header.
+        // Returns null for unknown IDs.
+        private System.Windows.Controls.Border GetNewBadge(string effectId)
+        {
+            switch (effectId)
+            {
+                case "Audio":      return AudioNewBadge;
+                case "Engine":     return EngineNewBadge;
+                case "Bumps":      return BumpsNewBadge;
+                case "Traction":   return TractionNewBadge;
+                case "Shift":      return ShiftNewBadge;
+                case "Abs":        return AbsNewBadge;
+                case "PitLimiter": return PitLimiterNewBadge;
+                case "Drs":        return DrsNewBadge;
+                case "Collision":  return CollisionNewBadge;
+                default:           return null;
+            }
+        }
+
+        /// <summary>Recompute every NEW badge's visibility from the
+        /// plugin's SeenEffects state. Called on construction, after
+        /// MarkEffectSeen, and from RefreshFromPlugin so external state
+        /// changes (e.g. import bringing in a SeenEffects snapshot) refresh
+        /// the visible chrome.</summary>
+        private void RefreshNewBadges()
+        {
+            if (_plugin == null) return;
+            foreach (var id in EffectChangelog.KnownEffectIds)
+            {
+                var badge = GetNewBadge(id);
+                if (badge == null) continue;
+                badge.Visibility = _plugin.IsEffectUnseen(id)
+                    ? System.Windows.Visibility.Visible
+                    : System.Windows.Visibility.Collapsed;
+            }
+        }
+
+        /// <summary>Fires once when the user opens an effect's expander —
+        /// counts as an "I've seen this" interaction and clears the NEW
+        /// badge for that section. Routes via the Expander.Name suffix
+        /// ("EngineExpander" → "Engine") to keep the XAML hookups one-shot.</summary>
+        private void EffectExpander_Expanded(object sender, System.Windows.RoutedEventArgs e)
+        {
+            if (_plugin == null) return;
+            var exp = sender as System.Windows.Controls.Expander;
+            if (exp == null) return;
+            string name = exp.Name ?? "";
+            const string suffix = "Expander";
+            if (!name.EndsWith(suffix)) return;
+            string id = name.Substring(0, name.Length - suffix.Length);
+            if (!_plugin.IsEffectUnseen(id)) return;
+            _plugin.MarkEffectSeen(id);
+            RefreshNewBadges();
+        }
+
+        /// <summary>Show / hide the "What's new" banner based on whether
+        /// the running build has any changelog entries newer than the
+        /// user's stamped LastSeenVersion. Idempotent. Called from
+        /// RefreshFromPlugin.</summary>
+        private void RefreshChangelogBanner()
+        {
+            if (_plugin == null || WhatsNewBanner == null) return;
+            var pending = _plugin.GetPendingChangelog();
+            bool show = pending != null && pending.Count > 0;
+            var want = show ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+            if (WhatsNewBanner.Visibility != want) WhatsNewBanner.Visibility = want;
+            if (show && WhatsNewBannerText != null)
+            {
+                var latest = pending[pending.Count - 1].Version;
+                string desired = "What's new in v" + latest.ToString(3);
+                if (WhatsNewBannerText.Text != desired) WhatsNewBannerText.Text = desired;
+            }
         }
 
         private void MarkDirty()
@@ -3978,6 +4084,130 @@ namespace TrueforceForAll.Plugin
                     updateBtn.IsEnabled = true;
                     dismissBtn.IsEnabled = true;
                 }
+            };
+
+            win.ShowDialog();
+        }
+
+        // ---------- "What's new" banner / modal ----------
+
+        private void WhatsNewBanner_Click(object sender, MouseButtonEventArgs e)
+        {
+            ShowWhatsNewModal();
+        }
+
+        /// <summary>Modal listing every changelog version newer than the
+        /// user's stamped LastSeenVersion. Closing the modal (either via
+        /// the button or by dismissing the window) stamps LastSeenVersion
+        /// to the running build, which hides the banner for this version.
+        /// Modeled on ShowUpdateModal so it inherits the same Window
+        /// chrome / centering behavior.</summary>
+        private void ShowWhatsNewModal()
+        {
+            if (_plugin == null) return;
+            var pending = _plugin.GetPendingChangelog();
+            if (pending == null || pending.Count == 0) return;
+
+            var win = new Window
+            {
+                Title = "Trueforce For All — What's new",
+                Width = 600,
+                Height = 480,
+                ResizeMode = ResizeMode.NoResize,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ShowInTaskbar = false,
+                Owner = Window.GetWindow(this),
+            };
+            if (win.Owner == null) win.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+
+            var root = new DockPanel { Margin = new Thickness(16) };
+
+            var header = new TextBlock
+            {
+                Text = "What's new",
+                FontSize = 18,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 12),
+            };
+            DockPanel.SetDock(header, Dock.Top);
+            root.Children.Add(header);
+
+            var footer = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 12, 0, 0),
+            };
+            DockPanel.SetDock(footer, Dock.Bottom);
+            var gotItBtn = new System.Windows.Controls.Button
+            {
+                Content = "Got it",
+                Width = 100,
+                Height = 28,
+                IsDefault = true,
+                IsCancel = true,
+            };
+            footer.Children.Add(gotItBtn);
+            root.Children.Add(footer);
+
+            // Body: a scrolling stack of (version title) + (per-entry headline + description).
+            // Renders newest first so the most recent additions are at the top.
+            var bodyStack = new StackPanel();
+            for (int i = pending.Count - 1; i >= 0; i--)
+            {
+                var ver = pending[i];
+                bodyStack.Children.Add(new TextBlock
+                {
+                    Text = "v" + ver.Version.ToString(3) + (string.IsNullOrEmpty(ver.Title) ? "" : "  —  " + ver.Title),
+                    FontWeight = FontWeights.SemiBold,
+                    FontSize = 14,
+                    Margin = new Thickness(0, i == pending.Count - 1 ? 0 : 14, 0, 6),
+                });
+                if (ver.Entries != null)
+                {
+                    foreach (var entry in ver.Entries)
+                    {
+                        if (entry == null) continue;
+                        if (!string.IsNullOrEmpty(entry.Headline))
+                        {
+                            bodyStack.Children.Add(new TextBlock
+                            {
+                                Text = "• " + entry.Headline,
+                                TextWrapping = TextWrapping.Wrap,
+                                FontSize = 12,
+                                Margin = new Thickness(0, 4, 0, 0),
+                            });
+                        }
+                        if (!string.IsNullOrEmpty(entry.Description))
+                        {
+                            bodyStack.Children.Add(new TextBlock
+                            {
+                                Text = entry.Description,
+                                TextWrapping = TextWrapping.Wrap,
+                                FontSize = 11,
+                                Opacity = 0.7,
+                                Margin = new Thickness(14, 2, 0, 0),
+                            });
+                        }
+                    }
+                }
+            }
+            var notesScroll = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                BorderThickness = new Thickness(1),
+                BorderBrush = System.Windows.Media.Brushes.Gray,
+                Padding = new Thickness(12),
+                Content = bodyStack,
+            };
+            root.Children.Add(notesScroll);
+
+            win.Content = root;
+            gotItBtn.Click += (_, __) => win.Close();
+            win.Closed += (_, __) =>
+            {
+                _plugin.DismissChangelog();
+                RefreshChangelogBanner();
             };
 
             win.ShowDialog();

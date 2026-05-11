@@ -586,7 +586,12 @@ namespace TrueforceForAll.Plugin
         public void Init(PluginManager pluginManager)
         {
             SimHub.Logging.Current.Info("[Trueforce] Init: loading settings...");
-            Settings = this.ReadCommonSettings("GeneralSettings", () => new TrueforceSettings());
+            // wasFreshInstall flips iff the factory ran, which only happens
+            // when SimHub had no prior settings file for us — the cleanest
+            // signal for "this is a first-run install" that the SimHub
+            // ReadCommonSettings API gives us.
+            bool wasFreshInstall = false;
+            Settings = this.ReadCommonSettings("GeneralSettings", () => { wasFreshInstall = true; return new TrueforceSettings(); });
             // Defensive nulls in case a pre-2.x settings file was deserialized
             // without the new dictionaries.
             if (Settings.Presets      == null) Settings.Presets      = new Dictionary<string, GameSettingsSnapshot>();
@@ -594,8 +599,27 @@ namespace TrueforceForAll.Plugin
             if (Settings.GameEnabled  == null) Settings.GameEnabled  = new Dictionary<string, bool>();
             if (Settings.Performance  == null) Settings.Performance  = new PerformanceSettings();
             if (Settings.Forza        == null) Settings.Forza        = new ForzaSettings();
+            if (Settings.SeenEffects  == null) Settings.SeenEffects  = new List<string>();
             if (Settings.CarCylinderCache == null)
                 Settings.CarCylinderCache = new Dictionary<string, Dictionary<string, int>>();
+
+            // Fresh install (factory ran) or first run on a settings file
+            // written before the badge feature existed (LastSeenVersion never
+            // stamped): pre-seed every known effect as already-seen and
+            // stamp LastSeenVersion to the running build. Without this, an
+            // existing user upgrading from a pre-feature version would get
+            // badges on every effect they've already been using — useless
+            // noise. After this seed, badges only ever fire for effects
+            // introduced in versions strictly newer than this one.
+            if (wasFreshInstall || string.IsNullOrEmpty(Settings.LastSeenVersion))
+            {
+                foreach (var id in EffectChangelog.KnownEffectIds)
+                {
+                    if (!Settings.SeenEffects.Contains(id)) Settings.SeenEffects.Add(id);
+                }
+                Settings.LastSeenVersion = CurrentVersionString();
+                this.SaveCommonSettings("GeneralSettings", Settings);
+            }
 
             // Hand the resolver a reference to the persisted cache. New heuristic
             // hits get written through and flushed to disk on the next settings
@@ -796,6 +820,61 @@ namespace TrueforceForAll.Plugin
         private System.Threading.CancellationTokenSource _updateCheckerCts;
         public System.Threading.CancellationToken UpdateCheckerToken
             => _updateCheckerCts?.Token ?? System.Threading.CancellationToken.None;
+
+        // ---- "NEW" badges + changelog banner ----
+
+        /// <summary>Plugin assembly version in ToString(3) form ("X.Y.Z").
+        /// Used as the stamp on Settings.LastSeenVersion + as the upper
+        /// bound of the pending-changelog comparison.</summary>
+        public static string CurrentVersionString()
+        {
+            var v = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            return v != null ? v.ToString(3) : "0.0.0";
+        }
+
+        /// <summary>True iff <paramref name="effectId"/> hasn't been seen by
+        /// the user yet. Drives the per-section "NEW" badge in the settings
+        /// UI. Defensive: returns false for null/unknown IDs so the UI can
+        /// query freely without guarding.</summary>
+        public bool IsEffectUnseen(string effectId)
+        {
+            if (Settings?.SeenEffects == null || string.IsNullOrEmpty(effectId)) return false;
+            return !Settings.SeenEffects.Contains(effectId);
+        }
+
+        /// <summary>Record that the user has seen / interacted with the
+        /// given effect; the "NEW" badge stops showing. Idempotent.
+        /// Persists settings only on an actual state change so the chatty
+        /// per-slider call site doesn't write the file on every value tick.</summary>
+        public void MarkEffectSeen(string effectId)
+        {
+            if (Settings == null || string.IsNullOrEmpty(effectId)) return;
+            if (Settings.SeenEffects == null) Settings.SeenEffects = new List<string>();
+            if (Settings.SeenEffects.Contains(effectId)) return;
+            Settings.SeenEffects.Add(effectId);
+            this.SaveCommonSettings("GeneralSettings", Settings);
+        }
+
+        /// <summary>Returns every changelog version strictly newer than the
+        /// user's stamped LastSeenVersion. Empty = nothing to surface; the
+        /// banner stays hidden.</summary>
+        public IReadOnlyList<ChangelogVersion> GetPendingChangelog()
+        {
+            if (Settings == null) return Array.Empty<ChangelogVersion>();
+            EffectChangelog.TryParseVersion(Settings.LastSeenVersion, out var since);
+            return EffectChangelog.EntriesNewerThan(since);
+        }
+
+        /// <summary>Stamps LastSeenVersion to the running build. Hides the
+        /// banner permanently for this version. Idempotent.</summary>
+        public void DismissChangelog()
+        {
+            if (Settings == null) return;
+            string current = CurrentVersionString();
+            if (Settings.LastSeenVersion == current) return;
+            Settings.LastSeenVersion = current;
+            this.SaveCommonSettings("GeneralSettings", Settings);
+        }
 
         public void End(PluginManager pluginManager)
         {

@@ -129,6 +129,25 @@ namespace TrueforceForAll.Plugin
         // by default; users who never set it just produce anonymous exports.
         public string SharingAuthor { get; set; } = "";
 
+        // ---- Per-effect "NEW" badges + changelog banner (see EffectChangelog) ----
+
+        // Effect IDs the user has acknowledged. An ID present here means
+        // the per-effect "NEW" badge is suppressed for that section. Plugin
+        // pre-seeds this with every known effect on fresh install (and on
+        // first run for users upgrading from a pre-feature settings file),
+        // so badges only ever surface for effects added in versions newer
+        // than the running build at the time of stamp. Schema: list of
+        // stable string IDs that match EffectChangelog.KnownEffectIds.
+        public List<string> SeenEffects { get; set; } = new List<string>();
+
+        // Last assembly version whose changelog banner the user has seen
+        // (or, on fresh install, the version at the time of install).
+        // ToString(3) format ("X.Y.Z"). Null/empty until first Init stamps
+        // it. Drives the "what's new" banner: anything in EffectChangelog
+        // with Version > this gets rolled up into the banner; dismissing
+        // updates this to the running build.
+        public string LastSeenVersion { get; set; }
+
         // Keyed by GameData.NewData.CarId. Override entries supersede the
         // global engine settings whenever that car is the active one.
         public Dictionary<string, CarOverride> CarOverrides { get; set; } = new Dictionary<string, CarOverride>();

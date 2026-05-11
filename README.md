@@ -147,31 +147,14 @@ plugins that share those keep working.
   supported wheels (RS50) and other SimHub-supported games should work
   but haven't been tested by us yet. Feedback welcome.
 
-## Build from source
-
-You'd need .NET 8 SDK and (optionally) [Inno Setup 6][inno] to build the
-installer.
-
-```powershell
-# Plugin and helper
-dotnet build src\TrueforceForAll.Plugin\TrueforceForAll.Plugin.csproj -c Release
-dotnet publish src\TrueforceForAll.LoopbackHelper\TrueforceForAll.LoopbackHelper.csproj -c Release -r win-x64
-
-# Installer
-& "C:\Program Files (x86)\Inno Setup 6\iscc.exe" installer\TrueforceForAll.iss
-```
-
-Continuous integration is configured at [.github/workflows/release.yml][ci]:
-push a `v*` tag and a draft GitHub release with the installer is created
-automatically.
-
 ## How it works
 
-This repo is the Windows-side glue on top of the upstream wire protocol
-(see Acknowledgments): a SimHub plugin that opens the wheel, synthesizes
-the telemetry- and audio-derived effects, handles per-game tuning, and
-runs the USBPcap-based FFB tap that mirrors the game's HID++ output into
-bytes 6-9 of the Trueforce ep3 stream.
+The wire protocol (init sequence and ep3 streaming format) was
+reverse-engineered by the [mescon Linux driver project][mescon]. This
+repo is the Windows-side glue on top of that: a SimHub plugin that opens
+the wheel, synthesizes the telemetry- and audio-derived effects, handles
+per-game tuning, and runs the USBPcap-based FFB tap that mirrors the
+game's HID++ output into bytes 6-9 of the Trueforce ep3 stream.
 
 ## License
 
@@ -206,6 +189,4 @@ project is not affiliated with, endorsed by, or sponsored by Logitech.
 [hidsharp]: https://github.com/treehopper-electronics/HIDSharp
 [naudio]: https://github.com/naudio/NAudio
 [simhub]: https://www.simhubdash.com/
-[inno]: https://jrsoftware.org/isinfo.php
 [releases]: https://github.com/Mhytee/Trueforce-For-All/releases
-[ci]: .github/workflows/release.yml

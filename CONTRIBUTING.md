@@ -26,15 +26,21 @@ When opening an issue, please include:
   targets `net8.0`. Don't introduce dependencies that pull in heavy
   transitive libs.
 - If you have a supported wheel, please test on real hardware before
-  opening the PR. CI builds the installer on tag pushes but does not
-  run a hardware suite (there isn't one).
+  opening the PR. There is no automated hardware suite.
 - Default presets are tuned values exported from real driving sessions.
   If you're proposing changes to a default preset, mention which car /
   track / driving conditions you tuned it under.
 
 ## Building locally
 
-See `Build from source` in the [README](README.md).
+You'll need .NET 8 SDK.
+
+```powershell
+dotnet build src\TrueforceForAll.Plugin\TrueforceForAll.Plugin.csproj -c Release
+dotnet publish src\TrueforceForAll.LoopbackHelper\TrueforceForAll.LoopbackHelper.csproj -c Release -r win-x64
+```
+
+The plugin csproj resolves SimHub assemblies via `$(SimHubPath)`, defaulting to `C:\Program Files (x86)\SimHub`. Override with `-p:SimHubPath="..."` if SimHub lives elsewhere. Drop the build outputs into your SimHub install folder and reload the plugin in SimHub. To produce a full installer artifact, see `Cutting a release` below.
 
 ## Cutting a release
 

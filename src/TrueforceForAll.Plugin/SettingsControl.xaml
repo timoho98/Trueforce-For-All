@@ -33,6 +33,21 @@
             <Setter Property="Visibility" Value="Collapsed"/>
             <Setter Property="Text" Value="★ car override"/>
         </Style>
+        <!-- Per-effect "NEW" badge. Surfaces in an effect's expander header
+             until the user has acknowledged it (expanded the section, or
+             changed any of its values). Pre-seeded as already-seen on fresh
+             install / pre-feature upgrade so existing users don't get a wall
+             of badges for effects they've already been using. Code-behind
+             toggles Visibility from RefreshNewBadges. -->
+        <Style x:Key="NewEffectBadge" TargetType="Border">
+            <Setter Property="Margin" Value="10,0,0,0"/>
+            <Setter Property="Padding" Value="6,1"/>
+            <Setter Property="CornerRadius" Value="3"/>
+            <Setter Property="Background" Value="#3D8B40"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Visibility" Value="Collapsed"/>
+            <Setter Property="ToolTip" Value="Added in a recent update. Disappears once you expand the section or change a value."/>
+        </Style>
         <!-- Custom-templated effect-header buttons. SimHub's stock theme greys
              every Button.Background; a full ControlTemplate replaces the visual
              tree so our accent colors survive. Test = always visible blue.
@@ -202,6 +217,27 @@
                                FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"
                                Text="Update available"/>
                     <TextBlock Grid.Column="1" Foreground="#222" Opacity="0.7"
+                               FontSize="12" VerticalAlignment="Center" Text="View →"/>
+                </Grid>
+            </Border>
+
+            <!-- "What's new" banner. Shown when the running build's version
+                 is ahead of Settings.LastSeenVersion (i.e. the user just
+                 upgraded). Click opens a modal listing every changelog
+                 entry newer than their stamp; dismissing the modal stamps
+                 LastSeenVersion to the current build. Hidden after dismiss. -->
+            <Border x:Name="WhatsNewBanner" Visibility="Collapsed"
+                    Background="#3D8B40" CornerRadius="4" Padding="10,8,10,8" Margin="0,0,0,10"
+                    Cursor="Hand" MouseLeftButtonUp="WhatsNewBanner_Click">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" x:Name="WhatsNewBannerText" Foreground="White"
+                               FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"
+                               Text="What's new"/>
+                    <TextBlock Grid.Column="1" Foreground="White" Opacity="0.85"
                                FontSize="12" VerticalAlignment="Center" Text="View →"/>
                 </Grid>
             </Border>
@@ -419,12 +455,15 @@
             <!-- Audio capture (game audio → wheel). Lives outside the
                  telemetry-greyed panel because it works even when the game
                  emits no useful telemetry (custom SimHub games etc). -->
-            <Expander x:Name="AudioExpander" IsExpanded="False" Margin="0,0,0,4">
+            <Expander x:Name="AudioExpander" IsExpanded="False" Margin="0,0,0,4" Expanded="EffectExpander_Expanded">
                 <Expander.Header>
                     <StackPanel Orientation="Horizontal">
                         <CheckBox x:Name="AudioEnabledCheck" Content="Audio capture (game audio → wheel)"
                                   FontWeight="SemiBold" VerticalAlignment="Center"
                                   Checked="AudioEnabled_Changed" Unchecked="AudioEnabled_Changed"/>
+                        <Border x:Name="AudioNewBadge" Style="{StaticResource NewEffectBadge}">
+                            <TextBlock Text="NEW" Foreground="White" FontSize="10" FontWeight="Bold"/>
+                        </Border>
                         <TextBlock x:Name="AudioOverrideBadge" Style="{StaticResource OverrideBadge}"/>
                         <Button    x:Name="AudioRevertBtn"  Content="↶" Tag="Audio" Margin="14,0,0,0"
                                    Style="{StaticResource EffectRevertButton}" Click="EffectRevert_Click"/>
@@ -497,12 +536,15 @@
             <StackPanel x:Name="TelemetryEffectsPanel">
 
                 <!-- Engine pulse -->
-                <Expander x:Name="EngineExpander" IsExpanded="False" Margin="0,0,0,4">
+                <Expander x:Name="EngineExpander" IsExpanded="False" Margin="0,0,0,4" Expanded="EffectExpander_Expanded">
                     <Expander.Header>
                         <StackPanel Orientation="Horizontal">
                             <CheckBox x:Name="EngineEnabledCheck" Content="Engine pulse (RPM-driven)"
                                       FontWeight="SemiBold" VerticalAlignment="Center"
                                       Checked="EngineEnabled_Changed" Unchecked="EngineEnabled_Changed"/>
+                            <Border x:Name="EngineNewBadge" Style="{StaticResource NewEffectBadge}">
+                                <TextBlock Text="NEW" Foreground="White" FontSize="10" FontWeight="Bold"/>
+                            </Border>
                             <TextBlock x:Name="EngineOverrideBadge" Style="{StaticResource OverrideBadge}"/>
                             <Button Content="Test" Style="{StaticResource EffectTestButton}" Click="EngineTest_Click"/>
                             <Button x:Name="EngineRevertBtn" Content="↶" Tag="Engine" Style="{StaticResource EffectRevertButton}" Click="EffectRevert_Click"/>
@@ -666,12 +708,15 @@
                 </Expander>
 
                 <!-- Road bumps -->
-                <Expander x:Name="BumpsExpander" IsExpanded="False" Margin="0,0,0,4">
+                <Expander x:Name="BumpsExpander" IsExpanded="False" Margin="0,0,0,4" Expanded="EffectExpander_Expanded">
                     <Expander.Header>
                         <StackPanel Orientation="Horizontal">
                             <CheckBox x:Name="SlipEnabledCheck" Content="Road bumps / curbs (vertical jolts)"
                                       FontWeight="SemiBold" VerticalAlignment="Center"
                                       Checked="SlipEnabled_Changed" Unchecked="SlipEnabled_Changed"/>
+                            <Border x:Name="BumpsNewBadge" Style="{StaticResource NewEffectBadge}">
+                                <TextBlock Text="NEW" Foreground="White" FontSize="10" FontWeight="Bold"/>
+                            </Border>
                             <TextBlock x:Name="BumpsOverrideBadge" Style="{StaticResource OverrideBadge}"/>
                             <Button Content="Test" Style="{StaticResource EffectTestButton}" Click="BumpsTest_Click"/>
                             <Button x:Name="BumpsRevertBtn" Content="↶" Tag="Bumps" Style="{StaticResource EffectRevertButton}" Click="EffectRevert_Click"/>
@@ -755,12 +800,15 @@
                 </Expander>
 
                 <!-- Traction loss -->
-                <Expander x:Name="TractionExpander" IsExpanded="False" Margin="0,0,0,4">
+                <Expander x:Name="TractionExpander" IsExpanded="False" Margin="0,0,0,4" Expanded="EffectExpander_Expanded">
                     <Expander.Header>
                         <StackPanel Orientation="Horizontal">
                             <CheckBox x:Name="TractionEnabledCheck" Content="Traction loss (rear breaking loose / wheelspin)"
                                       FontWeight="SemiBold" VerticalAlignment="Center"
                                       Checked="TractionEnabled_Changed" Unchecked="TractionEnabled_Changed"/>
+                            <Border x:Name="TractionNewBadge" Style="{StaticResource NewEffectBadge}">
+                                <TextBlock Text="NEW" Foreground="White" FontSize="10" FontWeight="Bold"/>
+                            </Border>
                             <TextBlock x:Name="TractionOverrideBadge" Style="{StaticResource OverrideBadge}"/>
                             <Button Content="Test" Style="{StaticResource EffectTestButton}" Click="TractionTest_Click"/>
                             <Button x:Name="TractionRevertBtn" Content="↶" Tag="Traction" Style="{StaticResource EffectRevertButton}" Click="EffectRevert_Click"/>
@@ -819,12 +867,15 @@
                 </Expander>
 
                 <!-- Gear shift -->
-                <Expander x:Name="ShiftExpander" IsExpanded="False" Margin="0,0,0,4">
+                <Expander x:Name="ShiftExpander" IsExpanded="False" Margin="0,0,0,4" Expanded="EffectExpander_Expanded">
                     <Expander.Header>
                         <StackPanel Orientation="Horizontal">
                             <CheckBox x:Name="ShiftEnabledCheck" Content="Gear shift thud"
                                       FontWeight="SemiBold" VerticalAlignment="Center"
                                       Checked="ShiftEnabled_Changed" Unchecked="ShiftEnabled_Changed"/>
+                            <Border x:Name="ShiftNewBadge" Style="{StaticResource NewEffectBadge}">
+                                <TextBlock Text="NEW" Foreground="White" FontSize="10" FontWeight="Bold"/>
+                            </Border>
                             <TextBlock x:Name="ShiftOverrideBadge" Style="{StaticResource OverrideBadge}"/>
                             <Button Content="Test" Style="{StaticResource EffectTestButton}" Click="ShiftTest_Click"/>
                             <Button x:Name="ShiftRevertBtn" Content="↶" Tag="Shift" Style="{StaticResource EffectRevertButton}" Click="EffectRevert_Click"/>
@@ -857,12 +908,15 @@
                 </Expander>
 
                 <!-- ABS -->
-                <Expander x:Name="AbsExpander" IsExpanded="False" Margin="0,0,0,16">
+                <Expander x:Name="AbsExpander" IsExpanded="False" Margin="0,0,0,16" Expanded="EffectExpander_Expanded">
                     <Expander.Header>
                         <StackPanel Orientation="Horizontal">
                             <CheckBox x:Name="AbsEnabledCheck" Content="ABS pulse"
                                       FontWeight="SemiBold" VerticalAlignment="Center"
                                       Checked="AbsEnabled_Changed" Unchecked="AbsEnabled_Changed"/>
+                            <Border x:Name="AbsNewBadge" Style="{StaticResource NewEffectBadge}">
+                                <TextBlock Text="NEW" Foreground="White" FontSize="10" FontWeight="Bold"/>
+                            </Border>
                             <TextBlock x:Name="AbsOverrideBadge" Style="{StaticResource OverrideBadge}"/>
                             <Button Content="Test" Style="{StaticResource EffectTestButton}" Click="AbsTest_Click"/>
                             <Button x:Name="AbsRevertBtn" Content="↶" Tag="Abs" Style="{StaticResource EffectRevertButton}" Click="EffectRevert_Click"/>
@@ -923,12 +977,15 @@
                 <!-- Pit limiter — modal flag effect. Pulse train while the
                      pit limiter is engaged. Most modern racing sims surface
                      PitLimiterOn directly via SimHub. -->
-                <Expander x:Name="PitLimiterExpander" IsExpanded="False" Margin="0,0,0,16">
+                <Expander x:Name="PitLimiterExpander" IsExpanded="False" Margin="0,0,0,16" Expanded="EffectExpander_Expanded">
                     <Expander.Header>
                         <StackPanel Orientation="Horizontal">
                             <CheckBox x:Name="PitLimiterEnabledCheck" Content="Pit limiter"
                                       FontWeight="SemiBold" VerticalAlignment="Center"
                                       Checked="PitLimiterEnabled_Changed" Unchecked="PitLimiterEnabled_Changed"/>
+                            <Border x:Name="PitLimiterNewBadge" Style="{StaticResource NewEffectBadge}">
+                                <TextBlock Text="NEW" Foreground="White" FontSize="10" FontWeight="Bold"/>
+                            </Border>
                             <TextBlock x:Name="PitLimiterOverrideBadge" Style="{StaticResource OverrideBadge}"/>
                             <Button Content="Test" Style="{StaticResource EffectTestButton}" Click="PitLimiterTest_Click"/>
                             <Button x:Name="PitLimiterRevertBtn" Content="↶" Tag="PitLimiter" Style="{StaticResource EffectRevertButton}" Click="EffectRevert_Click"/>
@@ -990,12 +1047,15 @@
                 <!-- DRS — F1-style flag effect. Activation chirp on rising edge
                      plus low-amp sustained tone while wing is open. Source:
                      SimHub StatusDataBase.DRSEnabled (F1 / F1-like sims). -->
-                <Expander x:Name="DrsExpander" IsExpanded="False" Margin="0,0,0,16">
+                <Expander x:Name="DrsExpander" IsExpanded="False" Margin="0,0,0,16" Expanded="EffectExpander_Expanded">
                     <Expander.Header>
                         <StackPanel Orientation="Horizontal">
                             <CheckBox x:Name="DrsEnabledCheck" Content="DRS"
                                       FontWeight="SemiBold" VerticalAlignment="Center"
                                       Checked="DrsEnabled_Changed" Unchecked="DrsEnabled_Changed"/>
+                            <Border x:Name="DrsNewBadge" Style="{StaticResource NewEffectBadge}">
+                                <TextBlock Text="NEW" Foreground="White" FontSize="10" FontWeight="Bold"/>
+                            </Border>
                             <TextBlock x:Name="DrsOverrideBadge" Style="{StaticResource OverrideBadge}"/>
                             <Button Content="Test" Style="{StaticResource EffectTestButton}" Click="DrsTest_Click"/>
                             <Button x:Name="DrsRevertBtn" Content="↶" Tag="Drs" Style="{StaticResource EffectRevertButton}" Click="EffectRevert_Click"/>
@@ -1064,12 +1124,15 @@
                      directly, or is derived from a sudden lateral/vertical
                      accel spike (>5g) for any other source. Global-only
                      for v1 — no per-car override slot yet. -->
-                <Expander x:Name="CollisionExpander" IsExpanded="False" Margin="0,0,0,16">
+                <Expander x:Name="CollisionExpander" IsExpanded="False" Margin="0,0,0,16" Expanded="EffectExpander_Expanded">
                     <Expander.Header>
                         <StackPanel Orientation="Horizontal">
                             <CheckBox x:Name="CollisionEnabledCheck" Content="Collision"
                                       FontWeight="SemiBold" VerticalAlignment="Center"
                                       Checked="CollisionEnabled_Changed" Unchecked="CollisionEnabled_Changed"/>
+                            <Border x:Name="CollisionNewBadge" Style="{StaticResource NewEffectBadge}">
+                                <TextBlock Text="NEW" Foreground="White" FontSize="10" FontWeight="Bold"/>
+                            </Border>
                             <TextBlock x:Name="CollisionOverrideBadge" Style="{StaticResource OverrideBadge}"/>
                             <Button Content="Test" Style="{StaticResource EffectTestButton}" Click="CollisionTest_Click"/>
                             <Button x:Name="CollisionRevertBtn" Content="↶" Tag="Collision" Style="{StaticResource EffectRevertButton}" Click="EffectRevert_Click"/>
