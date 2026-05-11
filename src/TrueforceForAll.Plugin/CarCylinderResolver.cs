@@ -29,7 +29,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
-using System.Threading;
 using Microsoft.Win32;
 using TrueforceForAll.Plugin.Effects;
 
@@ -57,19 +56,6 @@ namespace TrueforceForAll.Plugin
             /// only knew cyl count). Null means EngineConfig is Auto.</summary>
             public string EngineConfigSource { get; set; }
         }
-
-        // ----- coverage counters (read from the diagnostics surface) -----
-        // Incremented on each ResolveInternal call. Lets the UI show
-        // "Cylinder hits: 412 (212 baked + 200 heuristic) / Engine config
-        // hits: 387 (180 baked + 207 heuristic)" so users can see how often
-        // we're producing specific layout info vs falling back to Auto.
-        private static int _cylBakedHits, _cylHeuristicHits;
-        private static int _cfgBakedHits, _cfgHeuristicHits;
-        public static (int CylBaked, int CylHeuristic, int CfgBaked, int CfgHeuristic) GetCoverageCounters()
-            => (Volatile.Read(ref _cylBakedHits),
-                Volatile.Read(ref _cylHeuristicHits),
-                Volatile.Read(ref _cfgBakedHits),
-                Volatile.Read(ref _cfgHeuristicHits));
 
         // Process-lifetime cache. Two states:
         //   key present, value non-null  → hit, reuse
@@ -183,9 +169,7 @@ namespace TrueforceForAll.Plugin
         {
             if (BuiltinCarCylinders.TryGet(gameName, carId, out var spec))
             {
-                Interlocked.Increment(ref _cylBakedHits);
                 bool hasBakedConfig = spec.EngineConfig != EngineConfig.Auto;
-                if (hasBakedConfig) Interlocked.Increment(ref _cfgBakedHits);
                 var r = new Result
                 {
                     Cylinders          = spec.Cylinders,
@@ -217,8 +201,6 @@ namespace TrueforceForAll.Plugin
                         r.EngineConfig       = swapCfg;
                         r.Source             = "swap-override";
                         r.EngineConfigSource = "swap-override";
-                        if (swapCfg != EngineConfig.Auto)
-                            Interlocked.Increment(ref _cfgHeuristicHits);
                     }
                     else if (!hasBakedConfig)
                     {
@@ -227,7 +209,6 @@ namespace TrueforceForAll.Plugin
                         {
                             r.EngineConfig       = cfg;
                             r.EngineConfigSource = src;
-                            Interlocked.Increment(ref _cfgHeuristicHits);
                         }
                     }
                 }
@@ -236,24 +217,14 @@ namespace TrueforceForAll.Plugin
 
             // Persistent cache: prior heuristic hits saved across sessions.
             if (TryReadPersistent(gameName, carId, out var cached))
-            {
-                // Cache hits don't double-count against the running counters
-                // (we already counted them on the resolution that wrote them);
-                // we just return what's stored.
                 return cached;
-            }
 
             // Heuristic only implemented for AC today.
             if (string.Equals(gameName, "AssettoCorsa", StringComparison.OrdinalIgnoreCase))
             {
                 var hit = TryAcHeuristic(carId);
                 if (hit != null)
-                {
-                    Interlocked.Increment(ref _cylHeuristicHits);
-                    if (hit.EngineConfig != EngineConfig.Auto)
-                        Interlocked.Increment(ref _cfgHeuristicHits);
                     WritePersistent(gameName, carId, hit);
-                }
                 return hit;
             }
 

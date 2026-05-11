@@ -377,25 +377,6 @@ namespace TrueforceForAll.Plugin
             }
         }
 
-        /// <summary>Cylinder + EngineConfig resolver coverage since plugin
-        /// init. Counts increment exactly once per car-change resolution
-        /// (cache rehits don't double-count). Surfaced in the settings UI's
-        /// firing-order section so users can see how often we're producing
-        /// specific layout info vs falling back to Auto.</summary>
-        public string EngineConfigCoverageText
-        {
-            get
-            {
-                var (cylBaked, cylHeu, cfgBaked, cfgHeu) = CarCylinderResolver.GetCoverageCounters();
-                int cylTotal = cylBaked + cylHeu;
-                int cfgTotal = cfgBaked + cfgHeu;
-                if (cylTotal == 0) return "No cars resolved yet.";
-                return $"Resolved {cylTotal} car(s) this session: " +
-                       $"cylinders {cylBaked} baked + {cylHeu} heuristic, " +
-                       $"engine config {cfgBaked} baked + {cfgHeu} heuristic " +
-                       $"({(cylTotal == 0 ? 0 : cfgTotal * 100 / cylTotal)}% layout coverage).";
-            }
-        }
         public AudioCaptureSource AudioCapture => _audio;
 
         // Live counters surfaced to the Performance tab for the underrun

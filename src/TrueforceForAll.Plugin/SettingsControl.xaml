@@ -694,16 +694,6 @@
                                     Content="Submit engine data for this car..."
                                     ToolTip="Opens a Google Form pre-filled with what's auto-detected and what you've selected in the dropdowns / slider. Just hit Submit on the form, no typing needed and no account required."/>
                         </Grid>
-                        <!-- Coverage readout: how often the resolver is producing
-                             specific layout info this session, broken down by
-                             baked vs heuristic. Lets users see whether the
-                             firing-order feature is actually firing for cars
-                             they drive. Refreshed by the same UI tick that
-                             updates other live counters. -->
-                        <TextBlock x:Name="EngineCoverageText" Style="{StaticResource HelpText}"
-                                   Margin="140,0,0,0" TextWrapping="Wrap"
-                                   FontStyle="Italic"
-                                   Text="No cars resolved yet."/>
                     </StackPanel>
                 </Expander>
 

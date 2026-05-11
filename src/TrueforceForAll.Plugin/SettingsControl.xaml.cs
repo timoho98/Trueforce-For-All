@@ -569,13 +569,6 @@ namespace TrueforceForAll.Plugin
                         EngineCylindersAutoText.Text = "";
                     }
 
-                    // Engine-config resolver coverage. Updates each tick with
-                    // a single text line summarizing baked + heuristic hits
-                    // for both cyl and config so users can see how complete
-                    // the firing-order coverage is for cars they drive.
-                    if (EngineCoverageText != null)
-                        EngineCoverageText.Text = _plugin.EngineConfigCoverageText;
-
                     // Report/submit engine-data button. The save-time popup
                     // is the primary submission path; this button is a
                     // persistent fallback for: (a) users who declined the
