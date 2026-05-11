@@ -2039,6 +2039,7 @@ namespace TrueforceForAll.Plugin
                 LowpassHz = s.LowpassHz, Waveform = s.Waveform, ElectricMode = s.ElectricMode,
                 FiringOrderEnabled = s.FiringOrderEnabled, EngineConfig = s.EngineConfig,
                 CustomFiringPattern = s.CustomFiringPattern,
+                CustomFiringPatternName = s.CustomFiringPatternName,
             };
         private static RoadBumpsSettings    Clone(RoadBumpsSettings s)
             => new RoadBumpsSettings    {
@@ -2743,7 +2744,8 @@ namespace TrueforceForAll.Plugin
                 && a.ElectricMode == b.ElectricMode
                 && a.FiringOrderEnabled == b.FiringOrderEnabled
                 && a.EngineConfig == b.EngineConfig
-                && string.Equals(a.CustomFiringPattern ?? "", b.CustomFiringPattern ?? "", System.StringComparison.Ordinal);
+                && string.Equals(a.CustomFiringPattern ?? "", b.CustomFiringPattern ?? "", System.StringComparison.Ordinal)
+                && string.Equals(a.CustomFiringPatternName ?? "", b.CustomFiringPatternName ?? "", System.StringComparison.Ordinal);
         }
         private static bool Eq(RoadBumpsSettings a, RoadBumpsSettings b)
         {

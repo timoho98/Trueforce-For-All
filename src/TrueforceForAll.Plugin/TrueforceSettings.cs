@@ -369,6 +369,16 @@ namespace TrueforceForAll.Plugin
         /// FiringPatternDb.ParseCustom. Round-trips through the settings UI
         /// textbox so users can copy / paste their tuning back to us.</summary>
         public string CustomFiringPattern { get; set; } = "";
+
+        /// <summary>Optional human-friendly name for a custom firing pattern.
+        /// Built-in patterns ship with descriptive names ("V8 cross-plane",
+        /// "Ducati L-twin", etc.); this lets users tag their own custom
+        /// patterns the same way ("LS3 swap, dyno-tuned" / "Ferrari 360
+        /// flat-plane bias"). Surfaces in the engine-data submission body
+        /// so maintainers and downstream contributors get the user's
+        /// semantic intent alongside the raw phase numbers. Used only
+        /// when EngineConfig == Custom; ignored otherwise.</summary>
+        public string CustomFiringPatternName { get; set; } = "";
     }
 
     public sealed class RoadBumpsSettings

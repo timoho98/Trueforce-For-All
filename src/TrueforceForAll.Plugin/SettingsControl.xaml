@@ -616,6 +616,20 @@
                         <TextBlock Style="{StaticResource HelpText}" Margin="140,0,0,4"
                                    TextWrapping="Wrap"
                                    Text="Format: 0, 0.125, 0.25, ...  Optional weights: 0:1.0, 0.125:0.85, ..."/>
+                        <!-- Optional name for a custom firing pattern. Only
+                             shown when Engine layout is Custom. Built-in
+                             layouts already carry descriptive names; this
+                             lets users tag their own patterns the same way
+                             so a submitted contribution can be filed under
+                             a meaningful label. Visibility toggled by
+                             UpdateFiringPatternReadout. -->
+                        <Grid x:Name="EngineFiringPatternNameRow" Margin="0,0,0,4" Visibility="Collapsed">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Pattern name:" Style="{StaticResource LabelText}"
+                                       ToolTip="Optional. A short label for your custom firing pattern (e.g. 'LS3 swap, dyno-tuned'). Built-in layouts already have names like 'V8 cross-plane'; naming yours makes contributed patterns easier to find."/>
+                            <TextBox   Grid.Column="1" x:Name="EngineFiringPatternNameText"
+                                       LostFocus="EngineFiringPatternName_LostFocus"/>
+                        </Grid>
                         <!-- Submit/report engine-data button. Opens a Google
                              Form pre-filled with what the plugin auto-detected
                              and what the user has selected. Code sets label

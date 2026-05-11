@@ -1695,88 +1695,83 @@ namespace TrueforceForAll.Plugin
             var es        = _plugin.ActiveEngine;
             string version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "?";
 
-            // What the bake / resolver said
-            int? autoCyl   = ep?.AutoCylinders;
-            string cylSrc  = ep?.AutoCylinderSource ?? "(none)";
-            string autoElec = ep != null && ep.IsElectric ? "yes" : "no";
-            // The auto layout for this carId is whatever FiringPatternDb would
-            // pick if the bake had Auto — i.e. the cyl-count default. We
-            // surface what the resolver actually returned (which the plugin
-            // wrote into EnginePulse.EngineConfig) only if it differs from
-            // the user's saved value below; otherwise the user's value is
-            // already that.
-            string detectedLayout = !string.IsNullOrEmpty(cylSrc)
-                ? (ep?.EngineConfig.ToString() ?? "Auto")
-                : "(not detected)";
+            // What the bake / resolver said.
+            int? autoCyl       = ep?.AutoCylinders;
+            string cylSrc      = ep?.AutoCylinderSource ?? "";
+            bool autoEv        = ep != null && ep.IsElectric;
+            var autoLayout     = ep?.EngineConfig ?? Effects.EngineConfig.Auto;
+            bool layoutDetected = !string.IsNullOrEmpty(cylSrc) && !autoEv && autoLayout != Effects.EngineConfig.Auto;
 
-            // What the user has selected on the page (their preset values)
+            // What the user has on the panel (their committed preset values).
+            // ElectricMode (silent / muted hum) is intentionally not collected:
+            // it's a per-user response-curve preference, not a fact about the
+            // car, so it doesn't help the bake even on EV submissions.
             int sliderCyl = es?.Cylinders ?? 0;
-            string sliderText = sliderCyl == 0 ? "auto" : sliderCyl.ToString();
             var userCfg   = es?.EngineConfig ?? Effects.EngineConfig.Auto;
-            var userElec  = es?.ElectricMode ?? ElectricCarMode.MutedHum;
-            string customRaw = es?.CustomFiringPattern ?? "";
-
-            // Diff lines. Show only the axes where the user's value differs
-            // from auto so the maintainer sees exactly what's being proposed
-            // as a change. Includes an explicit EV-mismatch line so a user
-            // who tunes cylinders on an EV-flagged car is unambiguously
-            // saying "this car isn't actually electric".
-            var diff = new System.Collections.Generic.List<string>();
-            if (sliderCyl != 0 && autoCyl.HasValue && sliderCyl != autoCyl.Value)
-                diff.Add($"- Cylinders: detected `{autoCyl}`, user says `{sliderCyl}`");
-            else if (sliderCyl != 0 && !autoCyl.HasValue)
-                diff.Add($"- Cylinders: not detected, user says `{sliderCyl}`");
-            if (userCfg != Effects.EngineConfig.Auto && string.IsNullOrEmpty(cylSrc))
-                diff.Add($"- Engine layout: not detected, user says `{userCfg}`");
-            else if (userCfg != Effects.EngineConfig.Auto && userCfg.ToString() != detectedLayout)
-                diff.Add($"- Engine layout: detected `{detectedLayout}`, user says `{userCfg}`");
-            if (userCfg == Effects.EngineConfig.Custom && !string.IsNullOrEmpty(customRaw))
-                diff.Add($"- Custom firing pattern: `{customRaw}`");
-            bool autoEv = ep != null && ep.IsElectric;
+            string customRaw  = es?.CustomFiringPattern ?? "";
+            string customName = (es?.CustomFiringPatternName ?? "").Trim();
             bool userImpliesCombustion = sliderCyl >= 1 || userCfg != Effects.EngineConfig.Auto;
+
+            // Build the proposed-changes block as "before -> after" lines.
+            // Plain text only -- Google Forms long-answer fields don't render
+            // markdown, so any **bold** or `code` ticks would just show as
+            // literal characters in the response sheet.
+            string CylDisplay(int? n)        => n.HasValue ? n.Value.ToString() : "not detected";
+            string LayoutDetectedDisplay()   =>
+                  autoEv             ? "not detected (flagged electric)"
+                : !layoutDetected    ? "not detected"
+                                     : EngineConfigFriendlyName(autoLayout);
+
+            var diff = new System.Collections.Generic.List<string>();
+            if (sliderCyl != 0 && (!autoCyl.HasValue || sliderCyl != autoCyl.Value))
+                diff.Add($"Cylinders: {CylDisplay(autoCyl)} -> {sliderCyl}");
+            if (userCfg != Effects.EngineConfig.Auto && (!layoutDetected || userCfg != autoLayout))
+                diff.Add($"Engine layout: {LayoutDetectedDisplay()} -> {EngineConfigFriendlyName(userCfg)}");
+            if (userCfg == Effects.EngineConfig.Custom && !string.IsNullOrEmpty(customName))
+                diff.Add($"Custom pattern name: {customName}");
+            if (userCfg == Effects.EngineConfig.Custom && !string.IsNullOrEmpty(customRaw))
+                diff.Add($"Custom firing pattern: {customRaw}");
             if (autoEv && userImpliesCombustion)
-                diff.Add("- Electric flag: detected `yes`, user implies `no` (set cylinders/layout)");
+                diff.Add("Electric flag: yes -> no (user set cylinders/layout)");
 
-            // Submission category — same three buckets as before, just used
-            // here as a leading marker line so the response sheet is sortable
-            // without opening each row.
-            string category;
-            if (diff.Count == 0)
-                category = "CONFIRM";
-            else if (string.IsNullOrEmpty(cylSrc))
-                category = "CONTRIB";
-            else
-                category = "CORRECTION";
+            // CONFIRM is unreachable under the new UX (button hidden + popup
+            // skipped when state is None), so the two real categories are:
+            //   CORRECTION = resolver had detection, user is changing it
+            //   CONTRIB    = no detection, user filled in from scratch
+            string category = !string.IsNullOrEmpty(cylSrc) ? "CORRECTION" : "CONTRIB";
 
-            string body =
-                  $"[{category}] {carId} ({game})\n\n"
-                + $"**Game:** `{game}`  \n"
-                + $"**Car ID:** `{carId}`  \n"
-                + $"**Plugin version:** {version}\n\n";
+            // Header line with the sortable bits, then the diff lines as a
+            // plain list, then a one-line source attribution (only for
+            // CORRECTION -- CONTRIB has nothing to reference), then Notes.
+            // No "Reference" dump: every value we'd have shown is either
+            // already on the arrow's left side or duplicated from the
+            // user's panel settings.
+            //
+            // Two version stamps: plugin assembly version covers the bake
+            // list + resolver code; CarCylinderResolver.CurrentCacheVersion
+            // is bumped whenever heuristics change and forces the
+            // persistent cache to rebuild. Together they let the maintainer
+            // tell exactly which detection generation produced the values
+            // the user is correcting (e.g. "plugin v1.5 (data v3)" came
+            // from a build that shipped v3 heuristics).
+            string body = $"[{category}] {carId}  |  {game}  |  plugin v{version} (data v{CarCylinderResolver.CurrentCacheVersion})\n\n";
 
             if (diff.Count > 0)
             {
-                body += "**Proposed change(s)**\n"
-                      + string.Join("\n", diff) + "\n\n";
+                body += string.Join("\n", diff) + "\n\n";
             }
 
-            body += "**Auto-detected (what the plugin found)**\n"
-                  + $"- Cylinders: {(autoCyl?.ToString() ?? "(not detected)")}  \n"
-                  + $"- Cyl source: `{cylSrc}`  \n"
-                  + $"- Engine layout: `{detectedLayout}`  \n"
-                  + $"- Electric flag: {autoElec}\n\n"
-                  + "**My settings on the panel (proposed)**\n"
-                  + $"- Cylinders slider: `{sliderText}`  \n"
-                  + $"- Engine layout dropdown: `{userCfg}`  \n"
-                  // ElectricMode only matters for cars the plugin flagged as
-                  // electric (it's the response curve for that case). Omit
-                  // for combustion cars so the row isn't noise.
-                  + (autoEv ? $"- Electric mode: `{userElec}`  \n" : "")
-                  + (string.IsNullOrEmpty(customRaw)
-                        ? ""
-                        : $"- Custom firing pattern: `{customRaw}`  \n")
-                  + "\n**Notes** (optional: engine codename, mod page link, anything else):\n"
-                  + "\n";
+            // Source attribution: tells the maintainer how confident the
+            // pre-existing detection was (baked = curated list, heuristic =
+            // pattern-matched, telemetry = sim-supplied, ev = electric tag).
+            // Only meaningful when something WAS detected, so it's skipped
+            // for CONTRIB.
+            if (!string.IsNullOrEmpty(cylSrc))
+            {
+                body += $"Detection source: {cylSrc}\n\n";
+            }
+
+            body += "Notes (engine codename, mod page link, anything else):\n\n";
 
             string url = EngineDataFormUrl
                        + "?usp=pp_url&" + EngineDataFormEntry + "="
@@ -1870,8 +1865,21 @@ namespace TrueforceForAll.Plugin
             UpdateFiringPatternReadout(es);
         }
 
+        // Optional name for the custom firing pattern. Only meaningful when
+        // Custom is the active layout; the input row is hidden otherwise.
+        private void EngineFiringPatternName_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            var es = _plugin.ActiveEngine;
+            if (es.EngineConfig != Effects.EngineConfig.Custom) return;
+            es.CustomFiringPatternName = (EngineFiringPatternNameText.Text ?? "").Trim();
+            Apply(EffectKind.Engine);
+        }
+
         // Sync the read-only-ness, content, and tooltip of the pattern textbox
-        // to the current engine config + active resolved pattern.
+        // to the current engine config + active resolved pattern. Also
+        // toggles the optional pattern-name row, which is only meaningful
+        // (and only visible) when Custom is the active layout.
         private void UpdateFiringPatternReadout(EnginePulseSettings es)
         {
             if (EngineFiringPatternText == null || es == null) return;
@@ -1897,7 +1905,22 @@ namespace TrueforceForAll.Plugin
             // Suppress LostFocus echo when we programmatically update the text.
             bool oldSuppress = _suppressEvents;
             _suppressEvents = true;
-            try { EngineFiringPatternText.Text = display; }
+            try
+            {
+                EngineFiringPatternText.Text = display;
+                if (EngineFiringPatternNameRow != null)
+                {
+                    EngineFiringPatternNameRow.Visibility = isCustom
+                        ? System.Windows.Visibility.Visible
+                        : System.Windows.Visibility.Collapsed;
+                }
+                if (EngineFiringPatternNameText != null)
+                {
+                    EngineFiringPatternNameText.Text = isCustom
+                        ? (es.CustomFiringPatternName ?? "")
+                        : "";
+                }
+            }
             finally { _suppressEvents = oldSuppress; }
         }
 
@@ -1939,6 +1962,29 @@ namespace TrueforceForAll.Plugin
                 case Effects.EngineConfig.Rotary:       return 10;
                 case Effects.EngineConfig.Custom:       return 11;
                 default:                                return 0;
+            }
+        }
+
+        // Human-readable layout label used in the engine-data submission
+        // body. Mirrors the dropdown text users see, minus the parenthetical
+        // descriptions (kept compact for the form's plain-text rendering).
+        private static string EngineConfigFriendlyName(Effects.EngineConfig c)
+        {
+            switch (c)
+            {
+                case Effects.EngineConfig.Auto:         return "Auto";
+                case Effects.EngineConfig.Inline:       return "Inline / even-fire";
+                case Effects.EngineConfig.Boxer:        return "Boxer";
+                case Effects.EngineConfig.V60:          return "V60 even-fire";
+                case Effects.EngineConfig.V90Even:      return "V90 even-fire";
+                case Effects.EngineConfig.V8CrossPlane: return "V8 cross-plane";
+                case Effects.EngineConfig.V8FlatPlane:  return "V8 flat-plane";
+                case Effects.EngineConfig.V6OddFire:    return "V6 odd-fire";
+                case Effects.EngineConfig.VTwin90:      return "V-twin 90";
+                case Effects.EngineConfig.VTwin45:      return "V-twin 45";
+                case Effects.EngineConfig.Rotary:       return "Rotary";
+                case Effects.EngineConfig.Custom:       return "Custom";
+                default:                                return c.ToString();
             }
         }
 
