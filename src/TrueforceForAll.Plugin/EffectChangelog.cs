@@ -67,6 +67,33 @@ namespace TrueforceForAll.Plugin
                     },
                 },
             },
+            new ChangelogVersion {
+                Version = new Version(0, 1, 1),
+                Title = "Polish pass on the updater path",
+                Entries = new List<ChangelogEntry>
+                {
+                    new ChangelogEntry {
+                        Headline = "Inline 'Update to vX.Y.Z' button replaces the old banner",
+                        Description = "When a newer release exists, the 'Check for updates' link in the header now turns into a prominent inline button. The separate orange banner row is gone, so the panel reads cleaner when no update is pending.",
+                    },
+                    new ChangelogEntry {
+                        Headline = "Update and What's new dialogs match the SimHub dark theme",
+                        Description = "Both pop-ups now render with light text on a dark background instead of the system default, so release notes are legible against SimHub's chrome.",
+                    },
+                    new ChangelogEntry {
+                        Headline = "Manual 'Check for updates' link in the header",
+                        Description = "A small link next to the version readout re-polls GitHub on demand, so users who leave SimHub open for hours don't have to restart it to discover a new release.",
+                    },
+                    new ChangelogEntry {
+                        Headline = "Auto-updater no longer requires a connected wheel",
+                        Description = "If a wheel can't be detected (unplugged, G HUB holding the HID), the plugin used to skip the update check entirely. It now polls regardless of wheel state, so users with a detection problem can still discover the fix when it ships.",
+                    },
+                    new ChangelogEntry {
+                        Headline = "Installer 'Launch SimHub now' surfaces the window",
+                        Description = "The post-install checkbox launches SimHub through the same path as a desktop double-click, so the window comes to the foreground instead of being stranded behind a taskbar button.",
+                    },
+                },
+            },
         };
 
         /// <summary>Returns every changelog version strictly newer than the
