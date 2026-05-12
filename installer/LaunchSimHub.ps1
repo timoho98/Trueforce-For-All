@@ -209,18 +209,28 @@ do {
     foreach ($p in $procs) {
         $windows = [TfaLaunchInterop]::FindTopLevelWindowsForPid([uint32]$p.Id)
         if ($windows.Count -eq 0) { continue }
-        # Score: 3 for has-SimHub-title + no owner, 2 for has-SimHub-title,
-        # 1 for no-owner. Then prefer visible.
         $best = $null
         $bestScore = -1
         foreach ($w in $windows) {
+            # Skip empty-title invisible windows. WPF apps spin up a hidden
+            # Dispatcher helper window with class
+            #   HwndWrapper[<exe>;;<guid>]
+            # that appears within the first second of process start; in the
+            # previous revision we picked it because it scored "no owner"
+            # and never advanced to SimHub's real main window. Requiring
+            # either a non-empty title or a visible window filters those
+            # helpers out without false-rejecting the main window (which
+            # WPF gives a Title from XAML well before show).
+            if ([string]::IsNullOrWhiteSpace($w.Title) -and -not $w.Visible) { continue }
             $score = 0
             if ($w.Title -and $w.Title.IndexOf('SimHub', [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { $score += 2 }
             if (-not $w.HasOwner) { $score += 1 }
-            if ($w.Visible) { $score += 0.1 }
+            if ($w.Visible)       { $score += 0.5 }
             if ($score -gt $bestScore) { $bestScore = $score; $best = $w }
         }
-        if ($best -ne $null -and $bestScore -gt 0) {
+        # Require at least a real title OR visibility. Score >= 1 is too
+        # weak (matches owner-less helpers); insist on title-match OR visible.
+        if ($null -ne $best -and ($bestScore -ge 2 -or $best.Visible)) {
             $target = $best
             $targetPid = $p.Id
             break
