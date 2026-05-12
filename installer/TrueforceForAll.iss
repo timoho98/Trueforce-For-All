@@ -509,9 +509,7 @@ begin
     WizardForm.FinishedHeadingLabel.Caption :=
       'Trueforce For All is installed';
     WizardForm.FinishedLabel.Caption :=
-      'Make sure Logitech G HUB is closed before launching SimHub. G HUB claims the wheel''s HID interface and will block this plugin.' + #13#10 + #13#10 +
-      'Trueforce For All has been enabled and pinned to SimHub''s sidebar automatically. Click "Launch SimHub now" below, then drive a supported game and tune via the plugin''s settings panel.' + #13#10 + #13#10 +
-      'If you have "Start minimized" enabled in SimHub, the window will open minimized to the taskbar. Click the SimHub icon in the taskbar to bring it up.' + #13#10 + #13#10 +
-      'If the plugin doesn''t appear in the sidebar, click "Add/remove feature" at the bottom left of the SimHub window and enable Trueforce For All from the list.';
+      'Close Logitech G HUB before launching SimHub. G HUB claims the wheel''s HID interface and will block this plugin.' + #13#10 + #13#10 +
+      'If you have "Start minimized" enabled in SimHub, the window will open minimized to the taskbar. Click the SimHub icon to bring it up.';
   end;
 end;
