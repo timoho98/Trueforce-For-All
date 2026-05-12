@@ -68,6 +68,17 @@ namespace TrueforceForAll.Plugin
                 },
             },
             new ChangelogVersion {
+                Version = new Version(0, 1, 6),
+                Title = "Bug fix",
+                Entries = new List<ChangelogEntry>
+                {
+                    new ChangelogEntry {
+                        Headline = "What's new banner now shows the correct version after an upgrade",
+                        Description = "The header used to read 'What's new in v0.1.4' right after upgrading to v0.1.5 because the banner picked the last entry in the changelog array rather than the true max version. The modal also rendered older entries above newer ones for the same reason. Both now read version order regardless of file order.",
+                    },
+                },
+            },
+            new ChangelogVersion {
                 Version = new Version(0, 1, 5),
                 Title = "Built-in preset refresh + Pit limiter / DRS / Collision dirty fix",
                 Entries = new List<ChangelogEntry>

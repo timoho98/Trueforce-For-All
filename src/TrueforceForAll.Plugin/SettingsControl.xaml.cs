@@ -1121,7 +1121,13 @@ namespace TrueforceForAll.Plugin
             if (WhatsNewBanner.Visibility != want) WhatsNewBanner.Visibility = want;
             if (show && WhatsNewBannerText != null)
             {
-                var latest = pending[pending.Count - 1].Version;
+                // Pick the true max across pending rather than the last item:
+                // EffectChangelog.Versions ordering has drifted from its
+                // documented oldest -> newest invariant, so positional reads
+                // can land on an older entry.
+                System.Version latest = null;
+                foreach (var v in pending)
+                    if (latest == null || v.Version > latest) latest = v.Version;
                 string desired = "What's new in v" + latest.ToString(3);
                 if (WhatsNewBannerText.Text != desired) WhatsNewBannerText.Text = desired;
             }
@@ -4503,16 +4509,20 @@ namespace TrueforceForAll.Plugin
 
             // Body: a scrolling stack of (version title) + (per-entry headline + description).
             // Renders newest first so the most recent additions are at the top.
+            // Sort explicitly by Version instead of relying on pending's declared
+            // order, which has historically been inconsistent.
+            var ordered = new List<ChangelogVersion>(pending);
+            ordered.Sort((a, b) => b.Version.CompareTo(a.Version));
             var bodyStack = new StackPanel();
-            for (int i = pending.Count - 1; i >= 0; i--)
+            for (int i = 0; i < ordered.Count; i++)
             {
-                var ver = pending[i];
+                var ver = ordered[i];
                 bodyStack.Children.Add(new TextBlock
                 {
                     Text = "v" + ver.Version.ToString(3) + (string.IsNullOrEmpty(ver.Title) ? "" : "  ·  " + ver.Title),
                     FontWeight = FontWeights.SemiBold,
                     FontSize = 14,
-                    Margin = new Thickness(0, i == pending.Count - 1 ? 0 : 14, 0, 6),
+                    Margin = new Thickness(0, i == 0 ? 0 : 14, 0, 6),
                 });
                 if (ver.Entries != null)
                 {
