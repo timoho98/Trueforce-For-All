@@ -193,23 +193,20 @@ public class TfaLaunchInterop {
 '@
 
 # Poll until SimHubWPF exposes its actual WPF main window via
-# EnumWindows. We aggressively filter for one class pattern only:
-# WPF wraps top-level windows in
-#   HwndWrapper[<exe>;<threadid>;<guid>]
-# Every other top-level handle the process owns is some helper we
-# don't want to manipulate. Two specific traps observed in this
-# user's environment in earlier revisions:
+# EnumWindows. WPF wraps every top-level window in this process in
+# class HwndWrapper[<exe>;<threadid?>;<guid>]; even the main window
+# uses the ";;"-bearing variant (empty threadid). The discriminator
+# between main and helpers turns out to be runtime state:
 #
-#   1. The WPF Dispatcher's hidden helper has class
-#        HwndWrapper[SimHubWPF.exe;;<guid>]
-#      (empty <threadid> between the two semicolons). It's owner-less
-#      and appears within ~1s but is permanently invisible. We
-#      previously stopped on it.
-#   2. A "GDI+ Hook Window Class" with title "GDI+ Window
-#      (SimHubWPF.exe)" -- a GDI+ runtime helper. Its title contains
-#      the substring "SimHub" so a substring filter false-matches.
+#   Main window:    class HwndWrapper[...]  Title="SimHub - ..."   Visible=True   (WS_VISIBLE set; may still be iconic/minimized)
+#   Helpers:        class HwndWrapper[...]  Title=""               Visible=False
+#                   (e.g. MediaContextNotificationWindow,
+#                    SystemResourceNotifyWindow, dispatcher host)
 #
-# The class-name filter below excludes both.
+# Non-WPF helpers we don't care about (GDI+ Hook Window Class,
+# WindowsForms NotifyIcon wrappers, IME, DIEmWin, etc.) are excluded
+# by the class-prefix gate; the title + visibility gates then pick
+# the right HwndWrapper out of WPF's own zoo of internal helpers.
 $timeoutSeconds = 30
 $start = Get-Date
 $target = $null
@@ -224,18 +221,24 @@ do {
         $windows = [TfaLaunchInterop]::FindTopLevelWindowsForPid([uint32]$p.Id)
         if ($windows.Count -eq 0) { continue }
         $best = $null
+        $bestScore = -1
         foreach ($w in $windows) {
-            # Hard class-name filter. Reject anything that isn't a WPF
-            # top-level window, and reject the Dispatcher helper variant
-            # (";;" between semicolons -- empty thread id).
+            # Gate 1: must be a WPF top-level window.
             if (-not $w.ClassName.StartsWith('HwndWrapper[', [System.StringComparison]::OrdinalIgnoreCase)) { continue }
-            if ($w.ClassName.Contains(';;')) { continue }
-            # Among the remaining candidates the main window is the only one
-            # we expect, but if SimHub creates additional WPF windows during
-            # startup (splash, etc.) prefer one with a non-empty title.
-            if ($null -eq $best -or (-not [string]::IsNullOrWhiteSpace($w.Title) -and [string]::IsNullOrWhiteSpace($best.Title))) {
-                $best = $w
-            }
+            # Gate 2: skip WPF internal helpers. The main window is the
+            # only one that's both visible AND has a non-empty title.
+            # Helpers either have title="" (DispatcherHost variant) or
+            # title="MediaContextNotificationWindow" /
+            # "SystemResourceNotifyWindow" while invisible.
+            if ([string]::IsNullOrWhiteSpace($w.Title)) { continue }
+            if (-not $w.Visible) { continue }
+            # Prefer titles that start with "SimHub" so an in-game title
+            # like "SimHub - Assetto Corsa" wins over a hypothetical
+            # helper that someday gets a non-empty title.
+            $score = 1
+            if ($w.Title.StartsWith('SimHub', [System.StringComparison]::OrdinalIgnoreCase)) { $score += 2 }
+            if (-not $w.HasOwner) { $score += 1 }
+            if ($score -gt $bestScore) { $bestScore = $score; $best = $w }
         }
         if ($null -ne $best) {
             $target = $best
