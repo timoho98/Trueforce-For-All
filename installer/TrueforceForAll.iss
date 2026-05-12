@@ -511,5 +511,16 @@ begin
     WizardForm.FinishedLabel.Caption :=
       'Close Logitech G HUB before launching SimHub. G HUB claims the wheel''s HID interface and will block this plugin.' + #13#10 + #13#10 +
       'If you have "Start minimized" enabled in SimHub, the window will open minimized to the taskbar. Click the SimHub icon to bring it up.';
+
+    // The default FinishedLabel is sized for a short single-paragraph
+    // message and clips longer text behind the RunList (the postinstall
+    // "Launch SimHub now" checkbox row). Resize the label tall enough
+    // for two paragraphs of body text and push the RunList down so the
+    // checkbox doesn't overlap. ScaleY tracks DPI.
+    WizardForm.FinishedLabel.AutoSize := False;
+    WizardForm.FinishedLabel.WordWrap := True;
+    WizardForm.FinishedLabel.Height   := ScaleY(120);
+    WizardForm.RunList.Top    := WizardForm.FinishedLabel.Top + WizardForm.FinishedLabel.Height + ScaleY(16);
+    WizardForm.RunList.Height := WizardForm.RunList.Parent.ClientHeight - WizardForm.RunList.Top - ScaleY(8);
   end;
 end;
