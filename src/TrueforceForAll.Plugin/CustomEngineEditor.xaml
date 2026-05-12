@@ -5,7 +5,9 @@
         Width="540" Height="460"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
-        ShowInTaskbar="False">
+        ShowInTaskbar="False"
+        Background="#FF2A2A2A"
+        TextElement.Foreground="#FFEAEAEA">
     <Window.Resources>
         <Style x:Key="LabelText" TargetType="TextBlock">
             <Setter Property="VerticalAlignment" Value="Center"/>

@@ -258,7 +258,7 @@
                     <TextBlock x:Name="UpdateAvailableButtonText" Text="Update available"/>
                 </Button>
             </StackPanel>
-            <TextBlock Text="Brings Trueforce-style haptics to any SimHub-enabled game. Unofficial — a reverse-engineered implementation of Logitech's Trueforce protocol, not affiliated with Logitech. Supports G PRO / RS50 wheels."
+            <TextBlock Text="Brings Trueforce-style haptics to any SimHub-enabled game. Unofficial reverse-engineered implementation of Logitech's Trueforce protocol, not affiliated with Logitech. Supports G PRO / RS50 wheels."
                        FontSize="13" Opacity="0.7" Margin="0,0,0,12" TextWrapping="Wrap"/>
 
             <!-- "What's new" banner. Shown when the running build's version
@@ -959,7 +959,7 @@
                 </Expander>
 
                 <!-- ABS -->
-                <Expander x:Name="AbsExpander" IsExpanded="False" Margin="0,0,0,16" Expanded="EffectExpander_Expanded">
+                <Expander x:Name="AbsExpander" IsExpanded="False" Margin="0,0,0,4" Expanded="EffectExpander_Expanded">
                     <Expander.Header>
                         <StackPanel Orientation="Horizontal">
                             <CheckBox x:Name="AbsEnabledCheck" Content="ABS pulse"
@@ -1028,7 +1028,7 @@
                 <!-- Pit limiter — modal flag effect. Pulse train while the
                      pit limiter is engaged. Most modern racing sims surface
                      PitLimiterOn directly via SimHub. -->
-                <Expander x:Name="PitLimiterExpander" IsExpanded="False" Margin="0,0,0,16" Expanded="EffectExpander_Expanded">
+                <Expander x:Name="PitLimiterExpander" IsExpanded="False" Margin="0,0,0,4" Expanded="EffectExpander_Expanded">
                     <Expander.Header>
                         <StackPanel Orientation="Horizontal">
                             <CheckBox x:Name="PitLimiterEnabledCheck" Content="Pit limiter"
@@ -1098,7 +1098,7 @@
                 <!-- DRS — F1-style flag effect. Activation chirp on rising edge
                      plus low-amp sustained tone while wing is open. Source:
                      SimHub StatusDataBase.DRSEnabled (F1 / F1-like sims). -->
-                <Expander x:Name="DrsExpander" IsExpanded="False" Margin="0,0,0,16" Expanded="EffectExpander_Expanded">
+                <Expander x:Name="DrsExpander" IsExpanded="False" Margin="0,0,0,4" Expanded="EffectExpander_Expanded">
                     <Expander.Header>
                         <StackPanel Orientation="Horizontal">
                             <CheckBox x:Name="DrsEnabledCheck" Content="DRS"
@@ -1175,7 +1175,7 @@
                      directly, or is derived from a sudden lateral/vertical
                      accel spike (>5g) for any other source. Global-only
                      for v1 — no per-car override slot yet. -->
-                <Expander x:Name="CollisionExpander" IsExpanded="False" Margin="0,0,0,16" Expanded="EffectExpander_Expanded">
+                <Expander x:Name="CollisionExpander" IsExpanded="False" Margin="0,0,0,4" Expanded="EffectExpander_Expanded">
                     <Expander.Header>
                         <StackPanel Orientation="Horizontal">
                             <CheckBox x:Name="CollisionEnabledCheck" Content="Collision"
@@ -1288,7 +1288,7 @@
             <!-- Performance / latency tuning. Per-machine, NOT preset-saved
                  (a friend's CPU/scheduler is different from yours). Collapsed
                  Expander since most users never need to touch it. -->
-            <Expander x:Name="PerformanceExpander" IsExpanded="False" Margin="0,0,0,16">
+            <Expander x:Name="PerformanceExpander" IsExpanded="False" Margin="0,0,0,4">
                 <Expander.Header>
                     <TextBlock Text="Performance" FontWeight="SemiBold" VerticalAlignment="Center"/>
                 </Expander.Header>
@@ -1578,7 +1578,7 @@
             <!-- Diagnostics. Sits between game-config sections (above) and
                  preset/sharing/support sections (below). Collapsed by default,
                  only opened when troubleshooting. -->
-            <Expander x:Name="DiagnosticsExpander" IsExpanded="False" Margin="0,0,0,4">
+            <Expander x:Name="DiagnosticsExpander" IsExpanded="False" Margin="0,0,0,16">
                 <Expander.Header>
                     <TextBlock Text="Diagnostics" FontSize="13" FontWeight="SemiBold"/>
                 </Expander.Header>
@@ -1642,17 +1642,17 @@
                           Style="{StaticResource SaveAllPresetButton}" Click="SavePreset_Click"
                           ToolTip="Overwrite the active preset with your current tuning. Glows amber when changes are unsaved."/>
             </Grid>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <Button x:Name="ManagePresetsButton" Content="Manage presets…" Height="28" Padding="14,0,14,0" Margin="0,0,8,0" Click="ManagePresetsButton_Click"
+                        ToolTip="Open the full library: rename, duplicate, export, or re-bind defaults for any game preset, car preset, or custom engine. Works even when no game or car is loaded."/>
+                <Button x:Name="SetDefaultButton" Content="Set as default for this game" Height="28" Padding="14,0,14,0" Click="SetDefault_Click"
+                        ToolTip="When this game launches, auto-load the selected preset."/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                 <Button x:Name="SaveAsPresetButton" Content="Save as new…" Style="{StaticResource LinkButton}" Margin="0,0,18,0" Click="SaveAsPreset_Click"
                         ToolTip="Save current tuning under a new preset name (doesn't overwrite the active one)."/>
                 <Button x:Name="DeletePresetButton" Content="Delete" Style="{StaticResource LinkButton}" Margin="0,0,18,0" Click="DeletePreset_Click"
                         ToolTip="Delete the selected preset from the library."/>
-                <Button x:Name="ManagePresetsButton" Content="Manage…" Style="{StaticResource LinkButton}" Click="ManagePresetsButton_Click"
-                        ToolTip="Open the full library: rename, duplicate, export, or re-bind defaults for any game preset, car preset, or custom engine. Works even when no game or car is loaded."/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                <Button x:Name="SetDefaultButton"   Content="Set as default for this game" Style="{StaticResource LinkButton}" Margin="0,0,18,0" Click="SetDefault_Click"
-                        ToolTip="When this game launches, auto-load the selected preset."/>
                 <Button x:Name="ClearDefaultButton" Content="Clear default" Style="{StaticResource LinkButton}" Click="ClearDefault_Click"
                         ToolTip="Remove the auto-load binding for this game."/>
             </StackPanel>
@@ -1662,7 +1662,7 @@
                  pack, or full settings backup). -->
             <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Backup &amp; sync" Style="{StaticResource SectionHeaderText}"/></Border>
             <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8"
-                       Text="Share presets and car tunings with other Trueforce users. Export bundles your picks into a single file; Import auto-detects whatever file you point it at."/>
+                       Text="Share presets and car tunings with other users. Export bundles your picks into a single file; Import auto-detects whatever file you point it at."/>
             <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
                 <Button x:Name="ExportButton" Content="Export…" Width="140" Height="28" Margin="0,0,8,0" Click="Export_Click"
                         ToolTip="Pick which presets and car tunings to bundle into a shareable file."/>

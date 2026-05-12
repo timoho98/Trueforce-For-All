@@ -789,6 +789,7 @@ namespace TrueforceForAll.Plugin
                 ShowInTaskbar = false,
                 Owner = this,
             };
+            SettingsControl.ApplyDarkTheme(win);
             var sp = new StackPanel { Margin = new Thickness(12) };
             sp.Children.Add(new TextBlock { Text = label, Margin = new Thickness(0, 0, 0, 6) });
             var tb = new TextBox { Text = defaultValue ?? "" };
@@ -854,6 +855,7 @@ namespace TrueforceForAll.Plugin
                 ShowInTaskbar = false,
                 Owner = this,
             };
+            SettingsControl.ApplyDarkTheme(win);
             var grid = new Grid { Margin = new Thickness(12) };
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });

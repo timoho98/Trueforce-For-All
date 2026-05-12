@@ -1636,6 +1636,7 @@ namespace TrueforceForAll.Plugin
                 Owner = Window.GetWindow(this),
             };
             if (win.Owner == null) win.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            ApplyDarkTheme(win);
 
             var sp = new StackPanel { Margin = new Thickness(14) };
             sp.Children.Add(new TextBlock
@@ -2991,6 +2992,7 @@ namespace TrueforceForAll.Plugin
                 Owner = Window.GetWindow(this),
             };
             if (win.Owner == null) win.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            ApplyDarkTheme(win);
 
             var sp = new StackPanel { Margin = new Thickness(14) };
             sp.Children.Add(new TextBlock
@@ -3069,6 +3071,7 @@ namespace TrueforceForAll.Plugin
                 Owner = Window.GetWindow(this),
             };
             if (win.Owner == null) win.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            ApplyDarkTheme(win);
 
             var sp = new StackPanel { Margin = new Thickness(14) };
             sp.Children.Add(new TextBlock
@@ -3650,6 +3653,7 @@ namespace TrueforceForAll.Plugin
                 Owner = Window.GetWindow(this),
             };
             if (win.Owner == null) win.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            ApplyDarkTheme(win);
 
             var sp = new StackPanel { Margin = new Thickness(12) };
             sp.Children.Add(new TextBlock { Text = label, Margin = new Thickness(0, 0, 0, 6) });
@@ -4064,7 +4068,8 @@ namespace TrueforceForAll.Plugin
         // behind modals don't inherit the panel's theme styles automatically;
         // without this, every Window we open lands on the system default
         // (white background, black text) which is unreadable inside SimHub.
-        private static void ApplyDarkTheme(Window win)
+        // Internal because ManagePresetsDialog's nested modals call it too.
+        internal static void ApplyDarkTheme(Window win)
         {
             win.Background = new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2A));
             // TextElement.Foreground is the inherited property that TextBlock,
@@ -4076,6 +4081,92 @@ namespace TrueforceForAll.Plugin
         private void UpdateAvailableButton_Click(object sender, RoutedEventArgs e)
         {
             ShowUpdateModal();
+        }
+
+        // Render a GitHub-flavored Markdown release body as a stack of styled
+        // TextBlocks. Supports headings (#..######) and bullets (- / *); other
+        // syntax falls through as plain text. We don't pull in a real markdown
+        // parser because the release notes only ever use these two constructs
+        // and we want zero added dependencies in net48 plugin land.
+        private static StackPanel RenderReleaseNotes(string body)
+        {
+            var panel = new StackPanel();
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "(No release notes published.)",
+                    FontSize = 12,
+                    Opacity = 0.7,
+                });
+                return panel;
+            }
+
+            // Normalize line endings: GitHub bodies usually arrive with \r\n.
+            string[] lines = body.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
+            bool prevWasBlank = false;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string raw = lines[i] ?? "";
+                string trimmed = raw.TrimStart();
+
+                if (string.IsNullOrWhiteSpace(trimmed))
+                {
+                    // Collapse runs of blank lines into a single small gap.
+                    if (!prevWasBlank && panel.Children.Count > 0)
+                    {
+                        panel.Children.Add(new TextBlock { Height = 6 });
+                        prevWasBlank = true;
+                    }
+                    continue;
+                }
+                prevWasBlank = false;
+
+                // Heading levels 1..3 (deeper levels fall through to plain).
+                int hashCount = 0;
+                while (hashCount < trimmed.Length && trimmed[hashCount] == '#') hashCount++;
+                if (hashCount >= 1 && hashCount <= 3
+                    && hashCount < trimmed.Length && trimmed[hashCount] == ' ')
+                {
+                    string text = trimmed.Substring(hashCount + 1).Trim();
+                    double size = hashCount == 1 ? 16 : hashCount == 2 ? 14 : 13;
+                    panel.Children.Add(new TextBlock
+                    {
+                        Text = text,
+                        FontSize = size,
+                        FontWeight = FontWeights.SemiBold,
+                        Margin = new Thickness(0, panel.Children.Count == 0 ? 0 : 8, 0, 4),
+                        TextWrapping = TextWrapping.Wrap,
+                    });
+                    continue;
+                }
+
+                // Bullet rows ("- foo" / "* foo"). Use a real bullet glyph
+                // indented one step.
+                if (trimmed.Length >= 2
+                    && (trimmed[0] == '-' || trimmed[0] == '*')
+                    && trimmed[1] == ' ')
+                {
+                    panel.Children.Add(new TextBlock
+                    {
+                        Text = "• " + trimmed.Substring(2),
+                        FontSize = 12,
+                        Margin = new Thickness(8, 2, 0, 2),
+                        TextWrapping = TextWrapping.Wrap,
+                    });
+                    continue;
+                }
+
+                // Plain paragraph line.
+                panel.Children.Add(new TextBlock
+                {
+                    Text = trimmed,
+                    FontSize = 12,
+                    Margin = new Thickness(0, 2, 0, 2),
+                    TextWrapping = TextWrapping.Wrap,
+                });
+            }
+            return panel;
         }
 
         // Manual "Check for updates" link in the header. The plugin already
@@ -4188,12 +4279,18 @@ namespace TrueforceForAll.Plugin
                 Margin = new Thickness(0, 0, 8, 0),
                 IsCancel = true,
             };
+            // Green "confirm" styling so the primary action stands out
+            // against the dark modal chrome and the muted Dismiss button.
             var updateBtn = new System.Windows.Controls.Button
             {
                 Content = "Update now",
                 Width = 120,
                 Height = 28,
                 IsDefault = true,
+                Background = new SolidColorBrush(Color.FromRgb(0x3D, 0x8B, 0x40)),
+                Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xFF, 0xFF)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0x2E, 0x6E, 0x32)),
+                FontWeight = FontWeights.SemiBold,
             };
             btnRow.Children.Add(dismissBtn);
             btnRow.Children.Add(updateBtn);
@@ -4201,9 +4298,9 @@ namespace TrueforceForAll.Plugin
 
             root.Children.Add(footer);
 
-            // Center: scrollable release notes. body is markdown; render as
-            // plain text for now since proper markdown rendering in WPF needs
-            // a dependency we don't otherwise have.
+            // Center: scrollable release notes. GitHub release bodies are
+            // Markdown; we render a minimal subset (headers, bullets) so the
+            // literal "## Heading" and "- item" prefixes don't leak through.
             var notesScroll = new ScrollViewer
             {
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -4211,15 +4308,7 @@ namespace TrueforceForAll.Plugin
                 BorderBrush = new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44)),
                 Padding = new Thickness(10),
             };
-            var notesText = new TextBlock
-            {
-                Text = string.IsNullOrWhiteSpace(upd.ReleaseNotes)
-                    ? "(No release notes published.)"
-                    : upd.ReleaseNotes,
-                TextWrapping = TextWrapping.Wrap,
-                FontSize = 12,
-            };
-            notesScroll.Content = notesText;
+            notesScroll.Content = RenderReleaseNotes(upd.ReleaseNotes);
             root.Children.Add(notesScroll);
 
             win.Content = root;

@@ -6,7 +6,9 @@
         MinWidth="640" MinHeight="420"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResize"
-        ShowInTaskbar="False">
+        ShowInTaskbar="False"
+        Background="#FF2A2A2A"
+        TextElement.Foreground="#FFEAEAEA">
     <Window.Resources>
         <Style x:Key="HelpText" TargetType="TextBlock">
             <Setter Property="FontSize" Value="11"/>
