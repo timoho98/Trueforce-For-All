@@ -104,6 +104,13 @@ Source: "{#UsbPcapSetup}"; DestDir: "{app}\vendor"; DestName: "USBPcapSetup.exe"
 ; own choice (preserves disable/hide on upgrade installs).
 Source: "RegisterPlugin.ps1"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
+; PowerShell helper for the postinstall "Launch SimHub now" action.
+; Launches SimHubWPF.exe and then calls ShowWindow(SW_RESTORE) +
+; SetForegroundWindow on the new process's main window once it appears,
+; so users with the "Start minimized" preference still see SimHub come
+; up as a window. See script comments for details.
+Source: "LaunchSimHub.ps1"; DestDir: "{tmp}"; Flags: deleteafterinstall
+
 ; License redistribution for the bundled USBPcap.
 Source: "USBPcap-LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion uninsneveruninstall
 
@@ -137,31 +144,28 @@ Filename: "powershell.exe"; \
 ; Postinstall checkbox on the Finished page: launch SimHub when the user
 ; clicks Finish (default checked).
 ;
-; We launch via "cmd /c start" rather than executing SimHubWPF.exe
-; directly. Two prior approaches were broken in different ways:
-;   - Direct CreateProcess from the elevated installer (no shellexec)
-;     produced a headless SimHub process: alive in Task Manager but no
-;     visible window. (Seen on 0.1.0-localtest8.)
-;   - shellexec on its own launched the process but left it stranded
-;     behind the closing wizard, so the user saw only a taskbar button
-;     and had to click it to surface the window.
-; cmd /c start is the canonical "act like a desktop double-click"
-; pattern on Windows: it spawns the shell's normal launch path, the
-; process is properly detached, and the new window gets its usual
-; SW_SHOWNORMAL treatment from the shell.
+; Earlier iterations of this step tried direct exec, shellexec, and
+; "cmd /c start" in turn. Each surfaced a different failure mode (headless
+; process, stranded-behind-the-wizard window, or a window that respected
+; the user's "Start minimized" preference and went straight to the
+; taskbar). LaunchSimHub.ps1 is the durable fix: it spawns SimHubWPF.exe,
+; waits for the main window to appear, then forces ShowWindow(SW_RESTORE)
+; + SetForegroundWindow so the window comes up even when SimHub's own
+; StartMinimized user setting would otherwise self-minimize it.
 ;
-;   /D "{app}"       sets SimHub's CWD; without this it inherits the
-;                    installer's tmp dir and SimHub fails to locate
-;                    relative resources.
-;   ""               empty quoted title argument that "start" requires
-;                    when the path that follows is itself quoted.
-;   runasoriginaluser drops the admin token; SimHub runs in the user's
-;                    normal context. nowait + skipifsilent: fire and
-;                    forget, skip on /SILENT.
-Filename: "{cmd}"; \
-    Parameters: "/c start """" /D ""{app}"" ""{app}\SimHubWPF.exe"""; \
+;   runasoriginaluser  drops the admin token; SimHub (and its parent
+;                      PowerShell process) run in the user's normal
+;                      context.
+;   nowait             return immediately after launching PowerShell;
+;                      the script does its own 15s wait-for-window loop
+;                      detached from the installer.
+;   skipifsilent       no-op on /SILENT installs.
+;   runhidden          keep PowerShell off-screen; only SimHub's window
+;                      should be visible to the user.
+Filename: "powershell.exe"; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{tmp}\LaunchSimHub.ps1"" -SimHubExe ""{app}\SimHubWPF.exe"""; \
     Description: "Launch SimHub now"; \
-    Flags: postinstall nowait skipifsilent runasoriginaluser
+    Flags: postinstall nowait skipifsilent runasoriginaluser runhidden
 
 [Code]
 const
