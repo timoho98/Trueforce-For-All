@@ -651,6 +651,26 @@ namespace TrueforceForAll.Plugin
 
             _mixer.MasterGain = Settings.MasterGain;
 
+            // Start the GitHub update poller BEFORE the wheel-discovery early
+            // exit so a user whose wheel is unplugged (or whose G HUB is
+            // holding the HID) can still discover that a fix shipped. Without
+            // this, the plugin returns out of Init below and _updateChecker
+            // stays null, so the in-panel banner + Check-for-updates button
+            // are dead. The check itself doesn't touch wheel state.
+            _updateCheckerCts = new System.Threading.CancellationTokenSource();
+            _updateChecker = new UpdateChecker
+            {
+                Logger = msg => SimHub.Logging.Current.Info($"[Trueforce] {msg}"),
+            };
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                try { await _updateChecker.CheckAsync(_updateCheckerCts.Token); }
+                catch (Exception ex)
+                {
+                    SimHub.Logging.Current.Info($"[Trueforce] Update check task crashed: {ex.Message}");
+                }
+            });
+
             SimHub.Logging.Current.Info("[Trueforce] Discovering wheel...");
             var matches = WheelDiscovery.FindAll();
             if (matches.Count == 0)
@@ -806,26 +826,6 @@ namespace TrueforceForAll.Plugin
             };
             _capturePollThread.Start();
             SimHub.Logging.Current.Info("[Trueforce] Audio capture armed; waiting for a supported game to start.");
-
-            // Background GitHub-releases check. One-shot, fire-and-forget.
-            // Result is stored on the UpdateChecker; the settings panel timer
-            // tick reads IsUpdateAvailable and surfaces a banner. Failures
-            // are silent — no banner if we can't reach GitHub. The CTS is
-            // cancelled in End() so a stalled HTTP call can't outlive the
-            // plugin instance and write to a dead UpdateChecker.
-            _updateCheckerCts = new System.Threading.CancellationTokenSource();
-            _updateChecker = new UpdateChecker
-            {
-                Logger = msg => SimHub.Logging.Current.Info($"[Trueforce] {msg}"),
-            };
-            System.Threading.Tasks.Task.Run(async () =>
-            {
-                try { await _updateChecker.CheckAsync(_updateCheckerCts.Token); }
-                catch (Exception ex)
-                {
-                    SimHub.Logging.Current.Info($"[Trueforce] Update check task crashed: {ex.Message}");
-                }
-            });
         }
         private System.Threading.CancellationTokenSource _updateCheckerCts;
         public System.Threading.CancellationToken UpdateCheckerToken
