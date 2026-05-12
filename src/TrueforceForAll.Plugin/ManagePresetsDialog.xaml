@@ -94,12 +94,16 @@
                             <Button x:Name="GameRenameBtn"     Content="Rename…"        Style="{StaticResource RowButton}" Click="GameRename_Click"     IsEnabled="False"/>
                             <Button x:Name="GameDuplicateBtn"  Content="Duplicate…"     Style="{StaticResource RowButton}" Click="GameDuplicate_Click"  IsEnabled="False"/>
                             <Button x:Name="GameDeleteBtn"     Content="Delete"         Style="{StaticResource RowButton}" Click="GameDelete_Click"     IsEnabled="False"/>
-                            <Button x:Name="GameExportBtn"     Content="Export…"        Style="{StaticResource RowButton}" Click="GameExport_Click"     IsEnabled="False"/>
                             <Button x:Name="GameSetDefaultBtn" Content="Set default…"   Style="{StaticResource RowButton}" Width="120" Click="GameSetDefault_Click" IsEnabled="False"
                                     ToolTip="Bind this preset as the auto-load default for a game you've seen before."/>
                             <Button x:Name="GameClearDefaultBtn" Content="Clear default…" Style="{StaticResource RowButton}" Width="120" Click="GameClearDefault_Click" IsEnabled="False"
                                     ToolTip="Remove a game's auto-load binding to this preset."/>
+                            <!-- Edit button hidden: the offline-edit flow exists but isn't
+                                 stable enough to expose yet and adds confusion next to
+                                 Rename/Duplicate. Code path (handler + RequestedEditPresetName)
+                                 kept in place so it can be re-enabled without rebuilding. -->
                             <Button x:Name="GameEditBtn" Content="Edit" Style="{StaticResource RowButton}" Click="GameEdit_Click" IsEnabled="False"
+                                    Visibility="Collapsed"
                                     ToolTip="Load this preset into the live settings panel for offline editing. The main UI gets a banner with Save / Save as new / Discard."/>
                         </StackPanel>
                     </DockPanel>
@@ -144,7 +148,6 @@
                             <Button x:Name="CarRenameBtn"    Content="Rename…"      Style="{StaticResource RowButton}" Click="CarRename_Click"    IsEnabled="False"/>
                             <Button x:Name="CarDuplicateBtn" Content="Duplicate…"   Style="{StaticResource RowButton}" Click="CarDuplicate_Click" IsEnabled="False"/>
                             <Button x:Name="CarDeleteBtn"    Content="Delete"       Style="{StaticResource RowButton}" Click="CarDelete_Click"    IsEnabled="False"/>
-                            <Button x:Name="CarExportBtn"    Content="Export…"      Style="{StaticResource RowButton}" Click="CarExport_Click"    IsEnabled="False"/>
                             <Button x:Name="CarSetActiveBtn" Content="Set as active" Style="{StaticResource RowButton}" Width="120" Click="CarSetActive_Click" IsEnabled="False"
                                     ToolTip="Make this the preset that loads for this car. The matching CarDefaults entry is rewritten."/>
                         </StackPanel>
@@ -195,10 +198,17 @@
 
         <Grid Grid.Row="1" Margin="0,12,0,0">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <Button Grid.Column="1" Content="Close" Width="84" Height="28" Click="Close_Click" IsCancel="True" IsDefault="True"/>
+            <StackPanel Grid.Column="0" Orientation="Horizontal">
+                <Button Content="Export…" Width="100" Height="28" Margin="0,0,8,0" Click="DialogExport_Click"
+                        ToolTip="Pick which presets and car tunings to bundle into a shareable file. Same flow as the Export button on the main panel."/>
+                <Button Content="Import…" Width="100" Height="28" Click="DialogImport_Click"
+                        ToolTip="Import a preset, car preset, pack, or full settings backup. The file kind is auto-detected."/>
+            </StackPanel>
+            <Button Grid.Column="2" Content="Close" Width="84" Height="28" Click="Close_Click" IsCancel="True" IsDefault="True"/>
         </Grid>
     </Grid>
 </Window>

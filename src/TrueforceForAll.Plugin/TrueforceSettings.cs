@@ -155,6 +155,14 @@ namespace TrueforceForAll.Plugin
         // updates this to the running build.
         public string LastSeenVersion { get; set; }
 
+        // Persisted sort preferences for the Manage Presets modal, one per
+        // tab. Key matches a column's binding path (e.g. "Name",
+        // "BuiltinLabel"); empty/null = natural order. Hydrated when the
+        // dialog opens, rewritten on every header click.
+        public ManageSort ManageGamesSort   { get; set; } = new ManageSort();
+        public ManageSort ManageCarsSort    { get; set; } = new ManageSort();
+        public ManageSort ManageCustomsSort { get; set; } = new ManageSort();
+
         // Keyed by GameData.NewData.CarId. Override entries supersede the
         // global engine settings whenever that car is the active one.
         public Dictionary<string, CarOverride> CarOverrides { get; set; } = new Dictionary<string, CarOverride>();
@@ -194,6 +202,15 @@ namespace TrueforceForAll.Plugin
     }
 
     /// <summary>User-authored engine definition. Stored in
+    /// <summary>Persisted sort state for one of the Manage Presets modal tabs.
+    /// Empty Key = natural (insertion) order; populated Key matches the
+    /// binding path of the column to sort on.</summary>
+    public sealed class ManageSort
+    {
+        public string Key { get; set; }
+        public bool   Descending { get; set; }
+    }
+
     /// <see cref="TrueforceSettings.CustomEngines"/> and referenced by per-
     /// preset <see cref="EnginePulseSettings.CustomEngineId"/>. Holds either a
     /// firing-pattern string (combustion) or an electric flag + mode (EV).</summary>

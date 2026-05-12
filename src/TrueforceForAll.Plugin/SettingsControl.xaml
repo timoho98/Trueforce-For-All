@@ -284,24 +284,20 @@
 
             <!-- Offline-edit mode banner. Visible when the user clicked Edit
                  on a preset row in the Manage Presets dialog. While shown,
-                 the plugin holds back the auto-apply-game-default path so
-                 a background game launch doesn't clobber in-progress edits;
-                 the three buttons commit (Save / Save as new) or roll back
-                 (Discard) to exit the mode. -->
+                 the plugin holds back the auto-apply-game-default path so a
+                 background game launch doesn't clobber in-progress edits.
+                 Built-ins use the same banner with the Save button relabeled
+                 "Save as new…" so the fork behavior is obvious from the
+                 button itself, no separate subtitle needed. -->
             <Border x:Name="OfflineEditBanner" Visibility="Collapsed"
-                    Background="#3A6BBE" CornerRadius="4" Padding="12,10,12,10" Margin="0,0,0,12">
+                    Background="#3A6BBE" CornerRadius="4" Padding="12,8,12,8" Margin="0,0,0,12">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0">
-                        <TextBlock x:Name="OfflineEditTitle" Foreground="White" FontWeight="SemiBold"
-                                   FontSize="13" Text="Editing preset"/>
-                        <TextBlock x:Name="OfflineEditSubtitle" Foreground="White" Opacity="0.85"
-                                   FontSize="11" Margin="0,2,0,0" TextWrapping="Wrap"
-                                   Text="Auto-switch on game change is paused. Save commits to this preset; Save as new forks a copy; Discard rolls back to your pre-edit state."/>
-                    </StackPanel>
+                    <TextBlock Grid.Column="0" x:Name="OfflineEditTitle" Foreground="White" FontWeight="SemiBold"
+                               FontSize="13" VerticalAlignment="Center" Text="Editing preset"/>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center">
                         <Button x:Name="OfflineEditSaveBtn" Content="Save" Width="78" Height="26"
                                 Margin="0,0,6,0" Click="OfflineEditSave_Click"
@@ -462,13 +458,13 @@
                 <ComboBox  Grid.Column="1" x:Name="CarPresetCombo"
                            VerticalAlignment="Center"
                            SelectionChanged="CarPresetCombo_Changed"
-                           ToolTip="Switch which preset is active for this car. Selecting a preset reloads its tuning into the live effects. (default) presets are built-in and can't be deleted; saving changes while on one forks a new user preset."/>
+                           ToolTip="Switch which preset is active for this car. Selecting a preset reloads its tuning into the live effects. (built-in) presets ship with the plugin and can't be deleted; saving changes while on one forks a new user preset."/>
                 <Button    Grid.Column="2" x:Name="SaveCarPresetButton" Content="Save…" Width="80" Height="26" Margin="6,0,0,0"
                            Click="SaveCarPreset_Click"
                            ToolTip="Save the current per-car tuning. On a built-in default this prompts for a new preset name and forks; on a user preset it updates in place."/>
                 <Button    Grid.Column="3" x:Name="DeleteCarPresetButton" Content="Delete" Width="70" Height="26" Margin="6,0,0,0"
                            Click="DeleteCarPreset_Click"
-                           ToolTip="Delete the active user preset. Built-in (default) presets can't be deleted."/>
+                           ToolTip="Delete the active user preset. Built-in presets can't be deleted."/>
             </Grid>
             <TextBlock x:Name="ActiveCarHint" Style="{StaticResource HelpText}" Margin="0,0,0,20" FontSize="12"
                        Text="Per-car tuning lives in named presets under PluginsData/Common/TrueforceCars. Each car can have multiple presets — built-in defaults shipped with the plugin plus any user-saved or imported ones. Sharing a preset is sharing the file."/>
@@ -1272,7 +1268,7 @@
             <StackPanel x:Name="ForzaSection" Visibility="Collapsed">
             <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Forza telemetry (UDP)" Style="{StaticResource SectionHeaderText}"/></Border>
             <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
-                Text="In Forza Horizon 5/6 (or Forza Motorsport), open Settings → HUD and Gameplay → UDP RACE TELEMETRY. Set DATA OUT IP ADDRESS to your machine's IP and DATA OUT IP PORT to the port below. Game-specific fields (per-tire surface rumble, kerbs, cylinder count) flow through and the 'Forza Horizon (default)' preset auto-loads."/>
+                Text="In Forza Horizon 5/6 (or Forza Motorsport), open Settings → HUD and Gameplay → UDP RACE TELEMETRY. Set DATA OUT IP ADDRESS to your machine's IP and DATA OUT IP PORT to the port below. Game-specific fields (per-tire surface rumble, kerbs, cylinder count) flow through and the built-in Forza Horizon preset auto-loads."/>
             <CheckBox x:Name="ForzaEnabledCheck" Content="Enable Forza UDP listener" Click="ForzaEnabled_Changed" Margin="0,0,0,8"
                       ToolTip="When off, Forza titles fall back to SimHub's universal telemetry (engine + RPM only — no per-tire surface, no kerb pulses, no cylinder auto-detect)."/>
             <Grid Margin="0,0,0,4">
@@ -1499,12 +1495,10 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <ComboBox Grid.Column="0" x:Name="PresetCombo" SelectionChanged="PresetCombo_Changed" VerticalAlignment="Center"/>
-                <Button   Grid.Column="1" x:Name="ApplyPresetButton" Content="Apply" Width="70" Height="28" Margin="8,0,0,0" Click="ApplyPreset_Click"
-                          ToolTip="Load the selected preset, replacing current tuning. Confirms first if you have unsaved changes."/>
-                <Button   Grid.Column="2" x:Name="SavePresetButton" Content="Save preset"
+                <ComboBox Grid.Column="0" x:Name="PresetCombo" SelectionChanged="PresetCombo_Changed" VerticalAlignment="Center"
+                          ToolTip="Pick a preset to apply it immediately. Confirms first if you have unsaved tuning."/>
+                <Button   Grid.Column="1" x:Name="SavePresetButton" Content="Save preset"
                           Style="{StaticResource SaveAllPresetButton}" Click="SavePreset_Click"
                           ToolTip="Overwrite the active preset with your current tuning. Glows amber when changes are unsaved."/>
             </Grid>

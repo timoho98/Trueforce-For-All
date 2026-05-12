@@ -27,16 +27,13 @@ namespace TrueforceForAll.Plugin
                 { "Wreckfest2",      "Wreckfest 2 (default)"       },
                 // Forza Horizon variants share the Data Out wire format
                 // (FH4/FH5/FH6) so one preset covers them all. Forza
-                // Motorsport ships native Trueforce on PC and the plugin
-                // auto-disables for it (see IsNativeTrueforceGame), so no
-                // FM mapping here.
+                // Motorsport and the F1 22-25 line ship native Trueforce
+                // on PC and the plugin auto-disables for them (see
+                // IsNativeTrueforceGame), so no mappings or built-in
+                // presets for those titles.
                 { "FH4",             "Forza Horizon (default)"     },
                 { "FH5",             "Forza Horizon (default)"     },
                 { "FH6",             "Forza Horizon (default)"     },
-                { "F12025",          "F1 25 (default)"             },
-                { "F12024",          "F1 25 (default)"             },
-                { "F12023",          "F1 25 (default)"             },
-                { "F12022",          "F1 25 (default)"             },
             };
 
         /// <summary>Built-in preset name → serialized GameSettingsSnapshot
@@ -49,7 +46,6 @@ namespace TrueforceForAll.Plugin
                 ["Assetto Corsa (default)"]    = AssettoCorsaJson,
                 ["Wreckfest 2 (default)"]      = Wreckfest2Json,
                 ["Forza Horizon (default)"]    = ForzaHorizonJson,
-                ["F1 25 (default)"]            = F125Json,
             };
 
         public static bool IsBuiltin(string presetName)
@@ -117,36 +113,6 @@ namespace TrueforceForAll.Plugin
             ""AbsClick"":{""Enabled"":false,""Gain"":0.15,""Freq"":150.0,""PulseFreq"":9.8,""DutyCycle"":0.33,""TickDurationMs"":35.0,""Mode"":""Pulse"",""Waveform"":""Square""},
             ""PitLimiter"":{""Enabled"":true,""Gain"":0.0832266361,""Freq"":50.49936,""PulseFreq"":4.340589,""DutyCycle"":0.483226657,""ActiveAmp"":0.3,""Waveform"":""Square""},
             ""Drs"":{""Enabled"":true,""Gain"":0.280409724,""ActivationFreq"":60.3841171,""ActivationMs"":80,""ActivationAmp"":0.5016645,""SustainedFreq"":120.371323,""SustainedAmp"":0.0481434,""Waveform"":""Square"",""SustainedWaveform"":""Sine""},
-            ""Collision"":{""Enabled"":true,""Gain"":0.208867252,""Freq"":50.0,""EnvelopeMs"":120,""MinThreshold"":0.139180541,""MinAmp"":0.2,""MaxAmp"":0.85,""NormalizationScale"":2.0,""RefractoryMs"":250,""Waveform"":""Square""}
-        }";
-
-        // F1 25 baseline. Cylinders=6 since the source hardcodes it (V6 turbo
-        // hybrid). SkipFfbPassthrough=false: F1 doesn't ship native Trueforce,
-        // so we drive ep3 directly. Surface texture enabled because the F1
-        // source maps surface-type categorically into a 0..1 amplitude
-        // (kerb=1, gravel/grass=0.5..0.7, tarmac=0). DRS + PitLimiter +
-        // Traction enabled by default; the gains are conservative starting
-        // points calibrated against the GPRO baseline.
-        private const string F125Json = @"{
-            ""MasterGain"":1.0,
-            ""FfbScale"":1.0,
-            ""FfbInvertSign"":true,
-            ""FfbSmoothTimeConstantMs"":0.0,
-            ""FfbSpikeTamingEnabled"":false,
-            ""FfbSpikeMaxLsbPerMs"":2060.923,
-            ""FfbPeakSoftLimitLsb"":1561.78564,
-            ""SkipFfbPassthrough"":false,
-            ""DuckDepth"":0.6952232,
-            ""DuckAttackMs"":5.0,
-            ""DuckReleaseMs"":80.0,
-            ""AudioCapture"":{""Enabled"":true,""Gain"":0.06,""LowpassCutoffHz"":420.0,""HighpassCutoffHz"":40.0},
-            ""EnginePulse"":{""Enabled"":true,""Gain"":0.06,""Cylinders"":6,""Pitch"":1.0,""LowpassHz"":520.0,""Waveform"":""Triangle""},
-            ""RoadBumps"":{""Enabled"":true,""Gain"":0.40,""Freq"":60.0,""Waveform"":""Noise"",""SurfaceEnabled"":true,""SurfaceGain"":0.5,""SurfaceFreq"":140.0,""SurfaceWaveform"":""Noise"",""SurfaceLowpassHz"":900.0,""SurfaceHighpassHz"":70.0,""SurfaceRumbleScale"":1.0,""RumbleStripPulseAmp"":0.6,""RumbleStripPulseMs"":120},
-            ""TractionLoss"":{""Enabled"":true,""Gain"":0.07,""Sensitivity"":0.4,""Freq"":133.9,""NoiseLowpassHz"":250.0,""NoiseHighpassHz"":40.0,""Waveform"":""Noise""},
-            ""GearShift"":{""Enabled"":true,""Gain"":0.4,""Freq"":40.0,""Waveform"":""Sine""},
-            ""AbsClick"":{""Enabled"":false,""Gain"":0.15,""Freq"":150.0,""PulseFreq"":9.8,""DutyCycle"":0.33,""TickDurationMs"":35.0,""Mode"":""Pulse"",""Waveform"":""Square""},
-            ""PitLimiter"":{""Enabled"":true,""Gain"":0.45,""Freq"":110.0,""PulseFreq"":7.0,""DutyCycle"":0.4,""ActiveAmp"":0.30,""Waveform"":""Square""},
-            ""Drs"":{""Enabled"":true,""Gain"":0.5,""ActivationFreq"":600.0,""ActivationMs"":80,""ActivationAmp"":0.30,""SustainedFreq"":150.0,""SustainedAmp"":0.20,""Waveform"":""Sine""},
             ""Collision"":{""Enabled"":true,""Gain"":0.208867252,""Freq"":50.0,""EnvelopeMs"":120,""MinThreshold"":0.139180541,""MinAmp"":0.2,""MaxAmp"":0.85,""NormalizationScale"":2.0,""RefractoryMs"":250,""Waveform"":""Square""}
         }";
 

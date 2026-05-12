@@ -13,10 +13,12 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using Microsoft.Win32;
 
 namespace TrueforceForAll.Plugin
@@ -82,12 +84,124 @@ namespace TrueforceForAll.Plugin
         private readonly ObservableCollection<CarRow>    _carRows    = new ObservableCollection<CarRow>();
         private readonly ObservableCollection<CustomRow> _customRows = new ObservableCollection<CustomRow>();
 
+        // Per-ListView sort state. The sort key for each column comes from
+        // its DisplayMemberBinding.Path (e.g. "Name", "BuiltinLabel"), so the
+        // checkbox column auto-skips (no DisplayMemberBinding). Base header
+        // text is captured per column so the ▲/▼ indicator can be appended /
+        // stripped without losing the original label.
+        private sealed class ListSortState
+        {
+            public ListView List;
+            public string CurrentSortKey;
+            public bool   Descending;
+            public readonly Dictionary<GridViewColumn, string> SortKeys
+                = new Dictionary<GridViewColumn, string>();
+            public readonly Dictionary<GridViewColumn, string> BaseHeaders
+                = new Dictionary<GridViewColumn, string>();
+        }
+        private ListSortState _gameSort;
+        private ListSortState _carSort;
+        private ListSortState _customSort;
+
         public ManagePresetsDialog()
         {
             InitializeComponent();
             GameList.ItemsSource   = _gameRows;
             CarList.ItemsSource    = _carRows;
             CustomList.ItemsSource = _customRows;
+
+            _gameSort   = BuildSortState(GameList);
+            _carSort    = BuildSortState(CarList);
+            _customSort = BuildSortState(CustomList);
+            GameList.AddHandler(GridViewColumnHeader.ClickEvent,   new RoutedEventHandler((s, e) => HandleHeaderClick(e, _gameSort)));
+            CarList.AddHandler(GridViewColumnHeader.ClickEvent,    new RoutedEventHandler((s, e) => HandleHeaderClick(e, _carSort)));
+            CustomList.AddHandler(GridViewColumnHeader.ClickEvent, new RoutedEventHandler((s, e) => HandleHeaderClick(e, _customSort)));
+        }
+
+        // Hydrate one ListSortState from a persisted ManageSort + apply.
+        // Called from Init once the plugin reference is wired so the dialog
+        // reopens at the user's last-used sort.
+        private static void HydrateSort(ListSortState state, ManageSort pref)
+        {
+            if (pref == null || string.IsNullOrEmpty(pref.Key)) return;
+            // Only apply if the saved key still matches one of the current
+            // columns — guards against renamed bindings between versions.
+            bool known = false;
+            foreach (var k in state.SortKeys.Values)
+                if (string.Equals(k, pref.Key, StringComparison.Ordinal)) { known = true; break; }
+            if (!known) return;
+            ApplySort(state, pref.Key, pref.Descending);
+        }
+
+        // Capture each sortable column's base header text + sort key once so
+        // the click handler can rewrite Header with the arrow without losing
+        // the original label. Sortable = column has a DisplayMemberBinding
+        // with a Path (the property to sort on); the checkbox column has
+        // none and is skipped.
+        private static ListSortState BuildSortState(ListView lv)
+        {
+            var s = new ListSortState { List = lv };
+            if (lv.View is GridView gv)
+            {
+                foreach (var col in gv.Columns)
+                {
+                    var key = (col.DisplayMemberBinding as Binding)?.Path?.Path;
+                    if (string.IsNullOrEmpty(key) || !(col.Header is string str)) continue;
+                    s.SortKeys[col]    = key;
+                    s.BaseHeaders[col] = str;
+                }
+            }
+            return s;
+        }
+
+        private void HandleHeaderClick(RoutedEventArgs e, ListSortState s)
+        {
+            if (!(e.OriginalSource is GridViewColumnHeader hdr) || hdr.Column == null) return;
+            if (!s.SortKeys.TryGetValue(hdr.Column, out var sortKey)) return;
+
+            bool descending = string.Equals(s.CurrentSortKey, sortKey, StringComparison.Ordinal)
+                ? !s.Descending
+                : false;
+            ApplySort(s, sortKey, descending);
+            PersistSort(s);
+        }
+
+        // Apply (or clear, when sortKey is null/empty) a sort on a ListSortState:
+        // rewrites the view's SortDescriptions, updates header text with ▲/▼,
+        // and caches the new (key, direction) on the state itself.
+        private static void ApplySort(ListSortState s, string sortKey, bool descending)
+        {
+            s.CurrentSortKey = sortKey;
+            s.Descending     = descending;
+
+            var view = CollectionViewSource.GetDefaultView(s.List.ItemsSource);
+            if (view == null) return;
+            view.SortDescriptions.Clear();
+            if (!string.IsNullOrEmpty(sortKey))
+                view.SortDescriptions.Add(new SortDescription(sortKey,
+                    descending ? ListSortDirection.Descending : ListSortDirection.Ascending));
+
+            foreach (var kv in s.BaseHeaders)
+            {
+                if (!s.SortKeys.TryGetValue(kv.Key, out var k)) continue;
+                kv.Key.Header = !string.IsNullOrEmpty(sortKey) && string.Equals(k, sortKey, StringComparison.Ordinal)
+                    ? kv.Value + (descending ? " ▼" : " ▲")
+                    : kv.Value;
+            }
+        }
+
+        // Write the sort state for one tab back into Settings + flush.
+        // Triggered on every header click so a SimHub crash mid-session
+        // still leaves the user's last sort persisted.
+        private void PersistSort(ListSortState s)
+        {
+            if (_plugin?.Settings == null) return;
+            var pref = new ManageSort { Key = s.CurrentSortKey, Descending = s.Descending };
+            if      (s == _gameSort)   _plugin.Settings.ManageGamesSort   = pref;
+            else if (s == _carSort)    _plugin.Settings.ManageCarsSort    = pref;
+            else if (s == _customSort) _plugin.Settings.ManageCustomsSort = pref;
+            else return;
+            _plugin.PersistSettings();
         }
 
         public void Init(TrueforcePlugin plugin, InitialTab initialTab = InitialTab.GamePresets)
@@ -96,6 +210,19 @@ namespace TrueforceForAll.Plugin
             ReloadGames();
             ReloadCars();
             ReloadCustoms();
+
+            // Restore last-used sort per tab from settings. Reload* clears
+            // and re-fills the ObservableCollections but the view's
+            // SortDescriptions live on top, so applying sort after the
+            // refill is the correct order.
+            var s = plugin?.Settings;
+            if (s != null)
+            {
+                HydrateSort(_gameSort,   s.ManageGamesSort);
+                HydrateSort(_carSort,    s.ManageCarsSort);
+                HydrateSort(_customSort, s.ManageCustomsSort);
+            }
+
             switch (initialTab)
             {
                 case InitialTab.CarPresets:    Tabs.SelectedIndex = 1; break;
@@ -238,7 +365,6 @@ namespace TrueforceForAll.Plugin
             GameRenameBtn.IsEnabled       = selUserPreset && checkedCount <= 1;
             GameDuplicateBtn.IsEnabled    = anySelected   && checkedCount <= 1;
             GameDeleteBtn.IsEnabled       = checkedNonBuiltin > 0 || selUserPreset;
-            GameExportBtn.IsEnabled       = checkedCount > 0 || anySelected;
             GameSetDefaultBtn.IsEnabled   = anySelected   && checkedCount <= 1;
             GameClearDefaultBtn.IsEnabled = anySelected   && checkedCount <= 1 && sel.Defaults.Count > 0;
             GameEditBtn.IsEnabled         = anySelected   && checkedCount <= 1;
@@ -249,7 +375,6 @@ namespace TrueforceForAll.Plugin
             // Bulk delete labels: clue the user that the action applies to
             // the checked set, not the highlighted row.
             GameDeleteBtn.Content = checkedNonBuiltin > 0 ? $"Delete ({checkedNonBuiltin})" : "Delete";
-            GameExportBtn.Content = checkedCount > 0      ? $"Export… ({checkedCount})"     : "Export…";
         }
 
         private void RefreshCarButtons()
@@ -263,12 +388,10 @@ namespace TrueforceForAll.Plugin
             CarRenameBtn.IsEnabled    = selUserPreset && checkedCount <= 1;
             CarDuplicateBtn.IsEnabled = anySelected   && checkedCount <= 1;
             CarDeleteBtn.IsEnabled    = checkedNonBuiltin > 0 || selUserPreset;
-            CarExportBtn.IsEnabled    = checkedCount > 0 || anySelected;
             CarSetActiveBtn.IsEnabled = anySelected   && checkedCount <= 1 && !sel.Active;
 
             CarCheckedLabel.Text = checkedCount > 0 ? $"{checkedCount} checked" : "";
             CarDeleteBtn.Content = checkedNonBuiltin > 0 ? $"Delete ({checkedNonBuiltin})" : "Delete";
-            CarExportBtn.Content = checkedCount > 0      ? $"Export… ({checkedCount})"     : "Export…";
         }
 
         private void RefreshCustomButtons()
@@ -362,62 +485,24 @@ namespace TrueforceForAll.Plugin
             ReloadGames();
         }
 
-        private void GameExport_Click(object sender, RoutedEventArgs e)
+        // Dialog-level Export / Import: routed through SettingsControl's
+        // shared flow so this dialog behaves the same as the main panel.
+        // Owner = this dialog, so the pack picker / metadata dialog / file
+        // pickers sit above the manage dialog instead of behind it.
+        private void DialogExport_Click(object sender, RoutedEventArgs e)
         {
-            // Bulk path: prompt for a destination folder and write one file
-            // per checked row using auto-derived filenames.
-            var bulk = _gameRows.Where(r => r.IsChecked).ToList();
-            if (bulk.Count > 0)
-            {
-                string folder = PickFolder($"Export {bulk.Count} preset(s) to folder",
-                    "One .tfpreset file per preset will be written into the chosen folder.");
-                if (string.IsNullOrEmpty(folder)) return;
-                int ok = 0;
-                var failures = new List<string>();
-                foreach (var r in bulk)
-                {
-                    string path = System.IO.Path.Combine(folder, SanitizeFileName(r.Name) + ".tfpreset");
-                    try
-                    {
-                        _plugin.ExportPreset(r.Name, path, author: _plugin.Settings?.SharingAuthor);
-                        ok++;
-                    }
-                    catch (Exception ex) { failures.Add($"{r.Name}: {ex.Message}"); }
-                }
-                if (failures.Count == 0)
-                {
-                    MessageBox.Show(this, $"Exported {ok} preset(s) to:\n{folder}",
-                        "Export presets", MessageBoxButton.OK, MessageBoxImage.Information);
-                }
-                else
-                {
-                    MessageBox.Show(this,
-                        $"Exported {ok} of {bulk.Count}. Failures:\n\n" + string.Join("\n", failures),
-                        "Export presets", MessageBoxButton.OK, MessageBoxImage.Warning);
-                }
-                return;
-            }
+            SettingsControl.RunExportFlow(this, _plugin);
+        }
 
-            var sel = SelectedGame;
-            if (sel == null) return;
-            var dlg = new SaveFileDialog
+        private void DialogImport_Click(object sender, RoutedEventArgs e)
+        {
+            if (SettingsControl.RunImportFlow(this, _plugin))
             {
-                Title    = "Export preset",
-                Filter   = "Trueforce preset (*.tfpreset)|*.tfpreset|JSON (*.json)|*.json",
-                FileName = SanitizeFileName(sel.Name) + ".tfpreset",
-            };
-            if (dlg.ShowDialog(this) != true) return;
-            try
-            {
-                _plugin.ExportPreset(sel.Name, dlg.FileName,
-                    author: _plugin.Settings?.SharingAuthor);
-                MessageBox.Show(this, $"Exported '{sel.Name}' to:\n{dlg.FileName}",
-                    "Export preset", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(this, "Export failed: " + ex.Message, "Export preset",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                // Imported preset / car preset / pack / settings — reload all
+                // three tabs since any kind of import can touch any tab's view.
+                ReloadGames();
+                ReloadCars();
+                ReloadCustoms();
             }
         }
 
@@ -560,71 +645,6 @@ namespace TrueforceForAll.Plugin
             ReloadCars();
         }
 
-        private void CarExport_Click(object sender, RoutedEventArgs e)
-        {
-            var bulk = _carRows.Where(r => r.IsChecked).ToList();
-            if (bulk.Count > 0)
-            {
-                string folder = PickFolder($"Export {bulk.Count} car preset(s) to folder",
-                    "One .tfcar.json file per preset will be written into the chosen folder.");
-                if (string.IsNullOrEmpty(folder)) return;
-                int ok = 0;
-                var failures = new List<string>();
-                foreach (var r in bulk)
-                {
-                    string path = System.IO.Path.Combine(folder,
-                        SanitizeFileName(r.CarId) + "~" + SanitizeFileName(r.PresetName) + ".tfcar.json");
-                    try
-                    {
-                        if (_plugin.ExportCarPreset(r.CarId, r.PresetName, path, author: _plugin.Settings?.SharingAuthor))
-                            ok++;
-                        else
-                            failures.Add($"{r.CarId}/{r.PresetName}: source missing");
-                    }
-                    catch (Exception ex) { failures.Add($"{r.CarId}/{r.PresetName}: {ex.Message}"); }
-                }
-                if (failures.Count == 0)
-                {
-                    MessageBox.Show(this, $"Exported {ok} car preset(s) to:\n{folder}",
-                        "Export car presets", MessageBoxButton.OK, MessageBoxImage.Information);
-                }
-                else
-                {
-                    MessageBox.Show(this,
-                        $"Exported {ok} of {bulk.Count}. Failures:\n\n" + string.Join("\n", failures),
-                        "Export car presets", MessageBoxButton.OK, MessageBoxImage.Warning);
-                }
-                return;
-            }
-
-            var sel = SelectedCar;
-            if (sel == null) return;
-            var dlg = new SaveFileDialog
-            {
-                Title    = "Export car preset",
-                Filter   = "Trueforce car preset (*.tfcar.json)|*.tfcar.json|JSON (*.json)|*.json",
-                FileName = SanitizeFileName(sel.CarId) + "~" + SanitizeFileName(sel.PresetName) + ".tfcar.json",
-            };
-            if (dlg.ShowDialog(this) != true) return;
-            try
-            {
-                if (!_plugin.ExportCarPreset(sel.CarId, sel.PresetName, dlg.FileName,
-                    author: _plugin.Settings?.SharingAuthor))
-                {
-                    MessageBox.Show(this, "Export failed. The preset may have been removed.",
-                        "Export car preset", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-                MessageBox.Show(this, $"Exported '{sel.CarId} / {sel.PresetName}' to:\n{dlg.FileName}",
-                    "Export car preset", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(this, "Export failed: " + ex.Message, "Export car preset",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
-        }
-
         private void CarSetActive_Click(object sender, RoutedEventArgs e)
         {
             var sel = SelectedCar;
@@ -763,18 +783,6 @@ namespace TrueforceForAll.Plugin
             return baseName + " (copy)";
         }
 
-        // Replace filename-invalid chars with '_'. Used to pre-fill SaveFileDialog
-        // filenames so the user doesn't see the OS-level reject prompt.
-        private static string SanitizeFileName(string s)
-        {
-            if (string.IsNullOrEmpty(s)) return "preset";
-            var invalid = Path.GetInvalidFileNameChars();
-            var arr = s.ToCharArray();
-            for (int i = 0; i < arr.Length; i++)
-                if (Array.IndexOf(invalid, arr[i]) >= 0) arr[i] = '_';
-            return new string(arr);
-        }
-
         // Mirror of SettingsControl.PromptForName so this dialog stays self-
         // contained. Returns the trimmed text or null on Cancel.
         private string PromptForName(string title, string label, string defaultValue)
@@ -810,36 +818,6 @@ namespace TrueforceForAll.Plugin
             ok.Click += (s, args) => { result = tb.Text; win.DialogResult = true; };
             win.Loaded += (s, args) => { tb.Focus(); tb.SelectAll(); };
             return win.ShowDialog() == true ? result : null;
-        }
-
-        // Folder picker (System.Windows.Forms.FolderBrowserDialog). WPF
-        // doesn't ship a native folder picker; this is the standard net48
-        // stand-in. Used by bulk Export to pick a destination folder.
-        // Returns null on Cancel.
-        private string PickFolder(string title, string description)
-        {
-            using (var dlg = new System.Windows.Forms.FolderBrowserDialog
-            {
-                Description = string.IsNullOrEmpty(description) ? title : description,
-                ShowNewFolderButton = true,
-            })
-            {
-                var owner = new WindowInteropHelperWrapper(this);
-                var result = dlg.ShowDialog(owner);
-                return result == System.Windows.Forms.DialogResult.OK ? dlg.SelectedPath : null;
-            }
-        }
-
-        // Thin WinForms IWin32Window wrapper so the FolderBrowserDialog
-        // parents itself on the WPF Manage Presets window (alt-tab + modality
-        // behave correctly).
-        private sealed class WindowInteropHelperWrapper : System.Windows.Forms.IWin32Window
-        {
-            public IntPtr Handle { get; }
-            public WindowInteropHelperWrapper(Window w)
-            {
-                Handle = new System.Windows.Interop.WindowInteropHelper(w).Handle;
-            }
         }
 
         // Modal list picker. Returns the selected item or null on Cancel.

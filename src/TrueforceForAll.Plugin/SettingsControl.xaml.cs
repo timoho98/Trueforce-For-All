@@ -459,15 +459,12 @@ namespace TrueforceForAll.Plugin
             }
             OfflineEditBanner.Visibility = Visibility.Visible;
             bool builtin = _plugin.IsBuiltinPreset(editing);
-            OfflineEditTitle.Text = builtin
-                ? $"Editing built-in preset '{editing}' (forks on save)"
-                : $"Editing preset '{editing}'";
-            OfflineEditSubtitle.Text = builtin
-                ? "Built-ins can't be overwritten in place — Save forks a copy under a new name. Save as new picks the name explicitly. Discard rolls back to your pre-edit state. Auto-switch on game change is paused while editing."
-                : "Auto-switch on game change is paused. Save commits to this preset; Save as new forks a copy; Discard rolls back to your pre-edit state.";
+            OfflineEditTitle.Text = $"Editing preset '{editing}'";
             // Save button on a built-in becomes "Save as new…" since the
             // in-place save isn't allowed; collapse the explicit Save-as
-            // button to avoid two paths that do the same thing.
+            // button to avoid two paths that do the same thing. The relabel
+            // is the user's cue that built-in edits fork instead of
+            // overwriting; no need for a second explainer in the banner.
             OfflineEditSaveBtn.Content      = builtin ? "Save as new…" : "Save";
             OfflineEditSaveAsBtn.Visibility = builtin ? Visibility.Collapsed : Visibility.Visible;
         }
@@ -513,7 +510,7 @@ namespace TrueforceForAll.Plugin
             string suggested = string.IsNullOrEmpty(suggestedBaseName)
                 ? "My preset"
                 : suggestedBaseName + " (edited)";
-            string newName = PromptForName("Save edited preset as", "Preset name:", suggested);
+            string newName = PromptForName("Save as new preset", "New preset name:", suggested);
             if (string.IsNullOrWhiteSpace(newName)) return;
             newName = newName.Trim();
             if (_plugin.Settings?.Presets?.ContainsKey(newName) == true)
@@ -1300,10 +1297,10 @@ namespace TrueforceForAll.Plugin
                 HeaderPresetText.Text = "(none)";
                 return;
             }
-            string main   = string.IsNullOrEmpty(activeP) ? "(unsaved tuning)" : activeP;
+            string main   = string.IsNullOrEmpty(activeP) ? "(unsaved tuning)" : ToBuiltinDisplay(activeP);
             string suffix = "";
             if (!string.IsNullOrEmpty(activeP) && activeP == defName) suffix += " · default for this game";
-            else if (!string.IsNullOrEmpty(defName))                  suffix += $" · game default: {defName}";
+            else if (!string.IsNullOrEmpty(defName))                  suffix += $" · game default: {ToBuiltinDisplay(defName)}";
             // The "(unsaved tuning)" main label already conveys the dirty state
             // when there's no active preset, so don't double up the suffix.
             if (_dirty && !string.IsNullOrEmpty(activeP))             suffix += " · ★ unsaved";
@@ -1517,7 +1514,7 @@ namespace TrueforceForAll.Plugin
                 {
                     var item = new System.Windows.Controls.ComboBoxItem
                     {
-                        Content = entry.PresetName,
+                        Content = ToBuiltinDisplay(entry.PresetName),
                         Tag     = entry.PresetName,
                     };
                     CarPresetCombo.Items.Add(item);
@@ -1624,6 +1621,38 @@ namespace TrueforceForAll.Plugin
             return name.EndsWith(suffix, StringComparison.Ordinal)
                 ? name.Substring(0, name.Length - suffix.Length)
                 : name;
+        }
+
+        // Built-in presets are stored with a trailing " (default)" suffix —
+        // that's the structural marker the rest of the plugin keys off
+        // (IsBuiltinPreset, refresh-on-load, export stripping, name
+        // validator). For UI display we relabel to " (built-in)" so the
+        // word "default" only ever means the per-game auto-load binding
+        // (Set as default / "default for this game").
+        private static string ToBuiltinDisplay(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return name;
+            const string oldSuffix = " (default)";
+            const string newSuffix = " (built-in)";
+            return name.EndsWith(oldSuffix, StringComparison.Ordinal)
+                ? name.Substring(0, name.Length - oldSuffix.Length) + newSuffix
+                : name;
+        }
+
+        // Find an entry in `combo.Items` whose Tag matches `tag` and
+        // select it. No-op if combo is null, tag is empty, or no match.
+        private static void SelectComboItemByTag(System.Windows.Controls.ComboBox combo, string tag)
+        {
+            if (combo == null || string.IsNullOrEmpty(tag)) return;
+            foreach (var obj in combo.Items)
+            {
+                if (obj is System.Windows.Controls.ComboBoxItem item
+                    && string.Equals(item.Tag as string, tag, StringComparison.Ordinal))
+                {
+                    combo.SelectedItem = item;
+                    return;
+                }
+            }
         }
 
         /// <summary>Modal name-prompt for car preset save. Disallows empty
@@ -3349,24 +3378,36 @@ namespace TrueforceForAll.Plugin
 
             // Repopulate dropdown without re-firing SelectionChanged into our
             // handler — _suppressEvents wraps the whole RefreshFromPlugin call.
-            string keepSelected = PresetCombo.SelectedItem as string ?? activeP;
+            // Items are ComboBoxItem with Tag=real name, Content=display name
+            // (built-ins relabel " (default)" → " (built-in)" via
+            // ToBuiltinDisplay so "default" only refers to the per-game
+            // auto-load binding).
+            string keepSelected = SelectedPresetName ?? activeP;
             PresetCombo.Items.Clear();
             if (_plugin.PresetNames != null)
-                foreach (var name in _plugin.PresetNames) PresetCombo.Items.Add(name);
+            {
+                foreach (var name in _plugin.PresetNames)
+                {
+                    PresetCombo.Items.Add(new System.Windows.Controls.ComboBoxItem
+                    {
+                        Content = ToBuiltinDisplay(name),
+                        Tag     = name,
+                    });
+                }
+            }
 
             // Prefer the active preset if it still exists; else the previous
             // selection if it still exists; else nothing.
-            if (!string.IsNullOrEmpty(activeP) && PresetCombo.Items.Contains(activeP))
-                PresetCombo.SelectedItem = activeP;
-            else if (!string.IsNullOrEmpty(keepSelected) && PresetCombo.Items.Contains(keepSelected))
-                PresetCombo.SelectedItem = keepSelected;
+            SelectComboItemByTag(PresetCombo, activeP);
+            if (PresetCombo.SelectedItem == null)
+                SelectComboItemByTag(PresetCombo, keepSelected);
 
-            bool hasSelection   = PresetCombo.SelectedItem is string;
+            string selectedName = SelectedPresetName;
+            bool hasSelection   = selectedName != null;
             bool gameDetected   = !string.IsNullOrEmpty(game);
             bool gameHasDefault = !string.IsNullOrEmpty(defName);
-            bool selBuiltin     = hasSelection && _plugin.IsBuiltinPreset((string)PresetCombo.SelectedItem);
+            bool selBuiltin     = hasSelection && _plugin.IsBuiltinPreset(selectedName);
 
-            ApplyPresetButton.IsEnabled   = hasSelection;
             // Save is always available now: if active preset is built-in or
             // missing, ForkAndSaveAsGamePreset takes over.
             SavePresetButton.IsEnabled    = true;
@@ -3377,34 +3418,48 @@ namespace TrueforceForAll.Plugin
             ClearDefaultButton.IsEnabled  = gameDetected && gameHasDefault;
         }
 
-        private string SelectedPresetName => PresetCombo?.SelectedItem as string;
+        private string SelectedPresetName
+            => (PresetCombo?.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag as string;
 
         private void PresetCombo_Changed(object sender, SelectionChangedEventArgs e)
         {
-            // Selection alone doesn't apply — user must click Apply. Just
-            // refresh button-enabled states so Delete/Apply enable correctly.
-            if (_suppressEvents) return;
+            if (_suppressEvents || _plugin == null) return;
             string sel = SelectedPresetName;
             bool hasSelection = sel != null;
-            bool selBuiltin   = hasSelection && _plugin != null && _plugin.IsBuiltinPreset(sel);
-            ApplyPresetButton.IsEnabled  = hasSelection;
+            bool selBuiltin   = hasSelection && _plugin.IsBuiltinPreset(sel);
             DeletePresetButton.IsEnabled = hasSelection && !selBuiltin;
-            SetDefaultButton.IsEnabled   = hasSelection && !string.IsNullOrEmpty(_plugin?.ActiveGame);
-        }
+            SetDefaultButton.IsEnabled   = hasSelection && !string.IsNullOrEmpty(_plugin.ActiveGame);
 
-        private void ApplyPreset_Click(object sender, RoutedEventArgs e)
-        {
-            string name = SelectedPresetName;
-            if (_plugin == null || string.IsNullOrEmpty(name)) return;
+            if (!hasSelection) return;
+            string oldActive = _plugin.ActivePresetName;
+            if (string.Equals(sel, oldActive, StringComparison.Ordinal)) return;
+
             if (_dirty)
             {
                 var r = MessageBox.Show(
-                    $"Apply preset '{name}'? Your unsaved tuning will be discarded.\n\nClick No to cancel and Save first.",
+                    $"Apply preset '{sel}'? Your unsaved tuning will be discarded.\n\nClick No to cancel and Save first.",
                     "Trueforce", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-                if (r != MessageBoxResult.Yes) return;
+                if (r != MessageBoxResult.Yes)
+                {
+                    // User cancelled — revert dropdown to the previously-active
+                    // preset without re-entering this handler.
+                    bool prev = _suppressEvents;
+                    _suppressEvents = true;
+                    try
+                    {
+                        PresetCombo.SelectedItem = null;
+                        SelectComboItemByTag(PresetCombo, oldActive);
+                    }
+                    finally { _suppressEvents = prev; }
+                    return;
+                }
             }
-            if (!_plugin.ApplyPreset(name))
-                MessageBox.Show($"Could not apply '{name}' (preset missing).", "Trueforce", MessageBoxButton.OK, MessageBoxImage.Error);
+
+            if (!_plugin.ApplyPreset(sel))
+            {
+                MessageBox.Show($"Could not apply '{sel}' (preset missing).", "Trueforce", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
             ClearDirty();
             RefreshFromPlugin();
         }
@@ -3607,16 +3662,19 @@ namespace TrueforceForAll.Plugin
         // SharingAuthor; on OK, persists the (possibly-edited) author back so
         // the next export pre-fills with what the user just typed. Returns
         // false on Cancel; true with the (possibly-blank) values on OK.
-        private bool PromptForExportMetadata(string title, string subjectKind,
+        // Static so ManagePresetsDialog can drive the same export flow from
+        // its own Window context.
+        internal static bool PromptForExportMetadata(Window owner, TrueforcePlugin plugin,
+            string title, string subjectKind,
             out string author, out string description, out string authorVersion)
         {
             author = description = authorVersion = null;
-            if (_plugin?.Settings == null) return false;
+            if (plugin?.Settings == null) return false;
 
             var dlg = new PresetMetadataDialog(title, subjectKind,
-                _plugin.Settings.SharingAuthor, "", "")
+                plugin.Settings.SharingAuthor, "", "")
             {
-                Owner = Window.GetWindow(this),
+                Owner = owner,
             };
             if (dlg.Owner == null) dlg.WindowStartupLocation = WindowStartupLocation.CenterScreen;
             if (dlg.ShowDialog() != true) return false;
@@ -3625,13 +3683,11 @@ namespace TrueforceForAll.Plugin
             description   = dlg.Description;
             authorVersion = dlg.AuthorVersion;
 
-            // Persist the (possibly edited) author so the next export pre-fills
-            // with the user's most recent value. Only writes when changed.
             string newAuthor = author?.Trim() ?? "";
-            if (newAuthor != (_plugin.Settings.SharingAuthor ?? ""))
+            if (newAuthor != (plugin.Settings.SharingAuthor ?? ""))
             {
-                _plugin.Settings.SharingAuthor = newAuthor;
-                try { _plugin.PersistSettings(); } catch { }
+                plugin.Settings.SharingAuthor = newAuthor;
+                try { plugin.PersistSettings(); } catch { }
             }
             return true;
         }
@@ -3709,64 +3765,7 @@ namespace TrueforceForAll.Plugin
         // preset pre-checked) and saves the selection as a .tfpack.
         private void Export_Click(object sender, RoutedEventArgs e)
         {
-            if (_plugin == null) return;
-
-            // Filter built-ins. Every recipient already has them, so they'd
-            // just clutter the picker.
-            var presets = _plugin.GetExportablePresetNames()
-                .Where(n => !_plugin.IsBuiltinPreset(n))
-                .ToList();
-            var cars = _plugin.GetExportableCarPresets()
-                .Where(c => !c.IsBuiltin)
-                .ToList();
-            if (presets.Count == 0 && cars.Count == 0)
-            {
-                MessageBox.Show("Nothing to share yet. Save a preset (or a per-car tuning) first.",
-                                "Trueforce", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            // Pre-check the active car's preset(s) only. Game presets default
-            // unchecked; Select all / Select none in the picker covers the
-            // "I actually want everything" case.
-            string preferCarId = _plugin.ActiveCarId;
-
-            var picker = new PackPickerWindow(presets, cars, exportMode: true, preferCarId)
-            {
-                Owner = Window.GetWindow(this),
-            };
-            if (picker.Owner == null) picker.WindowStartupLocation = WindowStartupLocation.CenterScreen;
-            if (picker.ShowDialog() != true) return;
-
-            var pickedPresets = picker.SelectedPresetNames;
-            var pickedCars    = picker.SelectedCarPresets;
-            if (pickedPresets.Count == 0 && pickedCars.Count == 0) return;
-
-            if (!PromptForExportMetadata("Export", "pack",
-                out string author, out string desc, out string ver)) return;
-
-            string defaultName = $"Trueforce-pack-{DateTime.Now:yyyy-MM-dd}.tfpack";
-            var dlg = new Microsoft.Win32.SaveFileDialog
-            {
-                Filter   = "Trueforce pack (*.tfpack)|*.tfpack|Zip (*.zip)|*.zip",
-                FileName = defaultName,
-                Title    = "Export",
-            };
-            if (dlg.ShowDialog() != true) return;
-            try
-            {
-                var (p, c) = _plugin.ExportPack(
-                    dlg.FileName,
-                    pickedPresets,
-                    pickedCars.ConvertAll(e2 => (e2.CarId, e2.PresetName)),
-                    author, desc, ver);
-                MessageBox.Show($"Exported {p} preset(s) and {c} car preset(s) to:\n{dlg.FileName}",
-                                "Trueforce", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Export failed:\n{ex.Message}", "Trueforce", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            RunExportFlow(Window.GetWindow(this), _plugin);
         }
 
         // Import: routes based on file extension + JSON "Type" marker.
@@ -3777,15 +3776,106 @@ namespace TrueforceForAll.Plugin
         //                                            confirmed first)
         private void Import_Click(object sender, RoutedEventArgs e)
         {
-            if (_plugin == null) return;
+            if (RunImportFlow(Window.GetWindow(this), _plugin))
+            {
+                ClearDirty();
+                RefreshFromPlugin();
+            }
+        }
+
+        // Static body of Export_Click so ManagePresetsDialog can run the
+        // same flow with itself as the owner Window (otherwise nested modals
+        // appear behind the manage dialog).
+        internal static void RunExportFlow(Window owner, TrueforcePlugin plugin)
+        {
+            if (plugin == null) return;
+
+            var presets = plugin.GetExportablePresetNames()
+                .Where(n => !plugin.IsBuiltinPreset(n))
+                .ToList();
+            var cars = plugin.GetExportableCarPresets()
+                .Where(c => !c.IsBuiltin)
+                .ToList();
+            if (presets.Count == 0 && cars.Count == 0)
+            {
+                MessageBox.Show(owner, "Nothing to share yet. Save a preset (or a per-car tuning) first.",
+                                "Trueforce For All", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            string preferCarId = plugin.ActiveCarId;
+
+            // preset name -> set of GameNames it's a default for. Combines
+            // shipped GameDefaultBindings with the user's saved GameDefaults
+            // so checking a preset on the left filters the car list down to
+            // that preset's games.
+            var presetGameMappings = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+            void AddMapping(string p, string g)
+            {
+                if (string.IsNullOrEmpty(p) || string.IsNullOrEmpty(g)) return;
+                if (!presetGameMappings.TryGetValue(p, out var list))
+                {
+                    list = new List<string>();
+                    presetGameMappings[p] = list;
+                }
+                if (list is List<string> mut && !mut.Contains(g)) mut.Add(g);
+            }
+            foreach (var kv in BuiltinPresets.GameDefaultBindings) AddMapping(kv.Value, kv.Key);
+            if (plugin.Settings?.GameDefaults != null)
+                foreach (var kv in plugin.Settings.GameDefaults) AddMapping(kv.Value, kv.Key);
+
+            var picker = new PackPickerWindow(presets, cars, exportMode: true, preferCarId, presetGameMappings)
+            {
+                Owner = owner,
+            };
+            if (picker.Owner == null) picker.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            if (picker.ShowDialog() != true) return;
+
+            var pickedPresets = picker.SelectedPresetNames;
+            var pickedCars    = picker.SelectedCarPresets;
+            if (pickedPresets.Count == 0 && pickedCars.Count == 0) return;
+
+            if (!PromptForExportMetadata(owner, plugin, "Export", "pack",
+                out string author, out string desc, out string ver)) return;
+
+            string defaultName = $"TF4ALL-pack-{DateTime.Now:yyyy-MM-dd}.tfpack";
+            var dlg = new Microsoft.Win32.SaveFileDialog
+            {
+                Filter   = "TF4ALL pack (*.tfpack)|*.tfpack|Zip (*.zip)|*.zip",
+                FileName = defaultName,
+                Title    = "Export",
+            };
+            if (dlg.ShowDialog(owner) != true) return;
+            try
+            {
+                var (p, c) = plugin.ExportPack(
+                    dlg.FileName,
+                    pickedPresets,
+                    pickedCars.ConvertAll(e2 => (e2.CarId, e2.PresetName)),
+                    author, desc, ver);
+                MessageBox.Show(owner, $"Exported {p} preset(s) and {c} car preset(s) to:\n{dlg.FileName}",
+                                "Trueforce For All", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(owner, $"Export failed:\n{ex.Message}", "Trueforce For All", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        // Static body of Import_Click. Returns true if anything was imported
+        // so the caller can refresh its own UI (the main panel reapplies the
+        // imported settings; the manage dialog reloads its lists).
+        internal static bool RunImportFlow(Window owner, TrueforcePlugin plugin)
+        {
+            if (plugin == null) return false;
             var dlg = new Microsoft.Win32.OpenFileDialog
             {
-                Filter = "Trueforce files (*.tfpack;*.tfpreset.json;*.tfcar.json;*.zip;*.json)"
+                Filter = "TF4ALL files (*.tfpack;*.tfpreset.json;*.tfcar.json;*.zip;*.json)"
                          + "|*.tfpack;*.tfpreset.json;*.tfcar.json;*.zip;*.json"
                          + "|All files (*.*)|*.*",
                 Title  = "Import",
             };
-            if (dlg.ShowDialog() != true) return;
+            if (dlg.ShowDialog(owner) != true) return false;
             string path = dlg.FileName;
             string ext  = (System.IO.Path.GetExtension(path) ?? "").ToLowerInvariant();
 
@@ -3793,29 +3883,27 @@ namespace TrueforceForAll.Plugin
             {
                 if (ext == ".tfpack" || ext == ".zip")
                 {
-                    ImportPackAndReport(path);
-                    return;
+                    ImportPackAndReport(owner, plugin, path);
+                    return true;
                 }
 
                 string json = System.IO.File.ReadAllText(path);
                 string type = PeekJsonType(json);
-                if (type == PresetFile.FileType)    { ImportPresetAndReport(path);    return; }
-                if (type == CarPresetFile.FileType) { ImportCarPresetAndReport(path); return; }
+                if (type == PresetFile.FileType)    { ImportPresetAndReport(owner, plugin, path);    return true; }
+                if (type == CarPresetFile.FileType) { ImportCarPresetAndReport(owner, plugin, path); return true; }
 
-                // No recognized Type marker. Treat as a full settings backup,
-                // which is destructive, so confirm first.
-                if (MessageBox.Show(
-                        "This looks like a full Trueforce settings backup. Importing replaces all current settings (master, audio, every effect, all per-car overrides). Continue?",
-                        "Trueforce", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
-                    return;
-                _plugin.ImportSettings(path);
-                ClearDirty();
-                RefreshFromPlugin();
-                MessageBox.Show("Settings imported.", "Trueforce", MessageBoxButton.OK, MessageBoxImage.Information);
+                if (MessageBox.Show(owner,
+                        "This looks like a full TF4ALL settings backup. Importing replaces all current settings (master, audio, every effect, all per-car overrides). Continue?",
+                        "Trueforce For All", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                    return false;
+                plugin.ImportSettings(path);
+                MessageBox.Show(owner, "Settings imported.", "Trueforce For All", MessageBoxButton.OK, MessageBoxImage.Information);
+                return true;
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Import failed:\n{ex.Message}", "Trueforce", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(owner, $"Import failed:\n{ex.Message}", "Trueforce For All", MessageBoxButton.OK, MessageBoxImage.Error);
+                return false;
             }
         }
 
@@ -3831,37 +3919,36 @@ namespace TrueforceForAll.Plugin
             catch { return null; }
         }
 
-        private void ImportPresetAndReport(string path)
+        // Caller refreshes its own UI after these return (main panel runs
+        // ClearDirty + RefreshFromPlugin; manage dialog reloads its lists).
+        private static void ImportPresetAndReport(Window owner, TrueforcePlugin plugin, string path)
         {
-            var r = _plugin.ImportPreset(path);
+            var r = plugin.ImportPreset(path);
             string body = $"Imported preset '{r.PresetName}' into your library. Select it from the dropdown and click Apply, or set it as a game default.";
             string meta = FormatMetadataLines(r.Author, r.AuthorVersion, r.Description);
             if (!string.IsNullOrEmpty(meta)) body = meta + "\n\n" + body;
-            MessageBox.Show(body, "Trueforce", MessageBoxButton.OK, MessageBoxImage.Information);
-            RefreshFromPlugin();
+            MessageBox.Show(owner, body, "Trueforce For All", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
-        private void ImportCarPresetAndReport(string path)
+        private static void ImportCarPresetAndReport(Window owner, TrueforcePlugin plugin, string path)
         {
-            var r = _plugin.ImportCarPreset(path);
-            bool applied = r.CarId == _plugin.ActiveCarId;
+            var r = plugin.ImportCarPreset(path);
+            bool applied = r.CarId == plugin.ActiveCarId;
             string body = applied
                 ? $"Imported car preset '{r.PresetName}' for '{r.CarId}'. Applied (this is the active car)."
                 : $"Imported car preset '{r.PresetName}' for '{r.CarId}'. Stored (will apply when you drive that car).";
             string meta = FormatMetadataLines(r.Author, r.AuthorVersion, r.Description);
             if (!string.IsNullOrEmpty(meta)) body = meta + "\n\n" + body;
-            MessageBox.Show(body, "Trueforce", MessageBoxButton.OK, MessageBoxImage.Information);
-            RefreshFromPlugin();
+            MessageBox.Show(owner, body, "Trueforce For All", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
-        private void ImportPackAndReport(string path)
+        private static void ImportPackAndReport(Window owner, TrueforcePlugin plugin, string path)
         {
-            var r = _plugin.ImportPack(path);
+            var r = plugin.ImportPack(path);
             string body = $"Imported {r.PresetsImported} preset(s) and {r.CarsImported} car preset(s) from:\n{path}";
             string meta = FormatMetadataLines(r.Author, r.AuthorVersion, r.Description);
             if (!string.IsNullOrEmpty(meta)) body = meta + "\n\n" + body;
-            MessageBox.Show(body, "Trueforce", MessageBoxButton.OK, MessageBoxImage.Information);
-            RefreshFromPlugin();
+            MessageBox.Show(owner, body, "Trueforce For All", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         // ---------- Performance tab ----------

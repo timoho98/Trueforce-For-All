@@ -39,7 +39,7 @@ namespace TrueforceForAll.Plugin
         private const string BdcStreetspecAe86V4 = @"{
   ""Type"": ""trueforce-car-preset"",
   ""Version"": 2,
-  ""GameName"": """",
+  ""GameName"": ""AssettoCorsa"",
   ""CarId"": ""bdc_streetspec_ae86_v4"",
   ""PresetName"": ""bdc_streetspec_ae86_v4 (default)"",
   ""IsBuiltin"": true,
@@ -63,7 +63,7 @@ namespace TrueforceForAll.Plugin
         private const string Car11Default = @"{
   ""Type"": ""trueforce-car-preset"",
   ""Version"": 2,
-  ""GameName"": """",
+  ""GameName"": ""Wreckfest2"",
   ""CarId"": ""car11:default"",
   ""PresetName"": ""car11:default (default)"",
   ""IsBuiltin"": true,
@@ -87,7 +87,7 @@ namespace TrueforceForAll.Plugin
         private const string GravyGarageE36Touring = @"{
   ""Type"": ""trueforce-car-preset"",
   ""Version"": 2,
-  ""GameName"": """",
+  ""GameName"": ""AssettoCorsa"",
   ""CarId"": ""gravygarage_street_e36_touring"",
   ""PresetName"": ""gravygarage_street_e36_touring (default)"",
   ""IsBuiltin"": true,
@@ -124,7 +124,7 @@ namespace TrueforceForAll.Plugin
         private const string KsNissanSkylineR34 = @"{
   ""Type"": ""trueforce-car-preset"",
   ""Version"": 2,
-  ""GameName"": """",
+  ""GameName"": ""AssettoCorsa"",
   ""CarId"": ""ks_nissan_skyline_r34"",
   ""PresetName"": ""ks_nissan_skyline_r34 (default)"",
   ""IsBuiltin"": true,
@@ -148,7 +148,7 @@ namespace TrueforceForAll.Plugin
         private const string KsToyotaAe86Tuned = @"{
   ""Type"": ""trueforce-car-preset"",
   ""Version"": 2,
-  ""GameName"": """",
+  ""GameName"": ""AssettoCorsa"",
   ""CarId"": ""ks_toyota_ae86_tuned"",
   ""PresetName"": ""ks_toyota_ae86_tuned (default)"",
   ""IsBuiltin"": true,
@@ -172,7 +172,7 @@ namespace TrueforceForAll.Plugin
         private const string NohesiGtrR35Vlct = @"{
   ""Type"": ""trueforce-car-preset"",
   ""Version"": 2,
-  ""GameName"": """",
+  ""GameName"": ""AssettoCorsa"",
   ""CarId"": ""nohesi_realistic_nissan_gtr_r35_vlct"",
   ""PresetName"": ""nohesi_realistic_nissan_gtr_r35_vlct (default)"",
   ""IsBuiltin"": true,

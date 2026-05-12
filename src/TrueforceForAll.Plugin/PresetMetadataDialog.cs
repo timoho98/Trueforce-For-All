@@ -26,6 +26,10 @@ namespace TrueforceForAll.Plugin
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             ShowInTaskbar = false;
             ResizeMode = ResizeMode.NoResize;
+            // Dark theme to match every other plugin dialog. Without this,
+            // the window falls through to WPF defaults (white background,
+            // black text) which reads as unstyled against SimHub's chrome.
+            SettingsControl.ApplyDarkTheme(this);
 
             var sp = new StackPanel { Margin = new Thickness(14) };
             sp.Children.Add(new TextBlock
@@ -37,23 +41,15 @@ namespace TrueforceForAll.Plugin
             });
 
             sp.Children.Add(BuildLabel("Author"));
-            var tbAuthor = new TextBox { Text = defaultAuthor ?? "", Margin = new Thickness(0, 0, 0, 10) };
+            var tbAuthor = BuildInputTextBox(defaultAuthor, multiline: false);
             sp.Children.Add(tbAuthor);
 
             sp.Children.Add(BuildLabel("Version"));
-            var tbVersion = new TextBox { Text = defaultAuthorVersion ?? "", Margin = new Thickness(0, 0, 0, 10) };
+            var tbVersion = BuildInputTextBox(defaultAuthorVersion, multiline: false);
             sp.Children.Add(tbVersion);
 
             sp.Children.Add(BuildLabel("Description"));
-            var tbDesc = new TextBox
-            {
-                Text = defaultDescription ?? "",
-                Margin = new Thickness(0, 0, 0, 12),
-                Height = 80,
-                AcceptsReturn = true,
-                TextWrapping = TextWrapping.Wrap,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            };
+            var tbDesc = BuildInputTextBox(defaultDescription, multiline: true);
             sp.Children.Add(tbDesc);
 
             var btnRow = new StackPanel
@@ -82,5 +78,30 @@ namespace TrueforceForAll.Plugin
 
         private static UIElement BuildLabel(string text)
             => new TextBlock { Text = text, Margin = new Thickness(0, 0, 0, 4), FontWeight = FontWeights.SemiBold };
+
+        // TextBox doesn't pick up TextElement.Foreground inheritance (its
+        // template hard-codes a default Foreground), so set Background +
+        // Foreground + CaretBrush explicitly on every input.
+        private static TextBox BuildInputTextBox(string text, bool multiline)
+        {
+            var tb = new TextBox
+            {
+                Text = text ?? "",
+                Margin = new Thickness(0, 0, 0, multiline ? 12 : 10),
+                Padding = new Thickness(4, 2, 4, 2),
+                Background = new SolidColorBrush(Color.FromRgb(0x1F, 0x1F, 0x1F)),
+                Foreground = new SolidColorBrush(Color.FromRgb(0xEA, 0xEA, 0xEA)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0x55, 0x55, 0x55)),
+                CaretBrush = new SolidColorBrush(Color.FromRgb(0xEA, 0xEA, 0xEA)),
+            };
+            if (multiline)
+            {
+                tb.Height = 80;
+                tb.AcceptsReturn = true;
+                tb.TextWrapping = TextWrapping.Wrap;
+                tb.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+            }
+            return tb;
+        }
     }
 }

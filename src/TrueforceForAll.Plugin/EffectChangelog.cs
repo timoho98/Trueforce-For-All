@@ -68,6 +68,41 @@ namespace TrueforceForAll.Plugin
                 },
             },
             new ChangelogVersion {
+                Version = new Version(0, 1, 7),
+                Title = "Preset workflow + Manage Presets polish",
+                Entries = new List<ChangelogEntry>
+                {
+                    new ChangelogEntry {
+                        Headline = "Preset dropdown applies on selection",
+                        Description = "The Apply button is gone. Picking a preset from the dropdown loads it immediately. If you've made unsaved tuning, the same confirmation prompt appears; clicking No restores the previously active preset.",
+                    },
+                    new ChangelogEntry {
+                        Headline = "Built-in presets read '(built-in)' instead of '(default)'",
+                        Description = "The trailing ' (default)' marker overloaded with the per-game auto-load binding ('Set as default for this game'), making it ambiguous whether a preset was a factory default or the bound default. Built-ins now show as '(built-in)' in the dropdown, the active-preset header, and car-preset dropdowns. Underlying file names and saved settings are unchanged.",
+                    },
+                    new ChangelogEntry {
+                        Headline = "Sortable columns in Manage Presets",
+                        Description = "Every column header in the Manage Presets tabs is clickable now. First click sorts ascending, second click on the same column flips to descending. Sort choice persists across modal close/reopen and SimHub restarts, per tab.",
+                    },
+                    new ChangelogEntry {
+                        Headline = "Pack picker groups car presets by game",
+                        Description = "The Export pack picker now groups car presets under bold game headers (Assetto Corsa, Wreckfest 2, etc). Checking a game preset on the left filters the car list to the games that preset is bound to as a default, so an Export sweep can pull one game's set without scrolling through every car.",
+                    },
+                    new ChangelogEntry {
+                        Headline = "F1 22-25 recognized as Trueforce-native",
+                        Description = "The plugin now skips itself for F1 22-25 on PC the same way it does for Forza Motorsport, since those titles ship Logitech Trueforce natively. The bundled 'F1 25 (default)' preset is removed, and the F1 telemetry section auto-collapses for these games.",
+                    },
+                    new ChangelogEntry {
+                        Headline = "Manage Presets: Export and Import live at the dialog footer",
+                        Description = "Per-row 'Export…' buttons in the Game and Car tabs are gone, replaced by a single Export… / Import… pair at the bottom of the dialog. Same flow as the buttons on the main panel, so there's one place to manage file-level actions.",
+                    },
+                    new ChangelogEntry {
+                        Headline = "Export metadata dialog matches the dark theme",
+                        Description = "The 'Author / Version / Description' dialog that surfaces during Export used to fall through to WPF defaults (white background, black text). It now paints with the same dark chrome as the rest of the plugin.",
+                    },
+                },
+            },
+            new ChangelogVersion {
                 Version = new Version(0, 1, 6),
                 Title = "Bug fix",
                 Entries = new List<ChangelogEntry>

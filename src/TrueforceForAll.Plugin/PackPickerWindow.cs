@@ -1,12 +1,18 @@
-// Modal dialog used by the "Export" flow in Backup & sync: lets the user
-// pick which presets and car presets to bundle into a .tfpack zip. Two
-// side-by-side CheckBox lists with Select all / Select none controls; OK
-// gates on at least one item being selected.
+// Modal dialog used by the "Export" flow: lets the user pick which presets
+// and car presets to bundle into a .tfpack zip. Two side-by-side CheckBox
+// lists with Select all / Select none controls; OK gates on at least one
+// item being selected.
 //
 // The caller is responsible for filtering built-ins out of the lists before
 // constructing this window (built-ins ship with the plugin, so every
 // recipient already has them). Pass preferCarId to pre-check just the
 // presets belonging to the active car; everything else defaults unchecked.
+//
+// The car list is grouped by GameName with bold separators. Checking a
+// preset on the left filters the car list to only the games that preset
+// is the default for (from BuiltinPresets.GameDefaultBindings + the user's
+// Settings.GameDefaults, passed in via presetGameMappings). When no
+// presets are checked, every group stays visible.
 //
 // Built in code (not XAML) because the dialog is single-use and the plugin's
 // XAML build pipeline doesn't auto-pick up new .xaml files in this folder
@@ -32,6 +38,7 @@ namespace TrueforceForAll.Plugin
         private static readonly Brush TextFg     = new SolidColorBrush(Color.FromRgb(0xE0, 0xE0, 0xE0));
         private static readonly Brush MutedFg    = new SolidColorBrush(Color.FromRgb(0x9A, 0x9A, 0x9A));
         private static readonly Brush BorderFg   = new SolidColorBrush(Color.FromRgb(0x40, 0x40, 0x40));
+        private static readonly Brush GroupHeaderFg = new SolidColorBrush(Color.FromRgb(0xC0, 0xC0, 0xC0));
 
         public List<string> SelectedPresetNames { get; private set; } = new List<string>();
         public List<CarPresetEntry> SelectedCarPresets { get; private set; } = new List<CarPresetEntry>();
@@ -39,8 +46,34 @@ namespace TrueforceForAll.Plugin
         private readonly List<CheckBox> _presetChecks = new List<CheckBox>();
         private readonly List<(CheckBox Cb, CarPresetEntry Entry)> _carChecks = new List<(CheckBox, CarPresetEntry)>();
 
-        public PackPickerWindow(List<string> presets, List<CarPresetEntry> cars, bool exportMode, string preferCarId = null)
+        // (game key, header TextBlock, content StackPanel). Game key is
+        // GameName lowercased; empty key marks the "(other)" group at the
+        // bottom for cars without an associated game.
+        private readonly List<(string GameKey, FrameworkElement Header, FrameworkElement Content)> _carGameGroups
+            = new List<(string, FrameworkElement, FrameworkElement)>();
+
+        // preset name -> games (lowercased) it's bound to as a default.
+        // Drives the "filter car panel by checked presets" interaction.
+        private readonly Dictionary<string, HashSet<string>> _presetGameMap;
+
+        private TextBlock _carCountText;
+
+        public PackPickerWindow(List<string> presets, List<CarPresetEntry> cars, bool exportMode, string preferCarId = null,
+            IReadOnlyDictionary<string, IReadOnlyList<string>> presetGameMappings = null)
         {
+            // Normalize the mapping to a case-insensitive HashSet-per-preset
+            // so filter checks stay O(1) and don't trip over GameName casing.
+            _presetGameMap = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            if (presetGameMappings != null)
+            {
+                foreach (var kv in presetGameMappings)
+                {
+                    var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    if (kv.Value != null) foreach (var g in kv.Value) if (!string.IsNullOrEmpty(g)) set.Add(g);
+                    _presetGameMap[kv.Key] = set;
+                }
+            }
+
             Title = exportMode ? "Export" : "Import";
             Width = 760;
             Height = 520;
@@ -105,13 +138,17 @@ namespace TrueforceForAll.Plugin
                 if (SelectedPresetNames.Count == 0 && SelectedCarPresets.Count == 0)
                 {
                     MessageBox.Show(this, "Pick at least one preset or car preset to include.",
-                                    "Trueforce", MessageBoxButton.OK, MessageBoxImage.Information);
+                                    "Trueforce For All", MessageBoxButton.OK, MessageBoxImage.Information);
                     return;
                 }
                 DialogResult = true;
             };
 
             Content = root;
+
+            // Initial pass: any pre-checked preset (none today, but cheap)
+            // would seed the filter immediately.
+            UpdateCarGroupVisibility();
         }
 
         private UIElement BuildPresetPanel(List<string> presets)
@@ -150,6 +187,8 @@ namespace TrueforceForAll.Plugin
                         IsChecked = false,
                         Foreground = TextFg,
                     };
+                    cb.Checked   += (s, e) => UpdateCarGroupVisibility();
+                    cb.Unchecked += (s, e) => UpdateCarGroupVisibility();
                     _presetChecks.Add(cb);
                     listSp.Children.Add(cb);
                 }
@@ -162,13 +201,19 @@ namespace TrueforceForAll.Plugin
         {
             var panel = new DockPanel { Margin = new Thickness(6, 0, 0, 0) };
 
-            var header = BuildPanelHeader($"Car presets ({cars.Count})");
-            DockPanel.SetDock(header, Dock.Top);
-            panel.Children.Add(header);
+            _carCountText = new TextBlock
+            {
+                Text = $"Car presets ({cars.Count})",
+                FontWeight = FontWeights.SemiBold,
+                Foreground = TextFg,
+                Margin = new Thickness(2, 0, 2, 6),
+            };
+            DockPanel.SetDock(_carCountText, Dock.Top);
+            panel.Children.Add(_carCountText);
 
             var toggleRow = BuildToggleRow(
-                onAll:  () => { foreach (var pair in _carChecks) pair.Cb.IsChecked = true;  },
-                onNone: () => { foreach (var pair in _carChecks) pair.Cb.IsChecked = false; });
+                onAll:  () => { foreach (var pair in _carChecks) if (IsEffectivelyVisible(pair.Cb)) pair.Cb.IsChecked = true;  },
+                onNone: () => { foreach (var pair in _carChecks) if (IsEffectivelyVisible(pair.Cb)) pair.Cb.IsChecked = false; });
             DockPanel.SetDock(toggleRow, Dock.Top);
             panel.Children.Add(toggleRow);
 
@@ -181,14 +226,44 @@ namespace TrueforceForAll.Plugin
                     Foreground = MutedFg,
                     Margin = new Thickness(4, 6, 0, 0),
                 });
+                panel.Children.Add(WrapInScrolledBorder(listSp));
+                return panel;
             }
-            else
+
+            // Group cars by GameName. Empty / null GameName lands in the
+            // "Other" group, rendered at the bottom.
+            var groups = new Dictionary<string, List<CarPresetEntry>>(StringComparer.OrdinalIgnoreCase);
+            var noGame = new List<CarPresetEntry>();
+            foreach (var entry in cars)
             {
-                bool hasPrefer = !string.IsNullOrEmpty(preferCarId);
-                foreach (var entry in cars)
+                string g = entry.GameName;
+                if (string.IsNullOrEmpty(g)) { noGame.Add(entry); continue; }
+                if (!groups.TryGetValue(g, out var list))
                 {
-                    string label = $"{entry.CarId} — {entry.PresetName}";
-                    if (!string.IsNullOrEmpty(entry.GameName)) label += $"  ({entry.GameName})";
+                    list = new List<CarPresetEntry>();
+                    groups[g] = list;
+                }
+                list.Add(entry);
+            }
+
+            var orderedGames = new List<string>(groups.Keys);
+            orderedGames.Sort(StringComparer.OrdinalIgnoreCase);
+
+            bool hasPrefer = !string.IsNullOrEmpty(preferCarId);
+
+            void RenderGroup(string gameKey, string headerLabel, List<CarPresetEntry> entries)
+            {
+                var groupHeader = new TextBlock
+                {
+                    Text = headerLabel,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = GroupHeaderFg,
+                    Margin = new Thickness(2, _carGameGroups.Count == 0 ? 0 : 10, 2, 4),
+                };
+                var content = new StackPanel { Margin = new Thickness(8, 0, 0, 0) };
+                foreach (var entry in entries)
+                {
+                    string label = $"{entry.CarId} · {entry.PresetName}";
                     bool preselect = hasPrefer && string.Equals(entry.CarId, preferCarId, StringComparison.OrdinalIgnoreCase);
                     var cb = new CheckBox
                     {
@@ -198,11 +273,74 @@ namespace TrueforceForAll.Plugin
                         Foreground = TextFg,
                     };
                     _carChecks.Add((cb, entry));
-                    listSp.Children.Add(cb);
+                    content.Children.Add(cb);
                 }
+                listSp.Children.Add(groupHeader);
+                listSp.Children.Add(content);
+                _carGameGroups.Add((gameKey, groupHeader, content));
             }
+
+            foreach (var gameName in orderedGames)
+                RenderGroup(gameName.ToLowerInvariant(), gameName, groups[gameName]);
+
+            // No-game cars: render last with the "" key so the filter logic
+            // hides them when a specific game is selected (they don't match
+            // any game). Users can clear the filter to bring them back.
+            if (noGame.Count > 0)
+                RenderGroup("", "Other", noGame);
+
             panel.Children.Add(WrapInScrolledBorder(listSp));
             return panel;
+        }
+
+        // Recompute the "selected games" set from the preset checkboxes and
+        // hide / show car-group panels accordingly. With no presets checked,
+        // every group stays visible.
+        private void UpdateCarGroupVisibility()
+        {
+            var selectedGames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var cb in _presetChecks)
+            {
+                if (cb.IsChecked != true) continue;
+                if (cb.Tag is string name
+                    && _presetGameMap.TryGetValue(name, out var games))
+                {
+                    foreach (var g in games) selectedGames.Add(g);
+                }
+            }
+
+            bool filterActive = selectedGames.Count > 0;
+            int visibleCount = 0;
+            foreach (var (gameKey, header, content) in _carGameGroups)
+            {
+                bool show = !filterActive || (!string.IsNullOrEmpty(gameKey) && selectedGames.Contains(gameKey));
+                var want = show ? Visibility.Visible : Visibility.Collapsed;
+                if (header.Visibility != want)  header.Visibility  = want;
+                if (content.Visibility != want) content.Visibility = want;
+                if (show)
+                {
+                    if (content is StackPanel sp)
+                        visibleCount += sp.Children.Count;
+                }
+            }
+
+            if (_carCountText != null)
+            {
+                int total = _carChecks.Count;
+                _carCountText.Text = filterActive
+                    ? $"Car presets ({visibleCount} of {total})"
+                    : $"Car presets ({total})";
+            }
+        }
+
+        // Used by Select all / Select none in the car panel: only toggle
+        // boxes whose group is currently visible. Walks up to the group's
+        // StackPanel for the visibility check.
+        private static bool IsEffectivelyVisible(FrameworkElement el)
+        {
+            for (var cur = el; cur != null; cur = cur.Parent as FrameworkElement)
+                if (cur.Visibility != Visibility.Visible) return false;
+            return true;
         }
 
         private static UIElement WrapInScrolledBorder(UIElement child)
@@ -234,11 +372,13 @@ namespace TrueforceForAll.Plugin
             };
         }
 
+        // The Select all / Select none row. Buttons sized to fit their text
+        // cleanly (the earlier 22 px height clipped descenders on some fonts).
         private static UIElement BuildToggleRow(Action onAll, Action onNone)
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 4) };
-            var all  = new Button { Content = "Select all",  Width = 90, Height = 22, FontSize = 11, Margin = new Thickness(0, 0, 6, 0) };
-            var none = new Button { Content = "Select none", Width = 90, Height = 22, FontSize = 11 };
+            var all  = new Button { Content = "Select all",  Width = 96, Height = 26, FontSize = 11, Margin = new Thickness(0, 0, 6, 0) };
+            var none = new Button { Content = "Select none", Width = 96, Height = 26, FontSize = 11 };
             all.Click  += (s, e) => onAll();
             none.Click += (s, e) => onNone();
             row.Children.Add(all);

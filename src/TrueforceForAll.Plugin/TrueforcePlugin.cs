@@ -60,6 +60,11 @@ namespace TrueforceForAll.Plugin
         // switch; invalidated by DeleteCarPreset.
         private Dictionary<string, CarOverride> _lastPersistedCarOverrides = new Dictionary<string, CarOverride>();
 
+        // Tracks (gameName + "|" + carId) pairs we've already considered for
+        // GameName backfill this session. Prevents re-scanning the car folder
+        // every time the user toggles back to the same car.
+        private readonly HashSet<string> _gameNameBackfillDone = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         private TrueforceDevice _device;
         private AudioCaptureSource _audio;
         private HelperHost _helperHost;
@@ -1083,6 +1088,21 @@ namespace TrueforceForAll.Plugin
                     }
                 }
                 ApplyActiveCarOverride();
+                // Opportunistic backfill: legacy migration (and pre-fix
+                // built-ins) wrote car preset files with GameName="" because
+                // no game was active at the time. Now that we know which game
+                // this car belongs to, retag any of its on-disk presets that
+                // are still empty. Skips built-ins (refreshed by
+                // InstallOrUpdateBuiltinCarPresets on Init from the bundled
+                // JSON), skips files already tagged. Dedup'd per
+                // (game, carId) per session.
+                if (_carStore != null
+                    && !string.IsNullOrEmpty(_activeGame)
+                    && !string.IsNullOrEmpty(_activeCarId)
+                    && _gameNameBackfillDone.Add(_activeGame + "|" + _activeCarId))
+                {
+                    BackfillGameNameForActiveCar();
+                }
             }
 
             // G HUB presence check. Polled every ~5 s; logs on transitions.
@@ -2301,10 +2321,18 @@ namespace TrueforceForAll.Plugin
             // 1) Migrate Settings.CarOverrides → files (only if no file yet).
             //    Use carId as the preset name so the migrated entry has a
             //    stable identity in the new multi-preset model.
+            //
+            //    CarDefaults.ContainsKey gates this: once a car has any
+            //    binding (its own user file OR a built-in default), the
+            //    migration for that car is done. Step 5 below repopulates
+            //    Settings.CarOverrides from disk on every load, so without
+            //    this guard a deleted user-tier file would silently resurrect
+            //    on next launch from the cached live override.
             int migrated = 0;
             foreach (var kv in new Dictionary<string, CarOverride>(Settings.CarOverrides))
             {
                 if (kv.Value == null || kv.Value.IsEmpty) continue;
+                if (Settings.CarDefaults.ContainsKey(kv.Key)) continue;
                 if (_carStore.Exists(kv.Key, kv.Key)) continue;
                 _carStore.Save(kv.Key, kv.Key, _activeGame ?? "", kv.Value, isBuiltin: false);
                 if (!Settings.CarDefaults.ContainsKey(kv.Key))
@@ -2356,6 +2384,39 @@ namespace TrueforceForAll.Plugin
             //    Settings.CarDefaults[carId] → that preset; else the first
             //    builtin "(default)" found; else nothing.
             var loaded = _carStore.LoadAll();
+
+            // 5.5) Propagate GameName from any built-in entry to sibling user
+            //      entries for the same carId that still have an empty
+            //      GameName. Catches: legacy v1 → v2 migration files; the
+            //      Settings.CarOverrides → file migration (which ran with
+            //      _activeGame=null at Init); and pre-fix builtins (which
+            //      shipped with GameName=""). Without this, those sibling
+            //      user files land under "Other" in the export modal even
+            //      though we already know what game they belong to via the
+            //      built-in alongside them.
+            int propagated = 0;
+            foreach (var carKv in loaded)
+            {
+                string knownGame = null;
+                foreach (var entry in carKv.Value.Values)
+                {
+                    if (entry.IsBuiltin && !string.IsNullOrEmpty(entry.GameName))
+                    {
+                        knownGame = entry.GameName;
+                        break;
+                    }
+                }
+                if (knownGame == null) continue;
+                foreach (var entry in carKv.Value.Values)
+                {
+                    if (entry.IsBuiltin) continue;
+                    if (!string.IsNullOrEmpty(entry.GameName)) continue;
+                    _carStore.Save(entry.CarId, entry.PresetName, knownGame, entry.Override, isBuiltin: false);
+                    entry.GameName = knownGame;
+                    propagated++;
+                }
+            }
+
             foreach (var carKv in loaded)
             {
                 string carId    = carKv.Key;
@@ -2370,9 +2431,40 @@ namespace TrueforceForAll.Plugin
                 }
             }
 
-            if (migrated > 0 || builtinsWritten > 0)
+            if (migrated > 0 || builtinsWritten > 0 || propagated > 0)
                 SimHub.Logging.Current.Info(
-                    $"[Trueforce] Car presets: migrated {migrated} legacy entries, wrote {builtinsWritten} builtin preset(s).");
+                    $"[Trueforce] Car presets: migrated {migrated} legacy entries, wrote {builtinsWritten} builtin preset(s), propagated GameName to {propagated} sibling user preset(s).");
+        }
+
+        /// <summary>Rewrite every on-disk car-preset file for the active car
+        /// whose GameName is empty, stamping the current <c>_activeGame</c>.
+        /// Skips built-in (default) files because those refresh from
+        /// BuiltinCarPresets on Init via InstallOrUpdateBuiltinCarPresets.
+        /// Called from DataUpdate's car-change branch behind a per-session
+        /// (game, carId) dedup so it runs at most once per pair per session.</summary>
+        private void BackfillGameNameForActiveCar()
+        {
+            try
+            {
+                var loaded = _carStore.LoadAll();
+                if (!loaded.TryGetValue(_activeCarId, out var perCar)) return;
+                int rewritten = 0;
+                foreach (var entry in perCar.Values)
+                {
+                    if (entry == null || entry.IsBuiltin) continue;
+                    if (!string.IsNullOrEmpty(entry.GameName)) continue;
+                    _carStore.Save(entry.CarId, entry.PresetName, _activeGame, entry.Override, isBuiltin: false);
+                    rewritten++;
+                }
+                if (rewritten > 0)
+                    SimHub.Logging.Current.Info(
+                        $"[Trueforce] Backfilled GameName='{_activeGame}' on {rewritten} preset(s) for car '{_activeCarId}'.");
+            }
+            catch (Exception ex)
+            {
+                SimHub.Logging.Current.Info(
+                    $"[Trueforce] BackfillGameNameForActiveCar('{_activeCarId}', '{_activeGame}') failed: {ex.Message}");
+            }
         }
 
         /// <summary>Pick the preset to load for a car. CarDefaults[carId]
@@ -3798,7 +3890,7 @@ namespace TrueforceForAll.Plugin
             string json = System.IO.File.ReadAllText(path);
             var file = Newtonsoft.Json.JsonConvert.DeserializeObject<PresetFile>(json);
             if (file == null || file.Snapshot == null || string.IsNullOrEmpty(file.PresetName))
-                throw new System.IO.InvalidDataException("Not a valid Trueforce preset file.");
+                throw new System.IO.InvalidDataException("Not a valid TF4ALL preset file.");
             if (file.Type != PresetFile.FileType)
                 throw new System.IO.InvalidDataException($"Wrong file type '{file.Type}'. Expected '{PresetFile.FileType}'.");
 
@@ -3940,7 +4032,7 @@ namespace TrueforceForAll.Plugin
             string json = System.IO.File.ReadAllText(path);
             var file = Newtonsoft.Json.JsonConvert.DeserializeObject<CarPresetFile>(json);
             if (file == null || file.Override == null || string.IsNullOrEmpty(file.CarId))
-                throw new System.IO.InvalidDataException("Not a valid Trueforce car-preset file.");
+                throw new System.IO.InvalidDataException("Not a valid TF4ALL car-preset file.");
             if (file.Type != CarPresetFile.FileType)
                 throw new System.IO.InvalidDataException($"Wrong file type '{file.Type}'. Expected '{CarPresetFile.FileType}'.");
 
