@@ -68,6 +68,26 @@ namespace TrueforceForAll.Plugin
                 },
             },
             new ChangelogVersion {
+                Version = new Version(0, 1, 5),
+                Title = "Built-in preset refresh + Pit limiter / DRS / Collision dirty fix",
+                Entries = new List<ChangelogEntry>
+                {
+                    new ChangelogEntry {
+                        Headline = "Built-in presets now refresh on plugin load",
+                        Description = "Earlier releases shipped built-in presets without sections that were added later (Pit limiter, DRS, Collision). If you installed before 0.1.3, those sections were missing in your saved 'Assetto Corsa (default)' / 'Wreckfest 2 (default)' presets, so the comparison against the current effect settings always reported them as unsaved and the Save button stayed lit on first launch. Built-in presets are now refreshed from the shipped JSON on every plugin load. User-saved presets (any preset not ending in ' (default)') are untouched.",
+                    },
+                    new ChangelogEntry {
+                        Headline = "Forza Horizon and F1 25 default presets gained missing sections",
+                        Description = "Forza Horizon (default) now ships with Pit limiter, DRS, and Collision sections; F1 25 (default) gained Collision. Same content as the Assetto Corsa baseline. The effects don't trigger from Forza Horizon's telemetry (no pit-limiter / DRS signal on the wire), but having the sections in the preset stops the Save button from spuriously flagging them as unsaved.",
+                    },
+                    new ChangelogEntry {
+                        EffectId = "Drs",
+                        Headline = "DRS sustained waveform default is now Sine",
+                        Description = "The 0.1.3 release split the DRS waveform into separate activation and sustained pickers and defaulted both to Square. Square on the sustained tone reads harsh against the activation chirp; the AC and Wreckfest 2 baselines now use Sine for the trail. Existing presets you saved yourself keep whatever you set.",
+                    },
+                },
+            },
+            new ChangelogVersion {
                 Version = new Version(0, 1, 4),
                 Title = "Bug fix",
                 Entries = new List<ChangelogEntry>

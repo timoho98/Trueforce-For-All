@@ -83,7 +83,7 @@ namespace TrueforceForAll.Plugin
             ""GearShift"":{""Enabled"":true,""Gain"":0.396566778,""Freq"":34.6132431,""Waveform"":""Square""},
             ""AbsClick"":{""Enabled"":true,""Gain"":0.140768245,""Freq"":150.0,""PulseFreq"":9.821309,""DutyCycle"":0.331281453,""TickDurationMs"":35.0,""Mode"":""Pulse"",""Waveform"":""Square""},
             ""PitLimiter"":{""Enabled"":true,""Gain"":0.0832266361,""Freq"":50.49936,""PulseFreq"":4.340589,""DutyCycle"":0.483226657,""ActiveAmp"":0.3,""Waveform"":""Square""},
-            ""Drs"":{""Enabled"":true,""Gain"":0.280409724,""ActivationFreq"":60.3841171,""ActivationMs"":80,""ActivationAmp"":0.5016645,""SustainedFreq"":120.371323,""SustainedAmp"":0.0481434,""Waveform"":""Square"",""SustainedWaveform"":""Square""},
+            ""Drs"":{""Enabled"":true,""Gain"":0.280409724,""ActivationFreq"":60.3841171,""ActivationMs"":80,""ActivationAmp"":0.5016645,""SustainedFreq"":120.371323,""SustainedAmp"":0.0481434,""Waveform"":""Square"",""SustainedWaveform"":""Sine""},
             ""Collision"":{""Enabled"":true,""Gain"":0.208867252,""Freq"":50.0,""EnvelopeMs"":120,""MinThreshold"":0.139180541,""MinAmp"":0.2,""MaxAmp"":0.85,""NormalizationScale"":2.0,""RefractoryMs"":250,""Waveform"":""Square""}
         }";
 
@@ -114,7 +114,10 @@ namespace TrueforceForAll.Plugin
             ""RoadBumps"":{""Enabled"":true,""Gain"":0.5,""Freq"":60.0,""Waveform"":""Noise"",""SurfaceEnabled"":true,""SurfaceGain"":0.6,""SurfaceFreq"":140.0,""SurfaceWaveform"":""Noise"",""SurfaceLowpassHz"":900.0,""SurfaceHighpassHz"":70.0,""SurfaceRumbleScale"":1.2,""RumbleStripPulseAmp"":0.0,""RumbleStripPulseMs"":120},
             ""TractionLoss"":{""Enabled"":true,""Gain"":0.08,""Sensitivity"":0.4,""Freq"":133.9,""NoiseLowpassHz"":250.0,""NoiseHighpassHz"":40.0,""Waveform"":""Noise""},
             ""GearShift"":{""Enabled"":true,""Gain"":0.4,""Freq"":40.0,""Waveform"":""Sine""},
-            ""AbsClick"":{""Enabled"":false,""Gain"":0.15,""Freq"":150.0,""PulseFreq"":9.8,""DutyCycle"":0.33,""TickDurationMs"":35.0,""Mode"":""Pulse"",""Waveform"":""Square""}
+            ""AbsClick"":{""Enabled"":false,""Gain"":0.15,""Freq"":150.0,""PulseFreq"":9.8,""DutyCycle"":0.33,""TickDurationMs"":35.0,""Mode"":""Pulse"",""Waveform"":""Square""},
+            ""PitLimiter"":{""Enabled"":true,""Gain"":0.0832266361,""Freq"":50.49936,""PulseFreq"":4.340589,""DutyCycle"":0.483226657,""ActiveAmp"":0.3,""Waveform"":""Square""},
+            ""Drs"":{""Enabled"":true,""Gain"":0.280409724,""ActivationFreq"":60.3841171,""ActivationMs"":80,""ActivationAmp"":0.5016645,""SustainedFreq"":120.371323,""SustainedAmp"":0.0481434,""Waveform"":""Square"",""SustainedWaveform"":""Sine""},
+            ""Collision"":{""Enabled"":true,""Gain"":0.208867252,""Freq"":50.0,""EnvelopeMs"":120,""MinThreshold"":0.139180541,""MinAmp"":0.2,""MaxAmp"":0.85,""NormalizationScale"":2.0,""RefractoryMs"":250,""Waveform"":""Square""}
         }";
 
         // F1 25 baseline. Cylinders=6 since the source hardcodes it (V6 turbo
@@ -143,7 +146,8 @@ namespace TrueforceForAll.Plugin
             ""GearShift"":{""Enabled"":true,""Gain"":0.4,""Freq"":40.0,""Waveform"":""Sine""},
             ""AbsClick"":{""Enabled"":false,""Gain"":0.15,""Freq"":150.0,""PulseFreq"":9.8,""DutyCycle"":0.33,""TickDurationMs"":35.0,""Mode"":""Pulse"",""Waveform"":""Square""},
             ""PitLimiter"":{""Enabled"":true,""Gain"":0.45,""Freq"":110.0,""PulseFreq"":7.0,""DutyCycle"":0.4,""ActiveAmp"":0.30,""Waveform"":""Square""},
-            ""Drs"":{""Enabled"":true,""Gain"":0.5,""ActivationFreq"":600.0,""ActivationMs"":80,""ActivationAmp"":0.30,""SustainedFreq"":150.0,""SustainedAmp"":0.20,""Waveform"":""Sine""}
+            ""Drs"":{""Enabled"":true,""Gain"":0.5,""ActivationFreq"":600.0,""ActivationMs"":80,""ActivationAmp"":0.30,""SustainedFreq"":150.0,""SustainedAmp"":0.20,""Waveform"":""Sine""},
+            ""Collision"":{""Enabled"":true,""Gain"":0.208867252,""Freq"":50.0,""EnvelopeMs"":120,""MinThreshold"":0.139180541,""MinAmp"":0.2,""MaxAmp"":0.85,""NormalizationScale"":2.0,""RefractoryMs"":250,""Waveform"":""Square""}
         }";
 
         // Wreckfest 2 baseline. Per project owner: use the same effect
@@ -170,7 +174,7 @@ namespace TrueforceForAll.Plugin
             ""GearShift"":{""Enabled"":true,""Gain"":0.396566778,""Freq"":34.6132431,""Waveform"":""Square""},
             ""AbsClick"":{""Enabled"":true,""Gain"":0.140768245,""Freq"":150.0,""PulseFreq"":9.821309,""DutyCycle"":0.331281453,""TickDurationMs"":35.0,""Mode"":""Pulse"",""Waveform"":""Square""},
             ""PitLimiter"":{""Enabled"":true,""Gain"":0.0832266361,""Freq"":50.49936,""PulseFreq"":4.340589,""DutyCycle"":0.483226657,""ActiveAmp"":0.3,""Waveform"":""Square""},
-            ""Drs"":{""Enabled"":true,""Gain"":0.280409724,""ActivationFreq"":60.3841171,""ActivationMs"":80,""ActivationAmp"":0.5016645,""SustainedFreq"":120.371323,""SustainedAmp"":0.0481434,""Waveform"":""Square"",""SustainedWaveform"":""Square""},
+            ""Drs"":{""Enabled"":true,""Gain"":0.280409724,""ActivationFreq"":60.3841171,""ActivationMs"":80,""ActivationAmp"":0.5016645,""SustainedFreq"":120.371323,""SustainedAmp"":0.0481434,""Waveform"":""Square"",""SustainedWaveform"":""Sine""},
             ""Collision"":{""Enabled"":true,""Gain"":0.208867252,""Freq"":50.0,""EnvelopeMs"":120,""MinThreshold"":0.139180541,""MinAmp"":0.2,""MaxAmp"":0.85,""NormalizationScale"":2.0,""RefractoryMs"":250,""Waveform"":""Square""}
         }";
     }

@@ -2223,27 +2223,34 @@ namespace TrueforceForAll.Plugin
 
         // ---------- preset library ----------
 
-        /// <summary>Install any built-in preset that isn't already in the
-        /// user's library. Run on every Init — idempotent. Also auto-binds
-        /// the matching <see cref="BuiltinPresets.GameDefaultBindings"/>
-        /// entries as the game's default IF the user has no default for
-        /// that game yet (we don't override their custom choice).</summary>
+        /// <summary>Refresh built-in presets to the shipped JSON. Run on
+        /// every Init. Always overwrites the entries in
+        /// <c>Settings.Presets</c> keyed by a built-in name, because built-ins
+        /// are user-read-only (in-place save forks to a new name) and the
+        /// shipped JSON is the source of truth. This catches the case where
+        /// an earlier release shipped a preset without a later-added section
+        /// (e.g. pre-0.1.3 AC preset had no PitLimiter / Drs / Collision):
+        /// without the overwrite, the stale preset lingers in the user's
+        /// settings file and the new sections deserialize as null, so the
+        /// section sits as permanently-dirty against the C# defaults.
+        /// Also auto-binds <see cref="BuiltinPresets.GameDefaultBindings"/>
+        /// as each game's default IF the user has no default for that game
+        /// yet (we don't override their custom choice).</summary>
         private void InstallBuiltinPresetsIfMissing()
         {
             if (Settings == null) return;
             if (Settings.Presets      == null) Settings.Presets      = new Dictionary<string, GameSettingsSnapshot>();
             if (Settings.GameDefaults == null) Settings.GameDefaults = new Dictionary<string, string>();
-            int added = 0;
+            int refreshed = 0;
             foreach (var kv in BuiltinPresets.BuiltinPresetJsons)
             {
-                if (Settings.Presets.ContainsKey(kv.Key)) continue;
                 try
                 {
                     var snap = Newtonsoft.Json.JsonConvert.DeserializeObject<GameSettingsSnapshot>(kv.Value);
                     if (snap != null)
                     {
                         Settings.Presets[kv.Key] = snap;
-                        added++;
+                        refreshed++;
                     }
                 }
                 catch (Exception ex)
@@ -2260,10 +2267,10 @@ namespace TrueforceForAll.Plugin
                     Settings.GameDefaults[kv.Key] = kv.Value;
                 }
             }
-            if (added > 0)
+            if (refreshed > 0)
             {
                 this.SaveCommonSettings("GeneralSettings", Settings);
-                SimHub.Logging.Current.Info($"[Trueforce] Installed {added} built-in preset(s).");
+                SimHub.Logging.Current.Info($"[Trueforce] Refreshed {refreshed} built-in preset(s).");
             }
         }
 
