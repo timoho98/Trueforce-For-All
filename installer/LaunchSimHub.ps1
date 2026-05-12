@@ -192,11 +192,25 @@ public class TfaLaunchInterop {
 }
 '@
 
-# Poll until a SimHubWPF process exposes at least one top-level window
-# via EnumWindows. Pick the most "main-window-looking" one: prefer a
-# window with "SimHub" in the title and no owner (top-level), break
-# ties by visible-first.
-$timeoutSeconds = 20
+# Poll until SimHubWPF exposes its actual WPF main window via
+# EnumWindows. We aggressively filter for one class pattern only:
+# WPF wraps top-level windows in
+#   HwndWrapper[<exe>;<threadid>;<guid>]
+# Every other top-level handle the process owns is some helper we
+# don't want to manipulate. Two specific traps observed in this
+# user's environment in earlier revisions:
+#
+#   1. The WPF Dispatcher's hidden helper has class
+#        HwndWrapper[SimHubWPF.exe;;<guid>]
+#      (empty <threadid> between the two semicolons). It's owner-less
+#      and appears within ~1s but is permanently invisible. We
+#      previously stopped on it.
+#   2. A "GDI+ Hook Window Class" with title "GDI+ Window
+#      (SimHubWPF.exe)" -- a GDI+ runtime helper. Its title contains
+#      the substring "SimHub" so a substring filter false-matches.
+#
+# The class-name filter below excludes both.
+$timeoutSeconds = 30
 $start = Get-Date
 $target = $null
 $targetPid = 0
@@ -210,27 +224,20 @@ do {
         $windows = [TfaLaunchInterop]::FindTopLevelWindowsForPid([uint32]$p.Id)
         if ($windows.Count -eq 0) { continue }
         $best = $null
-        $bestScore = -1
         foreach ($w in $windows) {
-            # Skip empty-title invisible windows. WPF apps spin up a hidden
-            # Dispatcher helper window with class
-            #   HwndWrapper[<exe>;;<guid>]
-            # that appears within the first second of process start; in the
-            # previous revision we picked it because it scored "no owner"
-            # and never advanced to SimHub's real main window. Requiring
-            # either a non-empty title or a visible window filters those
-            # helpers out without false-rejecting the main window (which
-            # WPF gives a Title from XAML well before show).
-            if ([string]::IsNullOrWhiteSpace($w.Title) -and -not $w.Visible) { continue }
-            $score = 0
-            if ($w.Title -and $w.Title.IndexOf('SimHub', [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { $score += 2 }
-            if (-not $w.HasOwner) { $score += 1 }
-            if ($w.Visible)       { $score += 0.5 }
-            if ($score -gt $bestScore) { $bestScore = $score; $best = $w }
+            # Hard class-name filter. Reject anything that isn't a WPF
+            # top-level window, and reject the Dispatcher helper variant
+            # (";;" between semicolons -- empty thread id).
+            if (-not $w.ClassName.StartsWith('HwndWrapper[', [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+            if ($w.ClassName.Contains(';;')) { continue }
+            # Among the remaining candidates the main window is the only one
+            # we expect, but if SimHub creates additional WPF windows during
+            # startup (splash, etc.) prefer one with a non-empty title.
+            if ($null -eq $best -or (-not [string]::IsNullOrWhiteSpace($w.Title) -and [string]::IsNullOrWhiteSpace($best.Title))) {
+                $best = $w
+            }
         }
-        # Require at least a real title OR visibility. Score >= 1 is too
-        # weak (matches owner-less helpers); insist on title-match OR visible.
-        if ($null -ne $best -and ($bestScore -ge 2 -or $best.Visible)) {
+        if ($null -ne $best) {
             $target = $best
             $targetPid = $p.Id
             break
