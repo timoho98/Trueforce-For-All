@@ -68,6 +68,17 @@ namespace TrueforceForAll.Plugin
                 },
             },
             new ChangelogVersion {
+                Version = new Version(0, 1, 3),
+                Title = "Advanced settings dialog",
+                Entries = new List<ChangelogEntry>
+                {
+                    new ChangelogEntry {
+                        Headline = "Performance, Sidechain ducking, and Diagnostics moved out of the main panel",
+                        Description = "These three sections are rarely touched once tuning is dialed in. They now live behind an 'Advanced settings…' button near the bottom of the panel, so day-to-day tuning has less to scroll past. The controls themselves are unchanged.",
+                    },
+                },
+            },
+            new ChangelogVersion {
                 Version = new Version(0, 1, 2),
                 Title = "Settings panel + modal polish",
                 Entries = new List<ChangelogEntry>
