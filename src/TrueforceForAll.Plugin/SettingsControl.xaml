@@ -1471,8 +1471,11 @@
 
             <!-- Presets. The preset library, default-binding, and per-game
                  defaults. The active preset dropdown + ★ Save preset button
-                 at the very top of the panel handles the day-to-day cases. -->
-            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Presets" Style="{StaticResource SectionHeaderText}"/></Border>
+                 at the very top of the panel handles the day-to-day cases.
+                 Inline top margin: when Forza/F1 sections are hidden (most
+                 users), this header would otherwise sit flush against the
+                 last effect's 4px bottom margin. -->
+            <Border Style="{StaticResource SectionHeaderBorder}" Margin="0,16,0,12"><TextBlock Text="Presets" Style="{StaticResource SectionHeaderText}"/></Border>
             <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
                 Text="A preset is a named snapshot of your master tuning + every per-car override. Live tuning auto-saves to disk, but never changes the named preset on its own — the '★ unsaved' indicator next to the active preset means tuning has drifted from the saved snapshot. Click Save preset to commit, Save as… for a new name."/>
             <Grid Margin="0,0,0,6">
