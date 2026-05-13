@@ -69,7 +69,7 @@ namespace TrueforceForAll.Plugin
             },
             new ChangelogVersion {
                 Version = new Version(0, 1, 9),
-                Title = "Engine: load layer + high-RPM boost",
+                Title = "Engine: load layer + high-RPM boost, Forza Horizon polish",
                 Entries = new List<ChangelogEntry>
                 {
                     new ChangelogEntry {
@@ -79,6 +79,22 @@ namespace TrueforceForAll.Plugin
                     new ChangelogEntry {
                         Headline = "Engine: high-RPM boost on the firing pulse",
                         Description = "Pre-emphasis on the firing-rate pulse, ramping in above 50% RPM up to the set amount at redline. Partially compensates for the wheel's natural high-frequency rolloff. On by default at amount 0.70; tune in the Engine section.",
+                    },
+                    new ChangelogEntry {
+                        Headline = "Forza Horizon: audio capture works out of the box",
+                        Description = "ForzaHorizon4/5/6 are now in the curated exe-name list, so per-process audio capture latches onto Forza without needing a manual exe override in Advanced settings. Existing per-game overrides still take precedence if you set one.",
+                    },
+                    new ChangelogEntry {
+                        Headline = "Forza Horizon: ABS section flagged as not exposed",
+                        Description = "Forza's Data Out telemetry doesn't include ABS pump activity (the brake pedal is there, but no anti-lock intervention flag), so the ABS effect can't fire in FH4/FH5/FH6 regardless of how you tune it. A grey 'not exposed by Forza UDP' badge now sits in the ABS header when an FH title is active, with a tooltip explaining why. The section stays interactive so the values still save for other games.",
+                    },
+                    new ChangelogEntry {
+                        Headline = "Forza Horizon: built-in preset road bumps + traction loss tuned down",
+                        Description = "The 'Forza Horizon (default)' built-in preset shipped with conservative-on-the-loud-side defaults for road bumps + traction loss. Both are now anchored to a current GPRO tuning: lower bump and surface gains, milder traction loss sensitivity. Forks of the built-in (any preset you saved yourself) keep your values.",
+                    },
+                    new ChangelogEntry {
+                        Headline = "Forza / F1 UDP: stale 'restart plugin' note removed",
+                        Description = "Port and bind-address changes have rebound the listener live since 0.1.4, but the helper text next to the port field still asked users to toggle the plugin off+on. Replaced with 'Takes effect immediately.' so the UI matches the actual behavior.",
                     },
                 },
             },

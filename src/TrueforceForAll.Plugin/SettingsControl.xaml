@@ -33,6 +33,20 @@
             <Setter Property="Visibility" Value="Collapsed"/>
             <Setter Property="Text" Value="★ car override"/>
         </Style>
+        <!-- Per-effect "not exposed by this game" badge. Surfaces in an
+             effect's header when the active game's telemetry source doesn't
+             expose the signal the effect needs (e.g. Forza Data Out doesn't
+             include ABS pump activity). Muted grey so it reads as info,
+             not a warning; section stays interactive so users can still
+             tune values for other games. -->
+        <Style x:Key="UnsupportedBadge" TargetType="TextBlock">
+            <Setter Property="Margin" Value="10,0,0,0"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Visibility" Value="Collapsed"/>
+            <Setter Property="FontStyle" Value="Italic"/>
+        </Style>
         <!-- Per-effect "NEW" badge. Surfaces in an effect's expander header
              until the user has acknowledged it (expanded the section, or
              changed any of its values). Pre-seeded as already-seen on fresh
@@ -965,6 +979,9 @@
                                 <TextBlock Text="NEW" Foreground="White" FontSize="10" FontWeight="Bold"/>
                             </Border>
                             <TextBlock x:Name="AbsOverrideBadge" Style="{StaticResource OverrideBadge}"/>
+                            <TextBlock x:Name="AbsUnsupportedBadge" Style="{StaticResource UnsupportedBadge}"
+                                       Text="not exposed by Forza UDP"
+                                       ToolTip="Forza Horizon's Data Out telemetry doesn't include ABS pump activity, so this effect will stay silent in FH4/FH5/FH6 regardless of the values you set here."/>
                             <Button Content="Test" Style="{StaticResource EffectTestButton}" Click="AbsTest_Click"/>
                             <Button x:Name="AbsRevertBtn" Content="↶" Tag="Abs" Style="{StaticResource EffectRevertButton}" Click="EffectRevert_Click"/>
                             <Button x:Name="AbsSaveBtn"   Content="Save…" Tag="Abs" Style="{StaticResource EffectSaveButton}" Click="EffectSave_Click"/>
@@ -1281,7 +1298,7 @@
                 <TextBox   Grid.Column="1" x:Name="ForzaPortBox" LostFocus="ForzaPort_LostFocus" KeyDown="ForzaPort_KeyDown" VerticalAlignment="Center"
                            ToolTip="Match this in Forza's DATA OUT IP PORT. Default 5300; pick anything if it collides with another listener (SimHub's typical 4123, Sim Racing Studio's 4123, etc.)."/>
                 <TextBlock Grid.Column="2" Style="{StaticResource HelpText}" Margin="8,0,0,0" VerticalAlignment="Center"
-                           Text="Restart Trueforce (toggle plugin off+on) after changing."/>
+                           Text="Takes effect immediately."/>
             </Grid>
             <Grid Margin="0,0,0,4">
                 <Grid.ColumnDefinitions>
@@ -1396,7 +1413,7 @@
                 <TextBox   Grid.Column="1" x:Name="F1PortBox" LostFocus="F1Port_LostFocus" KeyDown="F1Port_KeyDown" VerticalAlignment="Center"
                            ToolTip="Match this in F1's UDP Port. Default 20777."/>
                 <TextBlock Grid.Column="2" Style="{StaticResource HelpText}" Margin="8,0,0,0" VerticalAlignment="Center"
-                           Text="Restart Trueforce (toggle plugin off+on) after changing."/>
+                           Text="Takes effect immediately."/>
             </Grid>
             <Grid Margin="0,0,0,4">
                 <Grid.ColumnDefinitions>

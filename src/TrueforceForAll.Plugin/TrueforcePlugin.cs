@@ -1548,6 +1548,17 @@ namespace TrueforceForAll.Plugin
             IsF1GameName(_activeGame)
             || (Settings?.F1?.AlwaysListen == true);
 
+        /// <summary>True when the active game's telemetry includes ABS
+        /// pump activity. Forza's Data Out wire format (FH4/FH5/FH6) does
+        /// not surface this, and neither does SimHub's universal reader
+        /// for those titles, so the ABS effect can't fire there. Drives a
+        /// "not exposed by Forza UDP" badge in the settings UI so users
+        /// don't tune the section expecting feedback that will never
+        /// arrive. Other games default to true (they may or may not
+        /// actually emit ABS; we surface it when they do).</summary>
+        public bool ActiveGameSupportsAbs =>
+            string.IsNullOrEmpty(_activeGame) || !IsForzaGameName(_activeGame);
+
         /// <summary>True if SimHub's GameName looks like an EA / Codemasters
         /// F1 title we target. Currently F1 25 is the only validated wire
         /// format; older games (F1 22/23/24) may receive packets but the
@@ -4546,6 +4557,14 @@ namespace TrueforceForAll.Plugin
             { "F1_22",                    new[] { "F1_22", "F1_22_dx12" } },
             { "F1_23",                    new[] { "F1_23", "F1_23_dx12" } },
             { "AutomobilistaII",          new[] { "AMS2", "AMS2AVX" } },
+            // Forza Horizon: SimHub's GameName ("FH4"/"FH5"/"FH6") is too short
+            // for the >= 4 char fuzzy-match guard, so map the canonical exe
+            // names explicitly. FH4/FH5 confirmed; FH6 is an educated guess
+            // by Playground's naming pattern and will be corrected once the
+            // retail build ships.
+            { "FH4",                      new[] { "ForzaHorizon4" } },
+            { "FH5",                      new[] { "ForzaHorizon5" } },
+            { "FH6",                      new[] { "ForzaHorizon6" } },
         });
 
         private static Dictionary<string, string> BuildExeLabels(Dictionary<string, string[]> games)
