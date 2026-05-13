@@ -928,6 +928,17 @@ namespace TrueforceForAll.Plugin
                     : Visibility.Collapsed;
             }
 
+            // FFB-tap-picker banner: HID found a wheel but USBPcap discovery
+            // didn't, and the user hasn't set a manual override yet. Surfaces
+            // the picker prominently so users don't have to dig into
+            // Diagnostics to fix a silently-broken FFB pass-through.
+            if (FfbTapPickerBanner != null)
+            {
+                FfbTapPickerBanner.Visibility = (_plugin?.ShouldShowFfbTapPickerBanner ?? false)
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+
             // Performance counters update every meter tick (cheap — array sum
             // of 60 longs). Doesn't depend on any expander being open.
             UpdatePerfCounters();
@@ -1746,6 +1757,26 @@ namespace TrueforceForAll.Plugin
 
         private void ReportIssue_Click(object sender, RoutedEventArgs e)
         {
+            // Offer to bundle logs before opening the issue form. GitHub's URL
+            // length limits mean we can't paste logs into the body anyway; the
+            // user attaches the zip after the form opens.
+            var choice = MessageBox.Show(
+                "Include your SimHub logs with this bug report?\n\n" +
+                "Click Yes to first export your logs to a zip on your Desktop. " +
+                "After the GitHub form opens, drag the zip into the issue body to attach it. " +
+                "Including logs makes bugs MUCH easier to diagnose, especially anything wheel- or USBPcap-related.\n\n" +
+                "Click No to open the form without exporting logs.",
+                "Trueforce — Include logs?",
+                MessageBoxButton.YesNoCancel,
+                MessageBoxImage.Question);
+            if (choice == MessageBoxResult.Cancel) return;
+            if (choice == MessageBoxResult.Yes)
+            {
+                // Re-use the export-logs path. If it fails, surface the error
+                // but still open the issue form so the user can file something.
+                TryExportLogs(silentOnSuccess: false);
+            }
+
             // Generic "report a bug / feature request" path. Pre-fills version +
             // active game so common context is captured without typing.
             string game = _plugin?.ActiveGame ?? "(none)";
@@ -1761,11 +1792,141 @@ namespace TrueforceForAll.Plugin
                 + $"- Active game: {game}\n"
                 + $"- Active car: {carId}\n"
                 + "- SimHub version: <fill in>\n"
-                + "- Wheel: <e.g. G PRO, RS50>\n";
+                + "- Wheel: <e.g. G PRO, RS50>\n"
+                + "\n**Logs:** attach the .zip from your Desktop (if exported)\n";
             string url = ReportIssuesBase
                        + "?title=" + Uri.EscapeDataString("[bug] ")
                        + "&body="  + Uri.EscapeDataString(body);
             OpenUrl(url);
+        }
+
+        // Standalone "Export logs" button. Same exporter the Report Issue
+        // dialog uses; opens Explorer to the resulting zip so users can drag
+        // it into the bug report or share it directly with support.
+        private void ExportLogs_Click(object sender, RoutedEventArgs e)
+        {
+            TryExportLogs(silentOnSuccess: false);
+        }
+
+        // Zips SimHub's log directory + the Trueforce settings file to the
+        // user's Desktop and opens Explorer with the new zip selected. Logged
+        // errors instead of silent so partial failures (e.g. one log file
+        // locked by SimHub) don't kill the export. Returns the zip path on
+        // success or null on failure.
+        private string TryExportLogs(bool silentOnSuccess)
+        {
+            try
+            {
+                // SimHub install dir. We're loaded into SimHubWPF.exe; using
+                // the host process's MainModule path is more reliable than
+                // walking up from our own assembly (we live under PluginsData).
+                string simHubRoot = System.IO.Path.GetDirectoryName(
+                    System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName);
+                string logsDir   = System.IO.Path.Combine(simHubRoot, "Logs");
+                string debugLog  = System.IO.Path.Combine(simHubRoot, "debug.log");
+                string settings  = System.IO.Path.Combine(simHubRoot, "Trueforce-settings.json");
+
+                string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+                string ts = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+                string zipPath = System.IO.Path.Combine(desktop, $"Trueforce-logs-{ts}.zip");
+
+                using (var fs = new System.IO.FileStream(zipPath, System.IO.FileMode.Create))
+                using (var zip = new System.IO.Compression.ZipArchive(fs, System.IO.Compression.ZipArchiveMode.Create))
+                {
+                    if (System.IO.Directory.Exists(logsDir))
+                    {
+                        foreach (var f in System.IO.Directory.GetFiles(logsDir))
+                        {
+                            try { AddFileToZip(zip, f, "Logs/" + System.IO.Path.GetFileName(f)); }
+                            catch (Exception ex) { TryAddNoteToZip(zip, "Logs/_" + System.IO.Path.GetFileName(f) + ".error.txt", ex.Message); }
+                        }
+                    }
+                    if (System.IO.File.Exists(debugLog))
+                    {
+                        try { AddFileToZip(zip, debugLog, "debug.log"); }
+                        catch (Exception ex) { TryAddNoteToZip(zip, "debug.log.error.txt", ex.Message); }
+                    }
+                    if (System.IO.File.Exists(settings))
+                    {
+                        try { AddFileToZip(zip, settings, "Trueforce-settings.json"); } catch { }
+                    }
+                    // Mini context manifest so support knows what version
+                    // generated the zip without unpacking everything.
+                    string version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "?";
+                    string manifest =
+                        $"Generated: {DateTime.Now:o}\n" +
+                        $"Plugin version: {version}\n" +
+                        $"Active game: {_plugin?.ActiveGame ?? "(none)"}\n" +
+                        $"Active car: {_plugin?.ActiveCarId ?? "(none)"}\n" +
+                        $"Wheel status: {_plugin?.WheelStatus}\n" +
+                        $"Stream status: {_plugin?.StreamStatus}\n" +
+                        $"FFB tap status: {_plugin?.FfbTapStatus}\n" +
+                        $"SimHub root: {simHubRoot}\n";
+                    TryAddNoteToZip(zip, "manifest.txt", manifest);
+                }
+
+                // Reveal in Explorer so users don't have to hunt for it.
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"/select,\"{zipPath}\"")
+                    {
+                        UseShellExecute = true,
+                    });
+                }
+                catch { }
+
+                if (!silentOnSuccess)
+                {
+                    MessageBox.Show(
+                        $"Exported logs to:\n{zipPath}\n\nAttach this zip to your bug report so support can see what's happening.",
+                        "Trueforce — Logs exported",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                return zipPath;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Couldn't export logs:\n{ex.Message}",
+                    "Trueforce", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return null;
+            }
+        }
+
+        // Copy a file into a zip entry while tolerating the file being held by
+        // another process (SimHub is actively writing to its current log).
+        // Opens with shared read so we don't error on an in-use rolling log.
+        private static void AddFileToZip(System.IO.Compression.ZipArchive zip, string sourcePath, string entryName)
+        {
+            var entry = zip.CreateEntry(entryName, System.IO.Compression.CompressionLevel.Optimal);
+            using (var inStream = new System.IO.FileStream(sourcePath, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite))
+            using (var outStream = entry.Open())
+            {
+                inStream.CopyTo(outStream);
+            }
+        }
+
+        private static void TryAddNoteToZip(System.IO.Compression.ZipArchive zip, string entryName, string text)
+        {
+            try
+            {
+                var entry = zip.CreateEntry(entryName, System.IO.Compression.CompressionLevel.Optimal);
+                using (var outStream = entry.Open())
+                using (var w = new System.IO.StreamWriter(outStream))
+                    w.Write(text);
+            }
+            catch { }
+        }
+
+        // Open the manual USB-device picker dialog. Always available, not
+        // gated on auto-discovery failing — users can override our detection
+        // at any time. Selection persists across restarts.
+        private void UsbPcapPickDevice_Click(object sender, RoutedEventArgs e)
+        {
+            if (_plugin == null) return;
+            var dlg = new UsbDevicePickerWindow(_plugin);
+            try { dlg.Owner = Window.GetWindow(this); } catch { }
+            dlg.ShowDialog();
         }
 
         private void OpenRepo_Click(object sender, RoutedEventArgs e) => OpenUrl(RepoUrl);

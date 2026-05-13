@@ -402,6 +402,34 @@
                                        Text=""/>
                         </StackPanel>
                     </Border>
+
+                    <!-- FFB-tap divergence banner. HID found the wheel (so
+                         Trueforce effects play) but USBPcap couldn't find it
+                         on the bus, so the game's native force feedback gets
+                         clobbered. Surfaces the manual picker right where the
+                         user notices the problem instead of hiding it inside
+                         Diagnostics. Hidden once the user picks a device. -->
+                    <Border x:Name="FfbTapPickerBanner" Visibility="Collapsed"
+                            Background="#FF8F00" CornerRadius="4" Padding="10,8" Margin="0,8,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="⚠" FontSize="14" Foreground="#222"
+                                       VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock Grid.Column="1" Foreground="#222"
+                                       FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"
+                                       Text="Your wheel is connected, but FFB pass-through can't find it on the USB bus. Your game's force feedback may feel wrong or be silenced. Pick the wheel manually to fix it."/>
+                            <Button Grid.Column="2" x:Name="FfbTapPickerBannerButton"
+                                    Content="Pick device manually..."
+                                    Width="170" Height="28" Margin="10,0,0,0"
+                                    Click="UsbPcapPickDevice_Click"
+                                    Background="#222" Foreground="#FFC107"
+                                    BorderBrush="#222" BorderThickness="1"/>
+                        </Grid>
+                    </Border>
                 </StackPanel>
             </Border>
 
@@ -1604,6 +1632,9 @@
                 <Button x:Name="ReportIssueButton" Content="Report an issue…" Width="160" Height="26"
                         Click="ReportIssue_Click" Margin="0,0,8,0"
                         ToolTip="Opens a new GitHub issue. Pre-fills plugin version and active game so you don't have to type it."/>
+                <Button x:Name="ExportLogsButton" Content="Export logs…" Width="120" Height="26"
+                        Click="ExportLogs_Click" Margin="0,0,8,0"
+                        ToolTip="Zips your SimHub logs + Trueforce settings to your Desktop. Attach the zip to your GitHub issue so I can debug what's happening on your machine."/>
                 <Button x:Name="OpenRepoButton" Content="Open project on GitHub" Width="180" Height="26"
                         Click="OpenRepo_Click"
                         ToolTip="github.com/Mhytee/Trueforce-For-All"/>
@@ -1781,6 +1812,15 @@
                                     Visibility="Collapsed"
                                     Click="UsbPcapReinstall_Click"
                                     ToolTip="Run the bundled USBPcap installer (requires admin). Use this if USBPcap was uninstalled or the install is broken."/>
+                            <!-- Always visible escape hatch. Auto-discovery via
+                                 USBPcap's descriptor cache can miss hot-plugged
+                                 wheels; this lets users scan every USB device
+                                 on every USBPcap interface and pick the wheel
+                                 by hand. Selection persists across restarts. -->
+                            <Button x:Name="UsbPcapPickDeviceButton" Content="Pick device manually..."
+                                    Style="{StaticResource LinkButton}" Margin="10,0,0,0"
+                                    Click="UsbPcapPickDevice_Click"
+                                    ToolTip="Scan every USBPcap interface and pick your wheel manually. Use this if auto-discovery can't find your wheel even though it works in HID."/>
                         </StackPanel>
                         <TextBlock Grid.Row="3" Grid.Column="0" Text="Telemetry:" Style="{StaticResource LabelText}" Margin="0,4,0,0"/>
                         <TextBlock Grid.Row="3" Grid.Column="1" x:Name="TelemetrySourceText" Text="(checking...)" Margin="0,4,0,0"/>

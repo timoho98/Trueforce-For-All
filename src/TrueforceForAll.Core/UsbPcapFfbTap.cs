@@ -40,10 +40,30 @@ namespace TrueforceForAll.Core
         // breaks FFB pass-through until reboot.
         private const long TimestampMask = 0x0000_FFFF_FFFF_FFFFL;
 
-        // Not readonly: when constructed in auto-discover mode (null/0), Start()
-        // populates these from WheelUsbDiscovery before the reader loop spins up.
+        // How long the reader loop sleeps between auto-discovery retries when
+        // the wheel can't be found. Long enough to not spam logs, short enough
+        // that a replug or re-elevation feels responsive.
+        private const int RediscoveryRetryMs = 15000;
+
+        // Resolved interface + device address. Either supplied via the manual
+        // override constructor args, or filled in by discovery inside the
+        // reader loop. Reset to null/0 by ClearDiscovered() when the user
+        // explicitly clears the manual override and wants auto-discovery again.
         private string _usbPcapInterface;
         private int _deviceAddress;
+
+        // Set when the caller explicitly passed an interface+address (manual
+        // picker or env-var override). When true, the reader loop skips
+        // discovery and never re-runs it. When false, the loop will retry
+        // discovery on failure.
+        private readonly bool _manualOverride;
+
+        // Optional VID/PID of the wheel that HID enumeration already found.
+        // Plumbed to WheelUsbDiscovery so it can log the smoking-gun
+        // "HID saw it, USBPcap didn't" line when discovery fails.
+        private ushort? _hidFoundVid;
+        private ushort? _hidFoundPid;
+
         private readonly string _usbPcapCmdPath;
 
         private Process _proc;
@@ -58,6 +78,13 @@ namespace TrueforceForAll.Core
         //         high 48 bits = stopwatch ticks (truncated, monotonic).
         private long _packed;
 
+        // Stopwatch tick (masked to 48 bits) of the last successfully parsed
+        // FFB sample. Used by HasRecentPackets / GetLastSampleAgeMs so the UI
+        // can distinguish "process is alive" from "process is alive AND
+        // actually receiving FFB data". Read from any thread; written only
+        // by the reader thread.
+        private long _lastSampleTicks;
+
         private static readonly Stopwatch _sw = Stopwatch.StartNew();
 
         // Status surfaced to the UI / logs. Populated by the reader thread.
@@ -66,12 +93,35 @@ namespace TrueforceForAll.Core
         public long PacketsParsed { get; private set; }
         public long FfbSamplesCaptured { get; private set; }
 
+        // True when this tap was constructed with an explicit (interface,
+        // address) override. The UI uses this to decide whether to show the
+        // "clear manual override" affordance.
+        public bool IsManualOverride => _manualOverride;
+        public string CurrentInterface => _usbPcapInterface;
+        public int CurrentDeviceAddress => _deviceAddress;
+
+        // Milliseconds since the last FFB sample was latched, or long.MaxValue
+        // if we've never latched one. Used by the UI to detect the "process
+        // running but no data flowing" state.
+        public long MsSinceLastSample
+        {
+            get
+            {
+                long last = Interlocked.Read(ref _lastSampleTicks);
+                if (last == 0) return long.MaxValue;
+                long now = _sw.ElapsedTicks & TimestampMask;
+                long ageTicks = (now - last) & TimestampMask;
+                return ageTicks * 1000L / Stopwatch.Frequency;
+            }
+        }
+
         // Optional logger (e.g., SimHub.Logging.Current.Info). Avoids a hard
         // dependency on log4net from this library.
         public Action<string> Logger { get; set; }
 
         // Pass null/0 (the defaults) to auto-discover via WheelUsbDiscovery on
-        // Start(). Pass explicit values only when overriding (env vars, tests).
+        // Start(). Pass explicit values only when overriding (env vars,
+        // manual picker, tests).
         // usbPcapCmdPathOverride: absolute path to USBPcapCMD.exe; checked
         // first before the env var / default-path probe. Used by the
         // settings-panel Browse action when USBPcap is installed somewhere
@@ -80,7 +130,17 @@ namespace TrueforceForAll.Core
         {
             _usbPcapInterface = usbPcapInterface;
             _deviceAddress = deviceAddress;
+            _manualOverride = !string.IsNullOrEmpty(usbPcapInterface) && deviceAddress > 0;
             _usbPcapCmdPath = LocateUsbPcapCmd(usbPcapCmdPathOverride);
+        }
+
+        // Tell discovery the VID/PID the HID stack already enumerated. Surfaces
+        // the "HID found it, USBPcap didn't" log line on auto-discovery failure
+        // so a bug-report log makes the bisection obvious.
+        public void SetHidDiscoveredWheel(ushort vid, ushort pid)
+        {
+            _hidFoundVid = vid;
+            _hidFoundPid = pid;
         }
 
         // Public so the settings UI can validate a user-picked path with the
@@ -104,25 +164,6 @@ namespace TrueforceForAll.Core
                 return false;
             }
             if (_readerThread != null) return true;
-
-            // Auto-discover the wheel's USBPcap interface and device address
-            // unless the caller provided overrides. This avoids hardcoding
-            // values that vary per-machine and per-replug.
-            if (string.IsNullOrEmpty(_usbPcapInterface) || _deviceAddress <= 0)
-            {
-                Status = "Discovering wheel on USB bus...";
-                Log(Status);
-                var hit = WheelUsbDiscovery.Find(_usbPcapCmdPath, Logger);
-                if (hit == null)
-                {
-                    Status = "No supported wheel found on any USBPcap interface (FFB pass-through disabled)";
-                    Log(Status);
-                    return false;
-                }
-                _usbPcapInterface = hit.Interface;
-                _deviceAddress = hit.DeviceAddress;
-                Log($"Auto-discovered: {hit}");
-            }
 
             _stopping = false;
             _readerThread = new Thread(ReaderLoop)
@@ -168,13 +209,31 @@ namespace TrueforceForAll.Core
 
         private void ReaderLoop()
         {
-            // Outer loop auto-restarts USBPcapCMD if it crashes (rare but
-            // possible — we don't want a single failure to permanently disable
-            // FFB pass-through).
+            // Outer loop owns BOTH discovery (when there's no manual override)
+            // and capture. Splitting them here means a stale-cache failure on
+            // first try can be recovered by replugging the wheel mid-session
+            // without restarting SimHub.
             while (!_stopping)
             {
                 try
                 {
+                    if (!_manualOverride && (string.IsNullOrEmpty(_usbPcapInterface) || _deviceAddress <= 0))
+                    {
+                        Status = "Discovering wheel on USB bus...";
+                        Log(Status);
+                        var hit = WheelUsbDiscovery.Find(_usbPcapCmdPath, Logger, hidFoundVid: _hidFoundVid, hidFoundPid: _hidFoundPid);
+                        if (hit == null)
+                        {
+                            Status = "No supported wheel found on any USBPcap interface (FFB pass-through disabled). Retrying in 15s...";
+                            Log(Status);
+                            if (SleepInterruptible(RediscoveryRetryMs)) break;
+                            continue;
+                        }
+                        _usbPcapInterface = hit.Interface;
+                        _deviceAddress = hit.DeviceAddress;
+                        Log($"Auto-discovered: {hit}");
+                    }
+
                     StartUsbPcapCmd();
                     ParseStream();
                 }
@@ -191,8 +250,29 @@ namespace TrueforceForAll.Core
 
                 if (_stopping) break;
                 // Brief cooldown so we don't spin if the install is broken.
+                // After a process exit we also clear the discovered interface
+                // so the next iteration re-runs discovery (catches replugs).
+                if (!_manualOverride)
+                {
+                    _usbPcapInterface = null;
+                    _deviceAddress = 0;
+                }
                 Thread.Sleep(2000);
             }
+        }
+
+        // Sleep that returns true if interrupted by Stop() request.
+        private bool SleepInterruptible(int ms)
+        {
+            int slept = 0;
+            while (slept < ms)
+            {
+                if (_stopping) return true;
+                int chunk = Math.Min(200, ms - slept);
+                Thread.Sleep(chunk);
+                slept += chunk;
+            }
+            return false;
         }
 
         private void StartUsbPcapCmd()
@@ -285,6 +365,7 @@ namespace TrueforceForAll.Core
                     long timestamp = _sw.ElapsedTicks & TimestampMask;
                     long packed = (timestamp << 16) | (uint)(ushort)ffbTarget;
                     System.Threading.Interlocked.Exchange(ref _packed, packed);
+                    System.Threading.Interlocked.Exchange(ref _lastSampleTicks, timestamp);
                     FfbSamplesCaptured++;
                 }
             }

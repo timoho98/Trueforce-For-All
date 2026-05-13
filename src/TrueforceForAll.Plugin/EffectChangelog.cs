@@ -68,6 +68,29 @@ namespace TrueforceForAll.Plugin
                 },
             },
             new ChangelogVersion {
+                Version = new Version(0, 1, 10),
+                Title = "Manual USB device picker + log export for easier support",
+                Entries = new List<ChangelogEntry>
+                {
+                    new ChangelogEntry {
+                        Headline = "Manual USB device picker for FFB pass-through",
+                        Description = "If auto-discovery can't find your wheel on the USB bus (USBPcap's descriptor cache can go stale on hot-plugged wheels), a new 'Pick device manually' dialog lists every USB device it sees and lets you map your wheel by hand. Selection persists across restarts. When your wheel is detected on HID but FFB pass-through can't find it, a banner surfaces the picker right at the top of the panel.",
+                    },
+                    new ChangelogEntry {
+                        Headline = "Export logs button next to Report Issue",
+                        Description = "Zips your SimHub logs and Trueforce settings to your Desktop and opens Explorer to the zip. Attach the zip to bug reports so I can debug what's actually happening on your machine. Report Issue also asks first whether you want to bundle logs.",
+                    },
+                    new ChangelogEntry {
+                        Headline = "Periodic FFB-tap rediscovery",
+                        Description = "When the FFB tap can't find your wheel, it now retries every 15 seconds without needing a plugin reload. Replugging the wheel mid-session is enough to recover.",
+                    },
+                    new ChangelogEntry {
+                        Headline = "Smoking-gun diagnostics for FFB discovery failures",
+                        Description = "Discovery now logs per-interface packet counts, descriptor matches, access-denied flags, and an explicit 'HID found wheel X but USBPcap did NOT see it' line when the two enumerations diverge. Makes triaging FFB pass-through issues from a log dump straightforward.",
+                    },
+                },
+            },
+            new ChangelogVersion {
                 Version = new Version(0, 1, 9),
                 Title = "Engine: load layer + high-RPM boost, Forza Horizon polish",
                 Entries = new List<ChangelogEntry>

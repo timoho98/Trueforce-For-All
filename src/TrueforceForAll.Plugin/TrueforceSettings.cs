@@ -93,6 +93,15 @@ namespace TrueforceForAll.Plugin
         // auto-probe if the path no longer exists on disk.
         public string UsbPcapCmdPathOverride   { get; set; } = "";
 
+        // Optional manual override for the FFB tap's USBPcap interface +
+        // device address, set by the "Pick device manually" affordance when
+        // auto-discovery via descriptor injection fails (typically because
+        // USBPcap's descriptor cache is stale for a hot-plugged wheel). Empty
+        // interface OR zero address = auto-discover. Both must be valid for
+        // the override to take effect.
+        public string ManualUsbPcapInterface     { get; set; } = "";
+        public int    ManualUsbPcapDeviceAddress { get; set; } = 0;
+
         public float FfbPeakSoftLimitLsb      { get; set; } = 2061.90f;
 
         // Sidechain ducking applied to continuous effects (engine pulse, audio

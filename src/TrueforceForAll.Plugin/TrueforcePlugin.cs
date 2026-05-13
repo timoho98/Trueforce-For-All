@@ -70,6 +70,14 @@ namespace TrueforceForAll.Plugin
         private HelperHost _helperHost;
         private UsbPcapFfbTap _ffbTap;
 
+        // Snapshot of the HID-side wheel match (Vid/Pid/Model) we found in Init.
+        // Held so the manual USB-device picker can highlight the row that
+        // matches the wheel HID has already enumerated.
+        private ushort _hidWheelVid;
+        private ushort _hidWheelPid;
+        public ushort HidWheelVid => _hidWheelVid;
+        public ushort HidWheelPid => _hidWheelPid;
+
         // Background GitHub-releases check. Kicked off async in Init; the
         // settings panel polls IsUpdateAvailable in its timer tick to decide
         // whether to surface the update banner. Network failures are silent.
@@ -310,6 +318,36 @@ namespace TrueforceForAll.Plugin
         // polls this on its tick to show/hide the Browse + Reinstall buttons.
         public bool IsUsbPcapAvailable =>
             UsbPcapFfbTap.LocateUsbPcapCmd(Settings?.UsbPcapCmdPathOverride) != null;
+
+        // True when HID enumeration found a supported wheel (so Trueforce
+        // effects play) but USBPcap discovery couldn't find it on the bus
+        // (so FFB pass-through is broken — the game's own force feedback
+        // gets clobbered). This is the smoking-gun divergence pattern that
+        // motivates surfacing the manual-picker call to action prominently
+        // rather than burying it in Diagnostics.
+        //
+        // Suppressed when:
+        //   - HID hasn't found a wheel yet (nothing to diverge from)
+        //   - User already has a manual override set (they've fixed it)
+        //   - FFB tap is actually tapping (status starts with "Tapping")
+        //   - USBPcap isn't installed (separate Browse/Reinstall UX handles it)
+        public bool ShouldShowFfbTapPickerBanner
+        {
+            get
+            {
+                if (Settings == null) return false;
+                if (_hidWheelVid == 0 && _hidWheelPid == 0) return false;
+                if (HasManualUsbPcapDevice) return false;
+                if (!IsUsbPcapAvailable) return false;
+                string status = _ffbTap?.Status ?? "";
+                if (status.StartsWith("Tapping", StringComparison.OrdinalIgnoreCase)) return false;
+                // Only the "no supported wheel found" outcome warrants the
+                // picker prompt. Other failure modes (USBPcap missing,
+                // permission denied with explicit text, etc.) are surfaced
+                // through Diagnostics; the picker won't help.
+                return status.IndexOf("No supported wheel found", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+        }
 
         /// <summary>Why-is-my-wheel-quiet diagnostic. Walks a decision tree
         /// of plausible "no haptic output" causes and returns the most-
@@ -691,6 +729,8 @@ namespace TrueforceForAll.Plugin
             }
 
             var match = matches[0];
+            _hidWheelVid = match.Vid;
+            _hidWheelPid = match.Pid;
             WheelStatus = $"{match.Model}  (VID 0x{match.Vid:X4}, PID 0x{match.Pid:X4})";
             SimHub.Logging.Current.Info($"[Trueforce] Found {WheelStatus}.");
 
@@ -710,14 +750,16 @@ namespace TrueforceForAll.Plugin
                 // off the bus and feeds it to TrueforceDevice so we can mirror it
                 // into ep3 bytes 6-9 — without this, our ep3 stream overrides AC's
                 // FFB with zero motor torque whenever Trueforce content plays.
-                // No args = auto-discover via WheelUsbDiscovery; env vars override
-                // for debugging or unusual setups.
-                string ifaceOverride = Environment.GetEnvironmentVariable("SIMHUBTF_USBPCAP_INTERFACE");
-                int.TryParse(Environment.GetEnvironmentVariable("SIMHUBTF_USBPCAP_DEVICE"), out var devOverride);
+                // Override precedence: env var > persisted manual picker > auto.
+                // The persisted picker exists because USBPcap's descriptor-cache
+                // can go stale for hot-plugged wheels, leaving auto-discovery
+                // unable to find a wheel that HID enumeration sees fine.
+                var (ifaceOverride, devOverride) = ResolveUsbPcapOverride();
                 _ffbTap = new UsbPcapFfbTap(ifaceOverride, devOverride, Settings?.UsbPcapCmdPathOverride)
                 {
                     Logger = msg => SimHub.Logging.Current.Info($"[Trueforce] {msg}"),
                 };
+                _ffbTap.SetHidDiscoveredWheel(match.Vid, match.Pid);
                 _device.FfbTargetProvider = () =>
                 {
                     // SkipFfbPassthrough: return Some(0) so the device sends
@@ -4986,6 +5028,68 @@ namespace TrueforceForAll.Plugin
             return RestartFfbTap();
         }
 
+        // Resolve the FFB-tap interface+address override in precedence order:
+        // env var (debug/testing) > persisted manual picker (Settings) > auto.
+        // Returns (null, 0) when neither override is set, which the tap reads
+        // as "auto-discover".
+        private (string iface, int dev) ResolveUsbPcapOverride()
+        {
+            string ifaceEnv = Environment.GetEnvironmentVariable("SIMHUBTF_USBPCAP_INTERFACE");
+            if (!string.IsNullOrEmpty(ifaceEnv)
+                && int.TryParse(Environment.GetEnvironmentVariable("SIMHUBTF_USBPCAP_DEVICE"), out var devEnv)
+                && devEnv > 0)
+            {
+                return (ifaceEnv, devEnv);
+            }
+            if (Settings != null
+                && !string.IsNullOrEmpty(Settings.ManualUsbPcapInterface)
+                && Settings.ManualUsbPcapDeviceAddress > 0)
+            {
+                return (Settings.ManualUsbPcapInterface, Settings.ManualUsbPcapDeviceAddress);
+            }
+            return (null, 0);
+        }
+
+        // Persist the user-picked USB device address + USBPcap interface from
+        // the manual picker dialog and restart the FFB tap to apply it. Empty
+        // iface OR zero address clears the override (= back to auto-discover).
+        // Called from SettingsControl's "Pick device manually" dialog.
+        public bool ApplyManualUsbPcapDevice(string iface, int deviceAddress)
+        {
+            if (Settings == null) return false;
+            Settings.ManualUsbPcapInterface     = iface ?? "";
+            Settings.ManualUsbPcapDeviceAddress = deviceAddress > 0 ? deviceAddress : 0;
+            try { this.SaveCommonSettings("GeneralSettings", Settings); } catch { }
+            SimHub.Logging.Current.Info(
+                $"[Trueforce] Manual USB device {(deviceAddress > 0 ? $"set to {iface} dev {deviceAddress}" : "cleared")}.");
+            return RestartFfbTap();
+        }
+
+        // True when the user has a manual USB-device override active.
+        public bool HasManualUsbPcapDevice =>
+            Settings != null
+            && !string.IsNullOrEmpty(Settings.ManualUsbPcapInterface)
+            && Settings.ManualUsbPcapDeviceAddress > 0;
+
+        // Read-only snapshot of where the active tap is currently capturing.
+        // Used by the picker to surface "ACTIVE" on the right row, and to
+        // include the active device in the list even when a fresh descriptor
+        // scan misses it (the tap's USBPcap process can shadow the picker's
+        // scan on the same interface).
+        public string ActiveFfbTapInterface     => _ffbTap?.CurrentInterface;
+        public int    ActiveFfbTapDeviceAddress => _ffbTap?.CurrentDeviceAddress ?? 0;
+
+        // Dispose the FFB tap WITHOUT restarting it. Used by the manual-
+        // device picker while it runs its descriptor scan: USBPcap captures
+        // from another process on the same interface can prevent injected
+        // descriptors from reaching our parallel scan. The picker calls
+        // RestartFfbTap() on close to resume capture.
+        public void StopFfbTap()
+        {
+            try { _ffbTap?.Dispose(); } catch { }
+            _ffbTap = null;
+        }
+
         // Dispose the current FFB tap and spawn a fresh one. Used after the
         // user changes the USBPcap override path or reinstalls USBPcap so
         // the new binary takes effect without restarting SimHub. No-op when
@@ -4998,12 +5102,13 @@ namespace TrueforceForAll.Plugin
             try { _ffbTap?.Dispose(); } catch { }
             _ffbTap = null;
 
-            string ifaceOverride = Environment.GetEnvironmentVariable("SIMHUBTF_USBPCAP_INTERFACE");
-            int.TryParse(Environment.GetEnvironmentVariable("SIMHUBTF_USBPCAP_DEVICE"), out var devOverride);
+            var (ifaceOverride, devOverride) = ResolveUsbPcapOverride();
             _ffbTap = new UsbPcapFfbTap(ifaceOverride, devOverride, Settings?.UsbPcapCmdPathOverride)
             {
                 Logger = msg => SimHub.Logging.Current.Info($"[Trueforce] {msg}"),
             };
+            if (_hidWheelVid != 0 || _hidWheelPid != 0)
+                _ffbTap.SetHidDiscoveredWheel(_hidWheelVid, _hidWheelPid);
             return _ffbTap.Start();
         }
 
