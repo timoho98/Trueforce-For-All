@@ -26,7 +26,7 @@ namespace TrueforceForAll.Core
         // 250 pps / 1 kHz. Separately, we observed that audibly-felt
         // Trueforce amplitudes coexist with ep0 DirectInput FFB at small
         // per-sample amplitudes (≈ ±0.6% of full scale) but override ep0
-        // FFB at higher amplitudes — we have not isolated whether packet
+        // FFB at higher amplitudes, we have not isolated whether packet
         // rate, amplitude, or both determine the coexistence regime.
         public const int PacketHz = 1000;
         // 8 samples = 2 ms at 4 kHz. The ring naturally stays near-full in
@@ -34,7 +34,7 @@ namespace TrueforceForAll.Core
         // sets the audio latency floor. With timeBeginPeriod(1), Highest
         // priority on the stream thread, and AboveNormal on the producer,
         // StreamTick is reliable to <1 ms, so 2 ms gives ~1 ms of jitter
-        // headroom — aggressive but appropriate for high-bandwidth haptics.
+        // headroom, aggressive but appropriate for high-bandwidth haptics.
         // If underruns appear (audible clicks during heavy GC / system load),
         // the auto-ratchet bumps capacity up one notch to 16, 32, or 64.
         // Backing array is sized to MaxRingSize so SetRingCapacity can resize
@@ -58,7 +58,7 @@ namespace TrueforceForAll.Core
         private volatile bool _shuttingDown;
         private volatile bool _paused;
         // Set false by StopAcceptingSamples() to release blocked PushFloats /
-        // PushInt16 callers ahead of full shutdown — lets the host drain the
+        // PushInt16 callers ahead of full shutdown, lets the host drain the
         // producer without also halting the stream thread (which still needs
         // to push centre-wheel quietness samples to the wheel before Dispose).
         private volatile bool _acceptingSamples = true;
@@ -111,7 +111,7 @@ namespace TrueforceForAll.Core
         //
         // Threshold is large (10 seconds) because AC drops its HID++ FFB update
         // rate dramatically when the FFB target hasn't changed (stationary wheel,
-        // straight road) — a tight threshold makes us flap between active and
+        // straight road), a tight threshold makes us flap between active and
         // keepalive on every quiet moment, which drops Trueforce audio. The
         // wheel firmware itself maintains the last-commanded force indefinitely
         // when AC stops sending updates, so mirroring that semantic is correct.
@@ -119,7 +119,7 @@ namespace TrueforceForAll.Core
         public int FfbTargetMaxAgeMs { get; set; } = 10000;
 
         // FFB pass-through tuning. AC's HID++ feature 0x0e and the wheel's ep3
-        // cur field use OPPOSITE sign conventions — empirically: turning right
+        // cur field use OPPOSITE sign conventions, empirically: turning right
         // and releasing produces a centering force in AC at negative LSBs, but
         // when copied as-is into ep3 cur the motor pulls in the direction of
         // the last input rather than toward center. So we negate by default.
@@ -132,7 +132,7 @@ namespace TrueforceForAll.Core
         // before it goes into ep3 cur. AC's HID++ FFB updates at ~140 Hz (every
         // 7 ms) but our StreamTick runs at 1 kHz, so smoothing > 0 turns the
         // 7-step staircase into a ramp at the cost of ~tau ms of group delay.
-        // 0 = no smoothing (sample-and-hold) — chosen as default to prioritize
+        // 0 = no smoothing (sample-and-hold), chosen as default to prioritize
         // FFB responsiveness; users who feel the staircase as a mechanical tick
         // can dial in 1-3 ms via the slider.
         public float FfbSmoothTimeConstantMs { get; set; } = 0.0f;
@@ -167,7 +167,7 @@ namespace TrueforceForAll.Core
         //
         // Crucially, raw slew alone can't distinguish a wall hit (one big
         // unidirectional step) from a rumble strip (rapid +/-/+/- oscillation
-        // around the same average force) — both produce huge slew. We gate
+        // around the same average force), both produce huge slew. We gate
         // the slew-envelope update on a DIRECTIONALITY ratio (see
         // _sumDeltas / _sumAbsDeltas below): unidirectional events ride at
         // ~1.0, alternating-sign rumble drops to ~0.1-0.3. Slew only counts
@@ -209,7 +209,7 @@ namespace TrueforceForAll.Core
         private float _spikeSlewEnv;
 
         // Force-active override. When the deadline is in the future, StreamTick
-        // emits active packets even if the FFB tap is stale — so the settings
+        // emits active packets even if the FFB tap is stale, so the settings
         // UI's "Test" button can drive audio through the wheel while AC isn't
         // running (otherwise we'd be in keepalive mode and the test would
         // be silent). Set via ForceActiveFor(durationMs).
@@ -277,8 +277,8 @@ namespace TrueforceForAll.Core
                     IsBackground = true,
                     Name = "TrueforceStream",
                     // Highest (vs AboveNormal on the producer) so that on a
-                    // contended system — Chrome update kicking in, antivirus
-                    // scan, etc. — packet emission keeps its 1 kHz cadence.
+                    // contended system, Chrome update kicking in, antivirus
+                    // scan, etc., packet emission keeps its 1 kHz cadence.
                     // Underruns here are felt as audible clicks; the producer
                     // can absorb a missed cycle via the ring buffer.
                     Priority = ThreadPriority.Highest,
@@ -320,7 +320,7 @@ namespace TrueforceForAll.Core
         /// <summary>Live-resize the ring buffer. <paramref name="newCapacity"/>
         /// must be a power of two in [MinRingSize, MaxRingSize]; the backing
         /// array is already sized to MaxRingSize so no allocation occurs.
-        /// Drains any in-flight samples (head/tail reset to 0) — produces
+        /// Drains any in-flight samples (head/tail reset to 0), produces
         /// at most ~1 ms of audible silence at the wheel, vs. needing to
         /// stop and restart the stream which would be ~50 ms of silence.
         /// Wakes blocked producers so they observe the new free count.</summary>
@@ -344,8 +344,8 @@ namespace TrueforceForAll.Core
 
         // Stop accepting new samples and wake any producer parked in PushFloats
         // so it can observe the application's shutdown signal. Leaves the
-        // internal stream thread running so any samples already queued — plus
-        // the centre-wheel quietness pulse a subsequent ClearStream queues —
+        // internal stream thread running so any samples already queued, plus
+        // the centre-wheel quietness pulse a subsequent ClearStream queues
         // still drain to the wheel before Dispose tears the HID stream down.
         public void StopAcceptingSamples()
         {
@@ -466,7 +466,7 @@ namespace TrueforceForAll.Core
                     nextTick += periodTicks;
 
                     // If we slipped more than one period (long stall), don't try to catch up
-                    // by burst-writing — emit one packet per loop iteration.
+                    // by burst-writing, emit one packet per loop iteration.
                     if (sw.ElapsedTicks - nextTick > periodTicks)
                         nextTick = sw.ElapsedTicks + periodTicks;
                 }
@@ -528,7 +528,7 @@ namespace TrueforceForAll.Core
             }
 
             // Two packet shapes we send (observed by diffing AC EVO's stream vs
-            // silent baselines — these three things change together; we have not
+            // silent baselines, these three things change together; we have not
             // isolated which the wheel actually keys off):
             //   "active"  bytes[10..11] = 04 0d, cur (bytes 6-9) carries the
             //             FFB target, window carries 4 new audio samples.
@@ -540,11 +540,11 @@ namespace TrueforceForAll.Core
             //
             // Decision: send "active" whenever the FFB tap has a fresh value. We
             // STAY in active mode continuously while AC is running, regardless of
-            // whether Trueforce audio is currently playing — empirically, the
+            // whether Trueforce audio is currently playing, empirically, the
             // wheel's motor feel differs between ep0 PID FFB (keepalive mode) and
             // ep3 cur (active mode), and switching between them at audio start/end
             // is felt as "jerky" FFB. Window carries audio if we have any, else
-            // silence-center samples (additive zero — wheel feels only cur).
+            // silence-center samples (additive zero, wheel feels only cur).
             // Keepalive only fires when the FFB tap is stale (AC closed / idle
             // > FfbTargetMaxAgeMs), so any other game's native FFB still works
             // when our plugin is running but AC isn't.
@@ -582,7 +582,7 @@ namespace TrueforceForAll.Core
                 }
                 else
                 {
-                    // No audio content — fill the window with silence-center so
+                    // No audio content, fill the window with silence-center so
                     // the wheel's audio overlay contributes zero force, leaving
                     // only cur as the motor torque target.
                     for (int i = 0; i < Window; i++) _window[i] = 0x8000;
@@ -593,7 +593,7 @@ namespace TrueforceForAll.Core
                 // equivalent to interpolating between AC's 7ms-spaced HID++ FFB
                 // updates (which we'd otherwise emit as a step waveform).
                 // When sendActive triggered via forceActive (test mode without
-                // AC running), ffbTargetMaybe is null — fall back to 0x8000.
+                // AC running), ffbTargetMaybe is null, fall back to 0x8000.
                 ushort ffbCur = (ushort)0x8000;
                 if (ffbTargetMaybe.HasValue)
                 {
@@ -606,7 +606,7 @@ namespace TrueforceForAll.Core
                     // the duration AC actually sustains the elevated force.
                     //
                     // Directionality gate: rumble strips drive raw with rapid
-                    // alternating-sign deltas of similar magnitude — the
+                    // alternating-sign deltas of similar magnitude, the
                     // signed-sum cancels but the abs-sum doesn't, so
                     // directionality drops to ~0.1-0.3 and we ignore the
                     // (otherwise huge) raw slew. A real wall hit is
@@ -669,7 +669,7 @@ namespace TrueforceForAll.Core
 
                     // Multiplicative spike attenuation. Triggers when the
                     // peak-followed slew envelope exceeds SpikeSlewThreshold
-                    // — anything below is normal cornering / steering input
+                    //, anything below is normal cornering / steering input
                     // and passes through at full amp. Above threshold,
                     // factor = cap / (cap + slewExcess) asymptotes to 0 as
                     // slew grows; lower cap = stronger attenuation per LSB
@@ -716,7 +716,7 @@ namespace TrueforceForAll.Core
         // EVO-style silent keepalive: NewPerPacket=0, window literal zeros, cur=0x8000.
         // When we send this shape the wheel uses its normal ep0 HID++ FFB path
         // (we haven't isolated which of bytes 10-11 / cur=0x8000 / zero window
-        // is the actual trigger — they covary in EVO's captures).
+        // is the actual trigger, they covary in EVO's captures).
         private static void BuildSilentPacket(byte[] pkt, byte seq)
         {
             Array.Clear(pkt, 0, PacketLen);

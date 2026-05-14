@@ -15,7 +15,7 @@
 // before scanning and restarts it via the plugin when the dialog closes.
 //
 // Built as a code-only WPF Window rather than XAML to keep the diagnostics
-// surface area tightly scoped — no theme resources, no other call sites.
+// surface area tightly scoped, no theme resources, no other call sites.
 // SimHub's app-level theme is not inherited by Windows we create from code,
 // so colors are set explicitly to match SimHub's dark Metro palette.
 
@@ -200,7 +200,7 @@ namespace TrueforceForAll.Plugin
 
         // Button styled to match the dark panel. WPF default buttons render
         // light grey with black text, which is fine on the dark background
-        // but feels alien — match the rest of the plugin UI loosely.
+        // but feels alien, match the rest of the plugin UI loosely.
         private static Button MakeButton(string content, double width)
         {
             return new Button
@@ -396,7 +396,7 @@ namespace TrueforceForAll.Plugin
         {
             if (!(_list.SelectedItem is Row row)) return;
 
-            // Confirm when picking a non-Logitech VID — the FFB tap won't get
+            // Confirm when picking a non-Logitech VID, the FFB tap won't get
             // any data and we'd just be wasting a USBPcap process.
             if (row.Candidate.Vid != 0 && row.Candidate.Vid != WheelDiscovery.LogitechVid)
             {

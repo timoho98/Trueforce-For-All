@@ -308,7 +308,7 @@ namespace TrueforceForAll.Plugin
 
         // Atomic write: stage to <path>.tmp then swap into place. A crash
         // mid-write leaves either the old file (if the swap hadn't started)
-        // or a stray .tmp (cleaned up on next save) — never a truncated
+        // or a stray .tmp (cleaned up on next save), never a truncated
         // .tfcar.json that the loader would then have to skip.
         private static void AtomicWriteAllText(string path, string content)
         {

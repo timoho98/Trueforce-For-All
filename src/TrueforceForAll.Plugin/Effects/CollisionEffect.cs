@@ -1,6 +1,6 @@
 // Collision thud: a low-frequency envelope-decay burst whose amplitude
 // scales with the impact's magnitude. Driven by TelemetryFrame.
-// CollisionMagnitude — null on sources that don't expose any collision
+// CollisionMagnitude, null on sources that don't expose any collision
 // signal (effect stays silent), 0 = no impact, 1.0 = moderate, 2.0+ =
 // hard wreck.
 //

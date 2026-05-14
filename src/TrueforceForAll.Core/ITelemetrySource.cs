@@ -8,7 +8,7 @@
 //
 // Threading: OnFrame fires on whichever thread the source polls on
 // (SimHub's data tick for the SimHub source, a dedicated MMF thread for
-// AC, etc.). Effects already tolerate cross-thread state mutation —
+// AC, etc.). Effects already tolerate cross-thread state mutation
 // primitive double/float reads/writes are atomic on 64-bit .NET and the
 // producer thread reads those fields with eventual-consistency semantics.
 
@@ -33,7 +33,7 @@ namespace TrueforceForAll.Core
         /// <summary>True when this source populates TelemetryFrame.NumCylinders
         /// each frame (Forza UDP today). Lets the plugin set EnginePulseEffect's
         /// AutoCylinderSource = "telemetry" eagerly on car change rather than
-        /// waiting for the first frame to arrive — eliminating the brief null
+        /// waiting for the first frame to arrive, eliminating the brief null
         /// window between "car-change cleared the field" and "first telemetry
         /// frame populated it." False for sources that don't expose cyl
         /// (AC shared memory, SimHub fallback for most games).</summary>
@@ -70,21 +70,21 @@ namespace TrueforceForAll.Core
         public double? AccelerationSway;
         /// <summary>Longitudinal acceleration in m/s². Positive = forward.
         /// Null when source doesn't surface it. Drives the head-on / rear-end
-        /// branch of CollisionEffect's spike detection — frontal impacts
+        /// branch of CollisionEffect's spike detection, frontal impacts
         /// register here, not in sway/heave.</summary>
         public double? AccelerationSurge;
         /// <summary>Yaw rate in deg/s. Null when source doesn't surface it.</summary>
         public double? YawRateDegPerSec;
 
         // ---- Driveline ----
-        /// <summary>"R", "N", "1", "2", … — string convention matches SimHub's
+        /// <summary>"R", "N", "1", "2", …, string convention matches SimHub's
         /// StatusDataBase.Gear so existing effect code compares unchanged.</summary>
         public string Gear;
         /// <summary>0 = ABS not active, &gt;0 = active. Edge transitions drive AbsClick PerTick mode.</summary>
         public int AbsActive;
 
         /// <summary>0 = pit limiter off, &gt;0 = engaged. Drives PitLimiterEffect's
-        /// pulse train. Universal across sims — almost every racing game with
+        /// pulse train. Universal across sims, almost every racing game with
         /// pit lanes exposes this. Null when the source can't read it.</summary>
         public int? PitLimiterActive;
 
@@ -100,7 +100,7 @@ namespace TrueforceForAll.Core
         /// <summary>Direct slip-ratio reading from a sim that exposes one
         /// (e.g. AC's wheelSlip[], Forza's TireCombinedSlip[]), max-abs across
         /// all four tires. ~0 = grip, &gt;0.05 = noticeable slip, &gt;0.5 =
-        /// sliding hard. Null when the source can't measure slip directly —
+        /// sliding hard. Null when the source can't measure slip directly
         /// TractionLossEffect falls back to its yaw-rate / RPM-derivative
         /// heuristic in that case.</summary>
         public double? WheelSlip;
@@ -111,7 +111,7 @@ namespace TrueforceForAll.Core
         /// heuristic path as a confidence boost: when the game itself says
         /// the wheels are slipping, raise the slip estimate to a moderate
         /// floor even if the RPM/yaw heuristic didn't catch it. Only useful
-        /// when WheelSlip is null (SimHub fallback) — direct-slip sources
+        /// when WheelSlip is null (SimHub fallback), direct-slip sources
         /// already have ground truth.</summary>
         public int TcActive;
 

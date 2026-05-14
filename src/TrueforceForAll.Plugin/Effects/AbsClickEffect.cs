@@ -1,10 +1,10 @@
 // ABS engagement haptic. Two modes:
-//   Pulse  — continuous carrier modulated by an internal pulse rate (12 Hz
+//   Pulse , continuous carrier modulated by an internal pulse rate (12 Hz
 //            default). The "rrr-rrr-rrr" feel that's stable regardless of
 //            how the game reports ABSActive.
-//   PerTick — fires a single short click envelope on each rising edge of
+//   PerTick, fires a single short click envelope on each rising edge of
 //            ABSActive. If the game's ABSActive flag tracks the actual ABS
-//            valve cycle, this gives the most authentic feel — what you
+//            valve cycle, this gives the most authentic feel, what you
 //            feel matches what the simulated pump is doing.
 
 using System;
@@ -31,7 +31,7 @@ namespace TrueforceForAll.Plugin.Effects
         /// <summary>Carrier tone freq within each pulse / tick (Hz).</summary>
         public float Freq { get; set; } = 80.0f;
 
-        /// <summary>Pulse rate (Hz) — Pulse mode only. Real ABS valves cycle
+        /// <summary>Pulse rate (Hz), Pulse mode only. Real ABS valves cycle
         /// at 10-15 Hz; default 12.</summary>
         public float PulseFreq { get; set; } = 12.0f;
 
@@ -129,7 +129,7 @@ namespace TrueforceForAll.Plugin.Effects
             {
                 // Fire a few ticks across the test duration so the user feels the
                 // shape of the click envelope. Trigger now; the test loop won't
-                // re-fire — that's fine, single tick demos the timbre.
+                // re-fire, that's fine, single tick demos the timbre.
                 TriggerTick();
                 StartTest(500);
                 return 500;

@@ -11,9 +11,10 @@
 //
 // USBPcap installs as a kernel-mode USB filter driver. USBPcapCMD.exe streams
 // pcap to stdout when invoked with -o -. We don't require admin in our
-// process — USBPcap's own access checks happen in its CMD process.
+// process, USBPcap's own access checks happen in its CMD process.
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
@@ -35,7 +36,7 @@ namespace TrueforceForAll.Core
         // _packed layout: low 16 bits = ffbTarget bit-pattern, high 48 bits =
         // Stopwatch.ElapsedTicks masked to 48 bits. Masking on store + logical
         // (unsigned) right shift on read + modular subtraction on age makes
-        // the freshness check wrap-safe — without the mask, a left-shift by
+        // the freshness check wrap-safe, without the mask, a left-shift by
         // 16 lands in the sign bit at ~162 days of QPC uptime and silently
         // breaks FFB pass-through until reboot.
         private const long TimestampMask = 0x0000_FFFF_FFFF_FFFFL;
@@ -92,6 +93,62 @@ namespace TrueforceForAll.Core
         public bool IsRunning => _proc != null && !_proc.HasExited;
         public long PacketsParsed { get; private set; }
         public long FfbSamplesCaptured { get; private set; }
+
+        // Diagnostic counters. Written only by the parser thread; read by any
+        // thread via property getters. Used to triage cases where the tap is
+        // running but FFB pass-through still feels broken, are we seeing
+        // packets, are they reaching ep0 control, are they Set_Reports, and
+        // which (reportId, featIdx, funcHi) tuples is the game actually
+        // sending? Critical for wheels where the HID++ FFB protocol differs
+        // from AC's known pattern (Logitech RS50 reportedly differs).
+        public long PacketsForOurDevice { get; private set; }
+        public long ControlTransfersOnOurDevice { get; private set; }
+        public long Ep0ControlTransfersOnOurDevice { get; private set; }
+        public long SetReportsOnOurDevice { get; private set; }
+
+        // (reportId << 16) | (featIdx << 8) | (funcByte & 0xf0) → count of
+        // Set_Reports observed with that triplet. Surfaces the actual HID++
+        // protocol the game is using so a divergence from the expected
+        // (0x11, 0x0e, 0x20) jumps out in the log dump. Guarded by _tupleLock.
+        private readonly Dictionary<int, long> _tupleCounts = new Dictionary<int, long>();
+        private readonly object _tupleLock = new object();
+
+        // Returns a snapshot of the tuple histogram. Safe to call from any
+        // thread; the parser thread updates under _tupleLock and this also
+        // takes _tupleLock for a consistent read.
+        public Dictionary<int, long> SnapshotTupleCounts()
+        {
+            lock (_tupleLock) return new Dictionary<int, long>(_tupleCounts);
+        }
+
+        // Optional file path for raw-packet logging. When non-null, the parser
+        // appends every Set_Report on the wheel's device address to this file
+        // for offline analysis. Off by default; toggled via the Diagnostics
+        // panel and explicitly opt-in because the file can grow quickly
+        // (~2-3 KB/sec of active FFB) and ships USB bus traffic with logs.
+        // Set once at construction or via SetRawPacketLogPath; the parser
+        // reads it through Volatile so changes take effect at the next packet.
+        private string _rawLogPath;
+        private FileStream _rawLogStream;
+        private long _rawLogBytesWritten;
+        private const long RawLogMaxBytes = 50L * 1024 * 1024; // 50 MB safety cap
+
+        public void SetRawPacketLogPath(string path)
+        {
+            // Reader thread sees the new path on its next iteration. We don't
+            // open the stream here; the parser handles open/close so the file
+            // handle stays on the writer thread.
+            _rawLogPath = path;
+        }
+        public string CurrentRawPacketLogPath => _rawLogPath;
+        public long RawLogBytesWritten => Interlocked.Read(ref _rawLogBytesWritten);
+
+        // Wall-clock ticks of the last periodic diagnostics emission. Emitted
+        // by the parser thread every ~5 seconds when the tap is active so the
+        // exported logs reliably contain at least one snapshot of the
+        // counters/histogram during the user's repro session.
+        private long _nextDiagEmitTicks;
+        private const int DiagEmitIntervalMs = 5000;
 
         // True when this tap was constructed with an explicit (interface,
         // address) override. The UI uses this to decide whether to show the
@@ -336,8 +393,12 @@ namespace TrueforceForAll.Core
                 byte ep      = payload[21];
                 byte xfer    = payload[22];
                 if (dev != _deviceAddress) continue;
+                PacketsForOurDevice++;
+                MaybeEmitDiagnostics();
                 if (xfer != 0x02) continue;             // control transfer
+                ControlTransfersOnOurDevice++;
                 if ((ep & 0x7f) != 0x00) continue;       // ep0
+                Ep0ControlTransfersOnOurDevice++;
                 if (headerLen < 28) continue;
                 byte stage = payload[27];
                 if (stage != 0) continue;                // setup stage only
@@ -347,6 +408,7 @@ namespace TrueforceForAll.Core
                 byte bmRequestType = payload[setupOffset + 0];
                 byte bRequest      = payload[setupOffset + 1];
                 if (bmRequestType != 0x21 || bRequest != 0x09) continue; // HID Set_Report
+                SetReportsOnOurDevice++;
 
                 int dataOffset = setupOffset + 8;
                 int dataLen = caplen - dataOffset;
@@ -356,6 +418,8 @@ namespace TrueforceForAll.Core
                 byte reportId = payload[dataOffset + 0];
                 byte featIdx  = payload[dataOffset + 2];
                 byte funcByte = payload[dataOffset + 3];
+                RecordTupleSeen(reportId, featIdx, funcByte);
+                MaybeLogRawPacket(payload, dataOffset, dataLen);
 
                 // AC's FFB: feature 0x0e long form, function 2 (high nibble of funcByte).
                 // FFB target = signed int16, big-endian, at offset 10-11 of the HID++ payload.
@@ -369,6 +433,118 @@ namespace TrueforceForAll.Core
                     FfbSamplesCaptured++;
                 }
             }
+            CloseRawLog();
+        }
+
+        private void RecordTupleSeen(byte reportId, byte featIdx, byte funcByte)
+        {
+            int key = (reportId << 16) | (featIdx << 8) | (funcByte & 0xf0);
+            lock (_tupleLock)
+            {
+                _tupleCounts.TryGetValue(key, out long count);
+                _tupleCounts[key] = count + 1;
+            }
+        }
+
+        // Periodic snapshot of the parser counters + tuple histogram into the
+        // log. Runs from inside the parser thread so we don't need a separate
+        // timer; emission cost is one TickCount comparison per packet on the
+        // fast path. The first emission happens after the first packet so we
+        // don't spam logs for taps that never see traffic.
+        private void MaybeEmitDiagnostics()
+        {
+            long now = Environment.TickCount;
+            if (now < _nextDiagEmitTicks) return;
+            _nextDiagEmitTicks = now + DiagEmitIntervalMs;
+
+            // Build a short top-N tuple histogram. With AC + G PRO we expect
+            // a single dominant tuple (0x11, 0x0e, 0x20). Multiple tuples is
+            // the smoking-gun signal that we should investigate.
+            string tuples;
+            lock (_tupleLock)
+            {
+                if (_tupleCounts.Count == 0) tuples = "(none)";
+                else
+                {
+                    var parts = new List<string>(_tupleCounts.Count);
+                    foreach (var kv in _tupleCounts)
+                    {
+                        byte r = (byte)(kv.Key >> 16);
+                        byte f = (byte)(kv.Key >> 8);
+                        byte u = (byte)(kv.Key);
+                        parts.Add($"({r:X2},{f:X2},{u:X2})={kv.Value}");
+                    }
+                    tuples = string.Join(" ", parts);
+                }
+            }
+            Log($"FFB tap diag: packets={PacketsForOurDevice} ctrl={ControlTransfersOnOurDevice} " +
+                $"ep0ctrl={Ep0ControlTransfersOnOurDevice} setrep={SetReportsOnOurDevice} " +
+                $"matched={FfbSamplesCaptured} tuples=[{tuples}]" +
+                (_rawLogStream != null ? $" rawlog={RawLogBytesWritten}b" : ""));
+        }
+
+        // Write one Set_Report's data bytes to the raw-log file. Format:
+        // [8 bytes LE: stopwatch ms timestamp][2 bytes LE: length][bytes].
+        // Bounded by RawLogMaxBytes; once exceeded we stop writing and log
+        // a one-time warning so the user knows to disable the toggle.
+        private void MaybeLogRawPacket(byte[] payload, int offset, int len)
+        {
+            string path = _rawLogPath;
+            if (path == null)
+            {
+                CloseRawLog();
+                return;
+            }
+            if (_rawLogStream == null)
+            {
+                try
+                {
+                    _rawLogStream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read);
+                    _rawLogBytesWritten = _rawLogStream.Length;
+                    Log($"FFB tap: raw packet log opened at {path}");
+                }
+                catch (Exception ex)
+                {
+                    Log($"FFB tap: failed to open raw log {path}: {ex.Message}");
+                    _rawLogPath = null;
+                    return;
+                }
+            }
+            if (_rawLogBytesWritten >= RawLogMaxBytes)
+            {
+                Log($"FFB tap: raw packet log hit {RawLogMaxBytes / (1024 * 1024)} MB cap; disabling. " +
+                    "Toggle off and on in Diagnostics to reset.");
+                CloseRawLog();
+                _rawLogPath = null;
+                return;
+            }
+            try
+            {
+                long ts = _sw.ElapsedMilliseconds;
+                byte[] hdr = new byte[10];
+                hdr[0] = (byte)(ts);       hdr[1] = (byte)(ts >> 8);
+                hdr[2] = (byte)(ts >> 16); hdr[3] = (byte)(ts >> 24);
+                hdr[4] = (byte)(ts >> 32); hdr[5] = (byte)(ts >> 40);
+                hdr[6] = (byte)(ts >> 48); hdr[7] = (byte)(ts >> 56);
+                hdr[8] = (byte)(len);      hdr[9] = (byte)(len >> 8);
+                _rawLogStream.Write(hdr, 0, hdr.Length);
+                _rawLogStream.Write(payload, offset, len);
+                Interlocked.Add(ref _rawLogBytesWritten, hdr.Length + len);
+            }
+            catch (Exception ex)
+            {
+                Log($"FFB tap: raw log write failed: {ex.Message}");
+                CloseRawLog();
+            }
+        }
+
+        private void CloseRawLog()
+        {
+            var s = _rawLogStream;
+            if (s == null) return;
+            try { s.Flush(); } catch { }
+            try { s.Dispose(); } catch { }
+            _rawLogStream = null;
         }
 
         private static byte[] ReadExact(Stream s, int n)

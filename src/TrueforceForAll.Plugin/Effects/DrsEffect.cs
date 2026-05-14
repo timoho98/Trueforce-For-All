@@ -2,17 +2,17 @@
 // opens, the driver feels a release / buffeting sensation. Modeled as
 // two layered components:
 //
-//   1. Activation chirp — short envelope-shaped burst on the rising edge
+//   1. Activation chirp, short envelope-shaped burst on the rising edge
 //      of DrsActive (wing opening). Tells the driver the system actually
 //      engaged. Same shape as GearShiftEffect's thud, but higher-pitched
 //      and shorter.
 //
-//   2. Sustained flutter — continuous low-amplitude tone while DRS stays
+//   2. Sustained flutter, continuous low-amplitude tone while DRS stays
 //      active. Reminds the driver they're in DRS mode without becoming
 //      fatiguing. Settable to zero amp to disable the sustained part.
 //
 // Telemetry source: TelemetryFrame.DrsActive. Null on sources that don't
-// expose it (most non-F1 games) — effect stays silent rather than firing
+// expose it (most non-F1 games), effect stays silent rather than firing
 // false positives.
 
 using System;
@@ -61,7 +61,7 @@ namespace TrueforceForAll.Plugin.Effects
         private const double SampleRate = 4000.0;
 
         // Activation envelope state (samples remaining + total). The chirp
-        // ignores all sidechain ducking — it's an "important alert" event,
+        // ignores all sidechain ducking, it's an "important alert" event,
         // gets through regardless of what other effects are doing.
         private int    _envelopeRemaining;
         private int    _envelopeTotal;
@@ -100,7 +100,7 @@ namespace TrueforceForAll.Plugin.Effects
 
             double aStep = Math.Max(0.0, ActivationFreq) / SampleRate;
             double sStep = Math.Max(0.0, SustainedFreq)  / SampleRate;
-            // Chirp amp ignores DuckMultiplier entirely — by design, the
+            // Chirp amp ignores DuckMultiplier entirely, by design, the
             // activation alert always punches through. Sustained amp uses
             // the dedicated SustainedDuckMultiplier set by the plugin's
             // ducker (driven by ABS / traction / gear-shift activity).

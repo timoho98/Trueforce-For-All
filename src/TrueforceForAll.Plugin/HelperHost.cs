@@ -134,7 +134,7 @@ namespace TrueforceForAll.Plugin
                 var stream = _helper.StandardOutput.BaseStream;
                 // 2 KB chunks ≈ 5 ms of audio at 48 kHz × 2 ch × 4 bytes
                 // (= 384 bytes/ms). The previous 16 KB buffer was an UPPER
-                // bound that almost never filled — but if the plugin thread
+                // bound that almost never filled, but if the plugin thread
                 // ever stalled briefly (GC pause, etc.) the next read could
                 // accumulate up to ~42 ms of audio in one chunk, which would
                 // overflow the audio ring catastrophically downstream. 2 KB
@@ -145,7 +145,7 @@ namespace TrueforceForAll.Plugin
                 int leftover = 0;
                 while (!_shuttingDown && !_helper.HasExited)
                 {
-                    // Carry any sub-frame tail from the previous read forward —
+                    // Carry any sub-frame tail from the previous read forward
                     // pipe Reads can return non-frame-aligned counts, and dropping
                     // those bytes would permanently desync L/R for the session.
                     int n = stream.Read(buf, leftover, buf.Length - leftover);

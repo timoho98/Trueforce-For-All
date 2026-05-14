@@ -1,16 +1,16 @@
-// Traction-loss buzz: vibrates when the car loses grip — wheelspin under
+// Traction-loss buzz: vibrates when the car loses grip, wheelspin under
 // throttle, lockup under braking, oversteer/drift, etc.
 //
 // Two detection paths:
 //
-//   A. Direct (preferred). When TelemetryFrame.WheelSlip is supplied — i.e.
+//   A. Direct (preferred). When TelemetryFrame.WheelSlip is supplied, i.e.
 //      the source reads per-wheel slip ratio from the sim's shared memory
-//      directly (AC's wheelSlip[]) — we just normalize it. Cleaner, no
+//      directly (AC's wheelSlip[]), we just normalize it. Cleaner, no
 //      cross-coupling between detectors, and matches what the sim itself
 //      considers a slipping tire.
 //
 //   B. Heuristic (fallback). When the source can't measure slip (the SimHub
-//      universal path — works for every SimHub-supported game), we infer it
+//      universal path, works for every SimHub-supported game), we infer it
 //      from two signals:
 //        1. Wheelspin: RPM rising sharply while speed isn't, gated on
 //           throttle and below-redline. Lockup under braking is the same
@@ -94,13 +94,13 @@ namespace TrueforceForAll.Plugin.Effects
 
         // EMA alpha is intentionally PER-SAMPLE, not per-time. At higher source
         // rates (AC native 333 Hz vs SimHub 60 Hz) the same alpha produces a
-        // proportionally faster response in milliseconds — slide onset feels
+        // proportionally faster response in milliseconds, slide onset feels
         // ~5x sooner on AC. That responsiveness gain is the whole point of the
         // enhanced source; converting to a fixed time constant would throw it
         // away for parity with the slower path.
 
         // RPM/speed heuristic state for wheelspin detection (AC's SpeedKmh and
-        // GroundSpeedKmH are always identical, so we can't use that diff —
+        // GroundSpeedKmH are always identical, so we can't use that diff
         // need to fall back to "RPM rising faster than speed under throttle").
         private double _prevRpm;
         private double _prevSpeed;
@@ -120,7 +120,7 @@ namespace TrueforceForAll.Plugin.Effects
                 _noise.RenderAdd(buffer, count);
                 return;
             }
-            // Render to scratch and scale before mixing — same pattern as
+            // Render to scratch and scale before mixing, same pattern as
             // EnginePulse. We can't mutate _noise.Amp here because OnTelemetry
             // writes to it from the producer thread and the temporary clobber
             // would race with that writer.
@@ -214,7 +214,7 @@ namespace TrueforceForAll.Plugin.Effects
         {
             // Floor at 0.1 (matches the slider's minimum). At Sensitivity=1.0
             // the deadband is 0.05 and full effect at slip=0.50; at 0.1 those
-            // shift to 0.50 and 5.0 respectively — strict enough to ignore
+            // shift to 0.50 and 5.0 respectively, strict enough to ignore
             // routine cornering on grippy tires (AC's wheelSlip[] regularly
             // sits around 0.15-0.30 in normal driving).
             double slipMag  = Math.Abs(slip);
@@ -269,7 +269,7 @@ namespace TrueforceForAll.Plugin.Effects
             double swayRaw    = f.AccelerationSway ?? 0;
             double lateralG   = Math.Abs(swayRaw);                    // m/s²
 
-            // Detector A — SLIP ANGLE (the physical signal we actually want).
+            // Detector A, SLIP ANGLE (the physical signal we actually want).
             // For any car in circular motion: AccelerationSway = v × yaw_rate × cos(β),
             // where β is the slip angle (heading vs velocity-vector angle). Solving:
             //   β = acos( lateral_g / (speed × yaw_rate) )
@@ -289,14 +289,14 @@ namespace TrueforceForAll.Plugin.Effects
             }
             // 5° deadband (allow natural slip), 50° = full effect. Wider range
             // than the previous 25° so heavy drifts have headroom to feel
-            // "louder than" moderate ones — gives ~5× dynamic range from
+            // "louder than" moderate ones, gives ~5× dynamic range from
             // light slip to heavy across β=10°→50°, addressing "feels static."
             double slipDeadband = 5.0  / Math.Max(0.3, Sensitivity);
             double slipFullDeg  = 50.0 / Math.Max(0.3, Sensitivity);
             double slipExcess   = Math.Max(0, slipAngleDeg - slipDeadband);
             double driftFromSlipAngle = Math.Min(1.0, slipExcess / Math.Max(5.0, slipFullDeg));
 
-            // Detector B — centripetal imbalance (transient breakaway).
+            // Detector B, centripetal imbalance (transient breakaway).
             // Catches the moment of rear breakout at speeds too low for the
             // slip-angle formula to be reliable, and during rapid yaw acceleration.
             double expectedYaw = (speedMs > 0.1) ? lateralG / speedMs : 0;
@@ -313,7 +313,7 @@ namespace TrueforceForAll.Plugin.Effects
             // ground-truth signal we have that the tires are losing grip.
             // Raise rawTraction to a moderate floor (0.4) so a faint TC
             // intervention still produces felt feedback even when the
-            // heuristic above missed it. Only floor — Math.Max preserves any
+            // heuristic above missed it. Only floor, Math.Max preserves any
             // stronger reading from the heuristic. SimHub-source-only in
             // practice; AC/Forza paths use direct WheelSlip and skip this
             // function entirely.
@@ -323,7 +323,7 @@ namespace TrueforceForAll.Plugin.Effects
                 if (rawTraction < tcFloor) rawTraction = tcFloor;
             }
 
-            // Diagnostic — once per second, only when something interesting.
+            // Diagnostic, once per second, only when something interesting.
             if (rawTraction > _peakSlipSinceLastLog) _peakSlipSinceLastLog = rawTraction;
             if (now - _lastDiagLogTicks > Stopwatch.Frequency)
             {

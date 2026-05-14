@@ -10,7 +10,7 @@
 //     Socket.Select so a single thread does the wait. No thread-per-port.
 //   - ReuseAddress=true so we coexist with any other listener already
 //     bound to one of the candidates (SimHub itself, Sim Racing Studio).
-//   - Skip candidates that fail to bind for any other reason — partial
+//   - Skip candidates that fail to bind for any other reason, partial
 //     coverage is better than failing the scan entirely.
 //   - Validator decides whether a received packet is the kind we want
 //     (F1 25 PacketFormat=2025, Forza Sled-shape, etc). A false validator

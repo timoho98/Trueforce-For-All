@@ -22,7 +22,7 @@ namespace TrueforceForAll.Plugin.Effects
 
         /// <summary>Peak amplitude at the start of the envelope. Sized to the
         /// FFB pass-through writes AC's torque target into ep3 cur, so the
-        /// audio in the rolling window is purely additive — no longer
+        /// audio in the rolling window is purely additive, no longer
         /// constrained to small amplitudes for FFB coexistence.</summary>
         public float PeakAmp { get; set; } = 0.35f;
 
@@ -97,7 +97,7 @@ namespace TrueforceForAll.Plugin.Effects
 
         public override int TestPlay()
         {
-            // Trigger one envelope at full amp — decays naturally over EnvelopeMs.
+            // Trigger one envelope at full amp, decays naturally over EnvelopeMs.
             // StartTest() keeps IsTesting=true so IsActive returns true even
             // when Enabled=false in settings (otherwise the Mixer would skip
             // RenderAdd and the test would be silent).

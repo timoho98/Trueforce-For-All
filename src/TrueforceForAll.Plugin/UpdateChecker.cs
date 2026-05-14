@@ -11,7 +11,7 @@
 //   - Version comes from the plugin assembly (csproj <Version>), so each
 //     release just bumps that and the runtime stays in sync.
 //   - GitHub's API requires a User-Agent header; we send "TrueforceForAll/X.Y".
-//   - Network failures are silent — no banner if we can't reach GitHub.
+//   - Network failures are silent, no banner if we can't reach GitHub.
 //     LastError is exposed for diagnostics but not surfaced in the UI.
 //   - TLS 1.2 is forced explicitly because net48 defaults to TLS 1.0/1.1
 //     on older Windows installs and GitHub's API drops those.

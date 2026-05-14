@@ -1,7 +1,7 @@
 // Resolves a (gameName, carId) pair to a cylinder count + EV flag for
 // EnginePulseEffect. Three-stage cascade:
 //
-//   1. Baked lookup (BuiltinCarCylinders) — Kunos lineup + heuristic-derived
+//   1. Baked lookup (BuiltinCarCylinders), Kunos lineup + heuristic-derived
 //      pre-bake covering ~91% of the typical AC library at ship time. On
 //      AC, a bake hit also gets a post-bake refinement pass that reads
 //      ui_car.json for two corrections the carId alone can't make:
@@ -9,10 +9,10 @@
 //          codename's cyl + config, fixing chassis-derived bakes that
 //          can't see when a mod has been engine-swapped),
 //        - config-only refinement (when the bake knows cyl but not layout).
-//   2. Persistent cache (Settings.CarCylinderCache) — heuristic results
+//   2. Persistent cache (Settings.CarCylinderCache), heuristic results
 //      from prior sessions for cars not in the bake. Cached forever per
 //      install; cleared en masse when CarCylinderCacheVersion bumps.
-//   3. Heuristic detector — for carIds that are in neither, we read the
+//   3. Heuristic detector, for carIds that are in neither, we read the
 //      game's per-car metadata (AC's content/cars/<carId>/ui/ui_car.json)
 //      and pattern-match tags + description + name + carId.
 //
@@ -55,6 +55,11 @@ namespace TrueforceForAll.Plugin
             /// with a "codename-derived" engine config (e.g. when the bake
             /// only knew cyl count). Null means EngineConfig is Auto.</summary>
             public string EngineConfigSource { get; set; }
+            /// <summary>Human-readable car name (e.g. "2017 Acura NSX") for
+            /// games with opaque carIds (Forza ordinals). Used to auto-name
+            /// per-car presets so the user sees the actual car. Null when the
+            /// carId is already descriptive (AC).</summary>
+            public string DisplayName { get; set; }
         }
 
         // Process-lifetime cache. Two states:
@@ -177,6 +182,7 @@ namespace TrueforceForAll.Plugin
                     Source             = "baked",
                     EngineConfig       = spec.EngineConfig,
                     EngineConfigSource = hasBakedConfig ? "baked" : null,
+                    DisplayName        = spec.DisplayName,
                 };
                 // Post-bake refinement. The bake is built mostly from the carId
                 // (chassis heuristics), which can't see when a mod has been
@@ -295,7 +301,7 @@ namespace TrueforceForAll.Plugin
             catch { return null; }
 
             // Extract the three fields we care about. Use raw regex rather
-            // than JSON parsing — some Kunos files have stray control chars
+            // than JSON parsing, some Kunos files have stray control chars
             // that trip strict parsers.
             string name = ExtractStringField(raw, "name");
             string desc = ExtractStringField(raw, "description");
@@ -324,7 +330,7 @@ namespace TrueforceForAll.Plugin
                 return r;
             }
 
-            // 1. Tag layout (V8, I6, F4, etc.) — exact tag match
+            // 1. Tag layout (V8, I6, F4, etc.), exact tag match
             if (tags != null)
             {
                 foreach (var rawTag in tags)
@@ -346,7 +352,7 @@ namespace TrueforceForAll.Plugin
                     if (m.Success)
                     {
                         // Tag letter encodes layout: F = flat (boxer), B = boxer.
-                        // V/I/L/W stay generic — the second-pass DetectEngineConfig
+                        // V/I/L/W stay generic, the second-pass DetectEngineConfig
                         // refines (e.g., V8 → cross/flat-plane based on brand).
                         char layoutLetter = char.ToUpperInvariant(m.Groups["L"].Value[0]);
                         var prelim = new Result
@@ -379,7 +385,7 @@ namespace TrueforceForAll.Plugin
             //    explicit engine names beat ambient product references like
             //    "Wisefab V3 steering" or "Audi B5 chassis" that the layout
             //    regex would otherwise misread as a cylinder declaration.
-            //    Case-insensitive — modders often use "2jz" / "rb26" lowercase.
+            //    Case-insensitive, modders often use "2jz" / "rb26" lowercase.
             //    EngineCodenames carries the layout per codename so a "LS3"
             //    hit goes straight to V8CrossPlane without a second-pass guess.
             foreach (var (pat, cyl, cfg) in EngineCodenames)
@@ -398,7 +404,7 @@ namespace TrueforceForAll.Plugin
 
             // 4. Rotor-count phrases: "twin rotor", "2-rotor", "triple-rotor", etc.
             //    Maps rotor count → effective cyl: rotors × 2 (per the firing-
-            //    frequency derivation — see EnginePulseEffect comment).
+            //    frequency derivation, see EnginePulseEffect comment).
             var rp = Regex.Match(haystack,
                 @"\b(twin|two|2|triple|three|3|quad|four|4)[-\s]?rotor[s]?\b",
                 RegexOptions.IgnoreCase);
@@ -477,7 +483,7 @@ namespace TrueforceForAll.Plugin
             //    less ambiguous than the V<n>/I<n> regex. A chassis hit on
             //    "gt86" cleanly wins over an unrelated "BDC V6" mention in
             //    the description (tuner-shop name, not an engine layout).
-            //    Conservative — engine swaps will give wrong answers, but
+            //    Conservative, engine swaps will give wrong answers, but
             //    swaps are usually called out by codename (LS / JZ / RB)
             //    which the codename pass above already catches.
             //    ChassisLookup carries the layout per chassis so a "911" hit
@@ -544,7 +550,7 @@ namespace TrueforceForAll.Plugin
         // Read ui_car.json for an AC car and build the haystack the heuristic
         // detectors expect (name + tags + description + carId, with HTML
         // entities stripped). Returns false if AC isn't installed or the
-        // file is missing/unreadable — callers leave whatever state they had
+        // file is missing/unreadable, callers leave whatever state they had
         // and the cyl-count default applies downstream.
         private static bool TryReadAcHaystack(string carId, out string haystack, out string[] tags)
         {
@@ -571,7 +577,7 @@ namespace TrueforceForAll.Plugin
         }
 
         // Detect an engine-swap override for a bake hit. Requires an explicit
-        // swap word in the haystack AND a recognized engine codename — both
+        // swap word in the haystack AND a recognized engine codename, both
         // gates are necessary because either alone is too noisy. A codename
         // without "swap" matches ambient mentions ("feels like a 2JZ"); a
         // "swap" word without a codename has nothing to override with.
@@ -604,7 +610,7 @@ namespace TrueforceForAll.Plugin
         // Called after cyl is determined. Looks at the same haystack + tags for
         // brand / codename / layout-word signals to refine Auto into a specific
         // EngineConfig where possible. Returns (Auto, null) when no signal
-        // fires — caller leaves the result as-is and the Auto fallback in
+        // fires, caller leaves the result as-is and the Auto fallback in
         // FiringPatternDb produces the cyl-count-based default.
         //
         // Order matters: explicit codenames beat brand inference beats word
@@ -637,7 +643,7 @@ namespace TrueforceForAll.Plugin
             // Engine codename → config (subset of the cyl table that maps
             // cleanly to a specific layout). If a codename ALSO appears in
             // the cyl table this is consistent with that table's cyl count;
-            // we don't double-check here — DetectEngineConfig is purely
+            // we don't double-check here, DetectEngineConfig is purely
             // additive and only fires when a layout signal is present.
             foreach (var (pat, cfg) in EngineConfigCodenames)
             {
@@ -645,10 +651,10 @@ namespace TrueforceForAll.Plugin
                     return (cfg, "codename-config");
             }
 
-            // Brand inference from the haystack. Conservative — only fires
+            // Brand inference from the haystack. Conservative, only fires
             // when both the brand AND the cyl count match a well-known
             // layout for that brand. "Ferrari" alone doesn't tell us
-            // flat-plane (the 250 GTO was a Colombo V12 60° — hits the V12
+            // flat-plane (the 250 GTO was a Colombo V12 60°, hits the V12
             // branch); only "Ferrari + cyl=8" does.
             bool ferrari = Regex.IsMatch(haystack, @"\bferrari\b", RegexOptions.IgnoreCase);
             bool lotus   = Regex.IsMatch(haystack, @"\blotus\b",   RegexOptions.IgnoreCase);
@@ -689,7 +695,7 @@ namespace TrueforceForAll.Plugin
 
             // Rotaries on Mazda RX-cars are largely covered by codename / chassis,
             // but a bare "Mazda + 4 cyl" with a rotary tone in the description
-            // shouldn't false-positive — already handled by tag/codename above.
+            // shouldn't false-positive, already handled by tag/codename above.
             _ = mazda;   // currently unused; kept for future heuristic refinement
 
             // V12: Ferrari / Lambo / Pagani / Aston use 60° conventions.
@@ -714,7 +720,7 @@ namespace TrueforceForAll.Plugin
             int from = Math.Max(0, matchIndex - 40);
             int to = Math.Min(haystack.Length, matchIndex + matchLen + 40);
             string ctx = haystack.Substring(from, to - from).ToLowerInvariant();
-            // Whole-word checks via Contains are good enough — these tokens
+            // Whole-word checks via Contains are good enough, these tokens
             // rarely appear coincidentally in ~80-char windows.
             return ctx.Contains("engine") || ctx.Contains("motor")
                 || ctx.Contains("powered") || ctx.Contains("power - ")
@@ -799,29 +805,29 @@ namespace TrueforceForAll.Plugin
             (@"\bVR38\b",                         6, EngineConfig.V60),
             // Porsche flat-6 (Mezger)
             (@"\bMezger\b",                       6, EngineConfig.Boxer),
-            // Mazda rotary — rotor count × 2 = effective cyl in our formula:
+            // Mazda rotary, rotor count × 2 = effective cyl in our formula:
             // 13B / Renesis (2-rotor) → 4, 20B (3-rotor) → 6, 26B (4-rotor) → 8.
             // 13B-MSP and 13B-REW are common variant names; include both.
             (@"\b13B(?:[-\s]?(?:REW|MSP|T))?\b",   4, EngineConfig.Rotary),
             (@"\bRenesis\b",                       4, EngineConfig.Rotary),
             (@"\b20B(?:[-\s]?REW)?\b",             6, EngineConfig.Rotary),
             (@"\b26B\b",                           8, EngineConfig.Rotary),
-            // Ferrari V8 codenames — all flat-plane.
+            // Ferrari V8 codenames, all flat-plane.
             (@"\bF13[046][A-Z]?\b",               8, EngineConfig.V8FlatPlane),  // F130 (288 GTO), F134, F136
             (@"\bF154[A-Z]?\b",                   8, EngineConfig.V8FlatPlane),  // 488 / GTC4 V8
             (@"\bF120[A-Z]?\b",                   8, EngineConfig.V8FlatPlane),  // F40
-            // Cosworth DFV (Lotus 49) — flat-plane V8
+            // Cosworth DFV (Lotus 49), flat-plane V8
             (@"\bDFV\b",                          8, EngineConfig.V8FlatPlane),
-            // McLaren M838 / M840 — flat-plane V8
+            // McLaren M838 / M840, flat-plane V8
             (@"\bM83[78]T?\b",                    8, EngineConfig.V8FlatPlane),
             (@"\bM840T?\b",                       8, EngineConfig.V8FlatPlane),
             // AMG cross-plane V8s (M159, M177, M178)
             (@"\bM1[57][89]\b",                   8, EngineConfig.V8CrossPlane),
             (@"\bM177\b",                         8, EngineConfig.V8CrossPlane),
-            // Ferrari V12 codenames — 60°
+            // Ferrari V12 codenames, 60°
             (@"\bF14[01]\b",                      12, EngineConfig.V60),  // F140 (Enzo, LaFerrari, 812)
             (@"\bColombo\b",                      12, EngineConfig.V60),
-            // Lamborghini V12 — 60°
+            // Lamborghini V12, 60°
             (@"\bL5(?:39|02|07)\b",               12, EngineConfig.V60),
         };
 
@@ -830,7 +836,7 @@ namespace TrueforceForAll.Plugin
         // can pick a specific layout without re-deriving from brand.
         private static readonly (string Pat, int Cyl, EngineConfig Cfg)[] ChassisLookup = new (string, int, EngineConfig)[]
         {
-            // BMW chassis codes — straight-6 by default
+            // BMW chassis codes, straight-6 by default
             (@"\bE3[06]\b|\bE3[06][_\s-]",       6, EngineConfig.Inline),
             (@"\bE36\b|\bE36[_\s-]",             6, EngineConfig.Inline),
             (@"\bE46\b|\bE46[_\s-]",             6, EngineConfig.Inline),
@@ -850,7 +856,7 @@ namespace TrueforceForAll.Plugin
             // Mazda
             (@"\bmiata\b|\bmx[-_\s]?5\b|\bmx5\b",                         4, EngineConfig.Inline),
             (@"\brx[-_\s]?[78]\b",                                       -1, EngineConfig.Rotary),
-            // Subaru — flat-4 boxer
+            // Subaru, flat-4 boxer
             (@"\bimpreza|\bwrx\b|\bsti\b|\bgrb\b|\bgda\b|\bgdb\b",        4, EngineConfig.Boxer),
             (@"\bbrz\b|\bgt86\b|\bft86\b|\b86\b",                         4, EngineConfig.Boxer),
             // Toyota
@@ -863,7 +869,7 @@ namespace TrueforceForAll.Plugin
             (@"\b(?:lancer[_\s])?evo(?:lution)?[_\s]?(?:[ivx]+|\d+)\b|\bevo[_\s]?[ivx]+\b", 4, EngineConfig.Inline),
             // British / European
             (@"\bmini[_\s]?(?:cooper|hatch|clubman|countryman)\b|\baustin[_\s]?mini\b", 4, EngineConfig.Inline),
-            // USDM — V8 cross-plane on muscle / trucks; Viper V10 even-fire 90°
+            // USDM, V8 cross-plane on muscle / trucks; Viper V10 even-fire 90°
             (@"\bviper\b|\brt[/_\s-]?10\b",                               10, EngineConfig.V90Even),
             (@"\bf-?150\b|\bsilverado\b|\bram[_\s]?(?:1500|2500)\b",       8, EngineConfig.V8CrossPlane),
             // Porsche flat-6 (boxer)
@@ -872,7 +878,7 @@ namespace TrueforceForAll.Plugin
             (@"\bs2000\b|\bap[12]\b",                                     4, EngineConfig.Inline),
             (@"\bcivic\b|\bintegra\b|\btype[-_\s]?r\b",                   4, EngineConfig.Inline),
             (@"\bnsx\b",                                                  6, EngineConfig.V60),
-            // Ford / Chevy / Dodge — usually V8 cross-plane in AC mods
+            // Ford / Chevy / Dodge, usually V8 cross-plane in AC mods
             (@"\bmustang\b",                                              8, EngineConfig.V8CrossPlane),
             (@"\bcamaro\b|\bcorvette\b|\bvette\b|\bc[5678]\b",            8, EngineConfig.V8CrossPlane),
             (@"\bchallenger\b|\bcharger\b",                               8, EngineConfig.V8CrossPlane),
@@ -880,7 +886,7 @@ namespace TrueforceForAll.Plugin
 
         // Codename → EngineConfig table for the second-pass detector. Entries
         // here may overlap with EngineCodenames (which carries cyl + config
-        // together for the cyl resolution path) — this table is what runs
+        // together for the cyl resolution path), this table is what runs
         // when the cyl already came from a different source (e.g. a tag) but
         // a codename is still present in the description and signals layout.
         private static readonly (string Pat, EngineConfig Cfg)[] EngineConfigCodenames = new (string, EngineConfig)[]

@@ -1,15 +1,15 @@
 // Base class for telemetry-driven haptic effects. Each effect is an
-// ISampleSource that the Mixer renders alongside the audio-capture source —
+// ISampleSource that the Mixer renders alongside the audio-capture source
 // so audio loopback and telemetry voices stack additively on the wheel.
 //
-// OnTelemetry runs on the active ITelemetrySource's polling thread —
+// OnTelemetry runs on the active ITelemetrySource's polling thread
 // SimHub's data tick (~60 Hz, capped by the IDataPlugin pipeline) for the
 // fallback source, or a game-native MMF/UDP polling thread (e.g. ~333 Hz
 // for AC) when an enhanced source is selected. RenderAdd runs on the
 // Trueforce producer thread (1 kHz). Effects mutate their internal state
 // in OnTelemetry; RenderAdd reads that state to produce samples.
 // Cross-thread reads/writes of primitive fields are atomic on .NET for
-// our purposes — eventual consistency is fine for haptics.
+// our purposes, eventual consistency is fine for haptics.
 
 using System;
 using TrueforceForAll.Core;
@@ -31,7 +31,7 @@ namespace TrueforceForAll.Plugin.Effects
         // (gear tracking, ABS rising-edge) override.
         public virtual void Reset() { }
 
-        // Test mode — used by the settings UI's "Test" button to play the effect
+        // Test mode, used by the settings UI's "Test" button to play the effect
         // at representative max parameters for a short duration without needing
         // the game to drive it via telemetry. Subclasses set their internal
         // parameters in TestPlay() and call StartTest(durationMs); OnTelemetry

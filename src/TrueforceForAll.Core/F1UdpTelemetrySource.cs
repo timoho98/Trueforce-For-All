@@ -232,7 +232,7 @@ namespace TrueforceForAll.Core
 
                 // Forward FIRST so a parse error in our pipeline can't
                 // strand SimHub without telemetry. Forward is fire-and-
-                // forget UDP — we don't care if the target listener exists.
+                // forget UDP, we don't care if the target listener exists.
                 if (_forwardSocket != null && _forwardTo != null)
                 {
                     try

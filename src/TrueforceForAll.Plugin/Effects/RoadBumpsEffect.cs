@@ -1,7 +1,7 @@
 // Road bumps + surface texture. Two synthesis paths sharing one settings
 // section but with their own oscillators so each can be tuned independently:
 //
-//  A. HEAVE channel (universal). Vertical-acceleration transients —
+//  A. HEAVE channel (universal). Vertical-acceleration transients
 //     curbs, jump landings, washboard bumps. Driven by
 //     GameData.NewData.AccelerationHeave or the AC physics page's accGY.
 //     One noise oscillator per RoadBumps instance, freq/waveform/LP user-
@@ -9,7 +9,7 @@
 //     stays silent.
 //
 //  B. SURFACE channel (Forza-only today). Continuous tactile road feel.
-//     Driven by Forza's SurfaceRumble[4] (max-abs across all four tires) —
+//     Driven by Forza's SurfaceRumble[4] (max-abs across all four tires)
 //     the same channel Turn 10's own Trueforce path consumes inside Forza
 //     Motorsport. Has its own oscillator so the user can pick a higher
 //     frequency / brighter waveform / different LP cutoff for surface
@@ -19,7 +19,7 @@
 //
 // Both paths render into the SAME mixed output buffer (additively) so the
 // total output stays in scale with Gain. SurfaceRumble channel is silent
-// when the source doesn't supply it (AC, SimHub fallback) — the heave
+// when the source doesn't supply it (AC, SimHub fallback), the heave
 // channel is what every game gets out of the box.
 
 using System;
@@ -98,8 +98,8 @@ namespace TrueforceForAll.Plugin.Effects
 
         /// <summary>Amplitude added on the rising edge of OnRumbleStrip
         /// (any-wheel-on-kerb). 0 = disabled (default). Largely redundant
-        /// with the SurfaceRumble channel — kerbs spike SurfaceRumble on
-        /// their own — so this is opt-in for users who want extra leading-
+        /// with the SurfaceRumble channel, kerbs spike SurfaceRumble on
+        /// their own, so this is opt-in for users who want extra leading-
         /// edge "snap" if Forza's SurfaceRumble ramps too softly on first
         /// contact for their taste. Decays linearly over RumbleStripPulseMs.</summary>
         public float RumbleStripPulseAmp { get; set; } = 0f;

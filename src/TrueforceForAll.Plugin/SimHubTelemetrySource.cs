@@ -35,7 +35,7 @@ namespace TrueforceForAll.Plugin
             {
                 Rpms      = d.Rpms,
                 MaxRpm    = d.MaxRpm,
-                // SimHub reports 0..100; effects want 0..1. Clamp defensively —
+                // SimHub reports 0..100; effects want 0..1. Clamp defensively
                 // some games surface throttle outside 0..100 during clutch
                 // engagement edge cases.
                 Throttle01 = Clamp01(d.Throttle / 100.0),
@@ -58,7 +58,7 @@ namespace TrueforceForAll.Plugin
                 // shared memory / UDP in its own readers, so we just pass
                 // through StatusDataBase. KERS / ERS deployment isn't on
                 // the universal API (only ERSStored/Max/Percent storage
-                // state) — KersActive stays null until we add a per-game
+                // state), KersActive stays null until we add a per-game
                 // overlay that derives it from the ERS-percent derivative.
                 PitLimiterActive = d.PitLimiterOn,
                 DrsActive        = d.DRSEnabled,

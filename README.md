@@ -184,6 +184,10 @@ The wire protocol and init sequence are derived from the
   control-side of wheel communication.
 - **[NAudio][naudio]**: audio I/O library used for the per-process
   loopback capture pipeline.
+- **[ManteoMax's Forza Horizon 5 spreadsheet][manteomax]**: the
+  canonical community catalog mapping Forza CarOrdinal to year/make/model
+  and engine specs. Our FH5 lookup (engine cylinder / layout / electric
+  detection plus auto-named per-car presets) is built from this data.
 - **[SimHub][simhub]**: the host application. This plugin is unofficial
   and not affiliated with the SimHub project.
 
@@ -195,5 +199,6 @@ project is not affiliated with, endorsed by, or sponsored by Logitech.
 [acshmem]: https://github.com/mdjarv/assettocorsasharedmemory
 [hidsharp]: https://github.com/treehopper-electronics/HIDSharp
 [naudio]: https://github.com/naudio/NAudio
+[manteomax]: https://www.manteomax.com/
 [simhub]: https://www.simhubdash.com/
 [releases]: https://github.com/Mhytee/Trueforce-For-All/releases

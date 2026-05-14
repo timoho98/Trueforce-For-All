@@ -6,7 +6,7 @@
 //
 // Naming convention: PresetName = "<carId> (default)" mirrors the
 // "(default)" suffix used for built-in game presets. The IsBuiltin flag
-// inside the JSON is the runtime authority though — the suffix is just
+// inside the JSON is the runtime authority though, the suffix is just
 // human-readable.
 //
 // Adding / updating a default: paste the user's tuned .tfcar.json content

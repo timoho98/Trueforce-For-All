@@ -1,6 +1,6 @@
 // Reads AC's physics shared memory page (Local\acpmf_physics) at 1 kHz.
 // AC's native solver runs at 333 Hz, so polling faster than that re-reads
-// the same data — but at 1 kHz any new physics tick is observed within
+// the same data, but at 1 kHz any new physics tick is observed within
 // ≤1 ms of being written and lines up with our 1 kHz Trueforce packet
 // cadence, so events never get aliased against packet boundaries. The
 // fidelity gain over the 60 Hz SimHub IDataPlugin tick is most audible
@@ -8,8 +8,8 @@
 // (direct wheelSlip[] reading instead of the heuristic SimHub falls back
 // to).
 //
-// Fields that don't need physics-rate fidelity — MaxRpm (static per car),
-// AbsActive (slow pump events) — are deliberately left for the SimHub
+// Fields that don't need physics-rate fidelity, MaxRpm (static per car),
+// AbsActive (slow pump events), are deliberately left for the SimHub
 // fallback to fill in via DispatchFrame's overlay step. AC's `physics.abs`
 // is the player's ABS *configuration level* (0..1), not pump activity, and
 // reading it would be a misleading-data hazard; reading the static page for
@@ -45,7 +45,7 @@ namespace TrueforceForAll.Core
         private const int OFF_ACC_G_X         = 44;    // float, lateral, g
         private const int OFF_ACC_G_Y         = 48;    // float, vertical, g
         private const int OFF_ACC_G_Z         = 52;    // float, longitudinal, g (positive = forward)
-        // wheelSlip[4] — float[4] starting at offset 56. Order is FL/FR/RL/RR;
+        // wheelSlip[4], float[4] starting at offset 56. Order is FL/FR/RL/RR;
         // 0 = perfect grip, larger magnitude = more slip. We take max-abs
         // across all four (any slipping tire shakes the wheel).
         private const int OFF_WHEEL_SLIP_FL   = 56;
@@ -60,7 +60,7 @@ namespace TrueforceForAll.Core
         private const int OFF_PIT_LIMITER_ON  = 248;
         private const int OFF_LOCAL_ANG_VEL_Y = 300;   // float, yaw rad/s
 
-        // 1 kHz poll cadence — see header comment for rationale. Requires
+        // 1 kHz poll cadence, see header comment for rationale. Requires
         // timeBeginPeriod(1), set explicitly inside PollLoop, for Thread.Sleep
         // to honor 1 ms instead of the OS default ~15 ms.
         private const int TickPeriodMs = 1;
@@ -93,7 +93,7 @@ namespace TrueforceForAll.Core
         public Action<string> Logger { get; set; }
 
         /// <summary>Opens the AC physics page and starts the polling thread.
-        /// Throws if Local\acpmf_physics is unavailable (AC not running) —
+        /// Throws if Local\acpmf_physics is unavailable (AC not running)
         /// the plugin's swap logic catches this and falls back to SimHub.</summary>
         public override void Start()
         {
@@ -164,7 +164,7 @@ namespace TrueforceForAll.Core
         private void PollLoop()
         {
             // Bump the system timer to 1 ms granularity for the duration of
-            // the loop. Mirrors what TrueforceDevice.StreamLoop does — without
+            // the loop. Mirrors what TrueforceDevice.StreamLoop does, without
             // it, Thread.Sleep(1) below decays to the default ~15 ms tick and
             // our 1 kHz cadence collapses. timeBeginPeriod is reference-
             // counted on Windows, so this nests safely with the stream
@@ -205,7 +205,7 @@ namespace TrueforceForAll.Core
                             // Only emit when AC has actually written new physics data.
                             // AC's solver runs at ~333 Hz; polling at 1 kHz keeps
                             // event detection latency ≤1 ms but produces 2-3 polls
-                            // per real frame — emitting on every poll would re-run
+                            // per real frame, emitting on every poll would re-run
                             // every effect for the same inputs and inflate MeasuredHz.
                             int pktId = _physicsView.ReadInt32(OFF_PACKET_ID);
                             if (pktId != _lastPacketId)

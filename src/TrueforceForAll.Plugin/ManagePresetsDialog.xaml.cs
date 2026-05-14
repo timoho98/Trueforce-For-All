@@ -3,9 +3,9 @@
 // engines (Settings.CustomEngines). Reachable without a game or car loaded
 // so users can prune / rename / export / re-bind their library at any
 // time. The host SettingsControl opens this and refreshes its own
-// dropdowns once it closes — see the Manage… button in the Presets section.
+// dropdowns once it closes, see the Manage… button in the Presets section.
 //
-// Phase 1 scope (this file): metadata actions only — rename, duplicate,
+// Phase 1 scope (this file): metadata actions only, rename, duplicate,
 // delete, export, and game-default binding. Editing a preset's effect
 // parameters offline lands in Phase 2 (load the preset into the live
 // SettingsControl with a banner + save/discard prompt on auto-switch).
@@ -125,7 +125,7 @@ namespace TrueforceForAll.Plugin
         {
             if (pref == null || string.IsNullOrEmpty(pref.Key)) return;
             // Only apply if the saved key still matches one of the current
-            // columns — guards against renamed bindings between versions.
+            // columns, guards against renamed bindings between versions.
             bool known = false;
             foreach (var k in state.SortKeys.Values)
                 if (string.Equals(k, pref.Key, StringComparison.Ordinal)) { known = true; break; }
@@ -334,7 +334,7 @@ namespace TrueforceForAll.Plugin
             RefreshCustomButtons();
         }
 
-        // Fires from any row checkbox toggle in any tab — figure out which
+        // Fires from any row checkbox toggle in any tab, figure out which
         // tab the sender belongs to via the row type and refresh that tab's
         // button states + checked-count label. The XAML wires the same
         // handler on all three checkbox columns so we only maintain one.
@@ -351,7 +351,7 @@ namespace TrueforceForAll.Plugin
 
         // Bulk-capable buttons (Delete, Export) light up when any row is
         // checked, even if the highlighted row is built-in or no row is
-        // selected — the action operates on the checked set in that case.
+        // selected, the action operates on the checked set in that case.
         // Single-row buttons (Rename, Duplicate, Set default, Edit) still key
         // off the highlighted row only.
         private void RefreshGameButtons()
@@ -498,7 +498,7 @@ namespace TrueforceForAll.Plugin
         {
             if (SettingsControl.RunImportFlow(this, _plugin))
             {
-                // Imported preset / car preset / pack / settings — reload all
+                // Imported preset / car preset / pack / settings, reload all
                 // three tabs since any kind of import can touch any tab's view.
                 ReloadGames();
                 ReloadCars();
@@ -637,7 +637,7 @@ namespace TrueforceForAll.Plugin
             var sel = SelectedCar;
             if (sel == null || sel.Builtin) return;
             string warning = sel.Active
-                ? $"Delete preset '{sel.PresetName}' for car '{sel.CarId}'?\n\nIt's currently active for this car — the car will fall back to its built-in default (or globals)."
+                ? $"Delete preset '{sel.PresetName}' for car '{sel.CarId}'?\n\nIt's currently active for this car, the car will fall back to its built-in default (or globals)."
                 : $"Delete preset '{sel.PresetName}' for car '{sel.CarId}'?";
             if (MessageBox.Show(this, warning, "Delete car preset",
                 MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;

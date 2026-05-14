@@ -143,7 +143,7 @@ namespace TrueforceForAll.Core
             {
                 log?.Invoke(
                     $"WheelUsbDiscovery: HID enumerated wheel {hidFoundVid.Value:X4}:{hidFoundPid.Value:X4} " +
-                    "but USBPcap discovery did NOT see it. The wheel is plugged in and the HID stack found it — " +
+                    "but USBPcap discovery did NOT see it. The wheel is plugged in and the HID stack found it, " +
                     "USBPcap just can't see it on the bus. Try (1) replugging the wheel so USBPcap re-caches its descriptor, " +
                     "or (2) running SimHub as administrator, or (3) picking the device manually from the diagnostics panel.");
             }
@@ -181,7 +181,7 @@ namespace TrueforceForAll.Core
             if (log == null) return;
             string verdict = s.Candidates.Count == 0 ? "no descriptors"
                           : $"{s.Candidates.Count} device descriptor(s)";
-            string perm = s.SawPermissionError ? " [access denied — try running SimHub as administrator]" : "";
+            string perm = s.SawPermissionError ? " [access denied, try running SimHub as administrator]" : "";
             string opened = s.StreamOpened ? "" : " [stream never produced a valid pcap header]";
             string timedOut = s.TimedOut ? " [hit timeout]" : "";
             log.Invoke($"WheelUsbDiscovery: {s.Interface} scanned {s.PacketsScanned} pkts " +

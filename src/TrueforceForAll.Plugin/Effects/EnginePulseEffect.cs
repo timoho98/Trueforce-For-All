@@ -50,6 +50,18 @@ namespace TrueforceForAll.Plugin.Effects
         /// change; surfaced in the settings UI for transparency.</summary>
         public string AutoLayoutSource { get; set; }
 
+        /// <summary>Cylinder count the catalog reported for the current car
+        /// (set by plugin from CarCylinderResolver.Result.Cylinders on car
+        /// change). Lets OnTelemetry distinguish "telemetry matches stock"
+        /// (preserve catalog's layout — keeps rotary / boxer / inline info)
+        /// from "telemetry disagrees" (engine swap — fall back to a
+        /// cyl-count-derived default). Null when no catalog hit. For rotary
+        /// cars where the catalog stores effective cyl (rotors × 2),
+        /// telemetry might report either the effective count OR the raw rotor
+        /// count — both are considered "matching" so the rotary layout
+        /// survives.</summary>
+        public int? CatalogCyl { get; set; }
+
         /// <summary>Effective layout actually being rendered. Cascade: explicit
         /// Layout (when not Auto) → AutoLayout (when set) → Auto (which
         /// ResolveLayout maps to a generic 6-cyl even-fire). Read-only helper
@@ -75,7 +87,7 @@ namespace TrueforceForAll.Plugin.Effects
         /// <summary>True when the active <see cref="EngineLayout.Custom"/>
         /// entry is an electric engine (set by ApplyEngineSettings from the
         /// looked-up CustomEngineDef). Lets a saved electric custom behave
-        /// like the built-in Electric layout — synthesis silenced and
+        /// like the built-in Electric layout, synthesis silenced and
         /// AutoGainScale applied per <see cref="ElectricMode"/>.</summary>
         public bool ActiveCustomIsElectric { get; set; }
 
@@ -99,7 +111,7 @@ namespace TrueforceForAll.Plugin.Effects
 
         /// <summary>Idle hum amplitude when the engine is on but throttle is closed.
         /// We can afford larger amplitudes now that the FFB pass-through tap
-        /// writes AC's torque target into ep3 cur — the audio in the rolling
+        /// writes AC's torque target into ep3 cur, the audio in the rolling
         /// window is purely additive on top, no longer competing with the
         /// wheel firmware's "Trueforce vs FFB priority" decision.</summary>
         public float IdleAmp { get; set; } = 0.05f;
@@ -109,7 +121,7 @@ namespace TrueforceForAll.Plugin.Effects
 
         /// <summary>Extra amplitude scaled by throttle position (0..1). Real engines
         /// sound louder the moment the throttle opens, even before RPM has caught
-        /// up — without this, throttle-stabs feel "delayed" because the user is
+        /// up, without this, throttle-stabs feel "delayed" because the user is
         /// only feeling the (slow) engine RPM ramp curve. 0.4 = up to 40% peak
         /// of immediate kick from throttle alone.</summary>
         public float ThrottleBoost { get; set; } = 0.4f;
@@ -156,7 +168,7 @@ namespace TrueforceForAll.Plugin.Effects
         private double _loadLayerAmp;
         private double _loadPhase;   // radians, [0, 2π)
 
-        // _osc is kept purely as a Waveform + SampleRate carrier — the firing-
+        // _osc is kept purely as a Waveform + SampleRate carrier, the firing-
         // order wavetable path doesn't render through it directly. Its
         // SampleRate (4 kHz) is what the wavetable phase math reads.
         private readonly OscillatorSource _osc = new OscillatorSource
@@ -182,7 +194,7 @@ namespace TrueforceForAll.Plugin.Effects
         private FiringPattern _customPattern;
 
         /// <summary>The pattern actually being rendered right now. Read-only
-        /// for the UI's "submit this pattern" diagnostic — shows what the
+        /// for the UI's "submit this pattern" diagnostic, shows what the
         /// resolver picked (or the user's custom). Null until the first
         /// render.</summary>
         public FiringPattern ActiveFiringPattern { get; private set; }
@@ -215,7 +227,7 @@ namespace TrueforceForAll.Plugin.Effects
 
             // Lazy-regen the wavetable when the pattern fingerprint changes
             // (layout / waveform / custom-pattern). Cheap (one multiply-add
-            // per wavetable cell, ~2048 ops, <10µs) and rare — only fires on
+            // per wavetable cell, ~2048 ops, <10µs) and rare, only fires on
             // pattern change, not per render call.
             var layout = EffectiveLayout;
             if (_patternDirty || _wtLayout != layout || _wavetable == null)
@@ -398,7 +410,7 @@ namespace TrueforceForAll.Plugin.Effects
             // Engine cycle freq = rpm/120 (one 720° cycle per 2 revolutions),
             // pitch shifts the whole pattern proportionally to firing rate.
             // The pattern's pulse count determines firings per cycle, so cyl
-            // doesn't enter here — it's already baked into the wavetable.
+            // doesn't enter here, it's already baked into the wavetable.
             _cyclesPerSec = rpm / 120.0 * PitchMultiplier;
 
             double rpmAmp      = IdleAmp + (PeakAmp - IdleAmp) * rpmNorm;
@@ -418,18 +430,38 @@ namespace TrueforceForAll.Plugin.Effects
             if (IsTesting) return;
 
             // Absorb auto-detected cylinder count from sources that supply it
-            // (Forza UDP) into AutoLayout. Sticky — keep the last seen value
+            // (Forza UDP) into AutoLayout. Sticky, keep the last seen value
             // during pause / between frames so EffectiveLayout doesn't
             // flip-flop while the user is in a menu. Plugin clears AutoLayout
             // on car change so the next car re-populates fresh.
             //
-            // AutoLayoutSource is intentionally NOT written here — the
+            // AutoLayoutSource is intentionally NOT written here, the
             // plugin's car-change handler owns it. Single writer avoids the
             // cross-thread race that existed when both this method and the
             // plugin could write the field.
             if (f.NumCylinders is int n && n >= 1 && n <= 16)
             {
-                AutoLayout = FiringPatternDb.LayoutFromLegacy(n, EngineConfig.Auto, false);
+                // Preserve the catalog's layout (rotary / boxer / specific V8
+                // variant) when telemetry agrees with the catalog's cyl count.
+                // Only fall back to a cyl-count-derived default when telemetry
+                // disagrees, indicating an engine swap. Rotaries get an extra
+                // pass: catalog stores effective cyl (rotors × 2) but Forza
+                // might report the raw rotor count, so half-of-catalog also
+                // counts as "agreement."
+                int? cat = CatalogCyl;
+                bool telemetryAgreesWithCatalog =
+                       cat.HasValue
+                    && (n == cat.Value
+                        || (n * 2 == cat.Value)        // rotor count vs effective cyl
+                        || (n == cat.Value * 2));      // some edge case the other way
+                if (!telemetryAgreesWithCatalog)
+                {
+                    // Engine swap (or no catalog hit) — re-derive from cyl
+                    // count alone. Layout falls to FiringPatternDb's generic
+                    // default for that count (e.g. V8 cross-plane for 8).
+                    AutoLayout = FiringPatternDb.LayoutFromLegacy(n, EngineConfig.Auto, false);
+                }
+                // else: keep AutoLayout as the catalog set it on car change
             }
 
             double rpm = f.Rpms;
@@ -456,7 +488,7 @@ namespace TrueforceForAll.Plugin.Effects
             _wavetableAmp = baseAmp * boost * Gain * AutoGainScale;
 
             // Load layer mirrors the pulse envelope, scaled by LoadLayerGain.
-            // Pre-emphasis is intentionally NOT applied — the load layer sits
+            // Pre-emphasis is intentionally NOT applied, the load layer sits
             // in the responsive band, so it doesn't need help.
             _loadLayerAmp = LoadLayerEnabled
                 ? baseAmp * LoadLayerGain * Gain * AutoGainScale

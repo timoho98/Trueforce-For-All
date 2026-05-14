@@ -119,7 +119,7 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <TextBlock Grid.Row="0" Style="{StaticResource HelpText}" Margin="0,0,0,8"
-                               Text="Every car preset on disk across all cars. Stored as files under PluginsData/Common/TrueforceCars. Each car can have multiple presets — built-in factory defaults plus any user-saved or imported ones. Active = the preset that loads when this car shows up; switch the active one with 'Set as active'."/>
+                               Text="Every car preset on disk across all cars. Stored as files under PluginsData/Common/TrueforceCars. Each car can have multiple presets, built-in factory defaults plus any user-saved or imported ones. Active = the preset that loads when this car shows up; switch the active one with 'Set as active'."/>
                     <ListView Grid.Row="1" x:Name="CarList" SelectionMode="Single"
                               SelectionChanged="CarList_SelectionChanged">
                         <ListView.View>
@@ -164,7 +164,7 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <TextBlock Grid.Row="0" Style="{StaticResource HelpText}" Margin="0,0,0,8"
-                               Text="Your saved custom engines. Delete removes them from the library — presets that referenced them fall back to silence until repicked from the engine dropdown. Built-in layouts (V8 cross-plane, Rotary, etc.) are shipped with the plugin and aren't shown here."/>
+                               Text="Your saved custom engines. Delete removes them from the library, presets that referenced them fall back to silence until repicked from the engine dropdown. Built-in layouts (V8 cross-plane, Rotary, etc.) are shipped with the plugin and aren't shown here."/>
                     <ListView Grid.Row="1" x:Name="CustomList" SelectionMode="Single"
                               SelectionChanged="CustomList_SelectionChanged">
                         <ListView.View>

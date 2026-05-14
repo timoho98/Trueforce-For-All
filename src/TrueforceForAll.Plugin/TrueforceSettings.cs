@@ -2,7 +2,7 @@
 // PluginManager.GetCommonSettings / SaveCommonSettings.
 //
 // The same shape is also written/read by the Export / Import buttons in the
-// settings panel — keep field names stable across versions so shared presets
+// settings panel, keep field names stable across versions so shared presets
 // stay valid.
 
 using System.Collections.Generic;
@@ -16,7 +16,7 @@ namespace TrueforceForAll.Plugin
     public sealed class TrueforceSettings
     {
         // Master enable. When false, ProducerLoop skips rendering and the
-        // wheel is told to return to its native FFB/Trueforce path — useful
+        // wheel is told to return to its native FFB/Trueforce path, useful
         // for games that ship native Trueforce support (iRacing) where our
         // ep3 stream would conflict with the game's own.
         public bool PluginEnabled { get; set; } = true;
@@ -30,17 +30,17 @@ namespace TrueforceForAll.Plugin
         // (including Custom_xxx codes for user-added games), value is the
         // exe basename (no ".exe" suffix). Takes priority over the curated
         // ExeLabels dict and the fuzzy GameName matcher in CaptureTick. Use
-        // when a game doesn't get found automatically — type its exe name
+        // when a game doesn't get found automatically, type its exe name
         // here and we'll capture from it.
         public Dictionary<string, string> AudioCaptureExeOverrides { get; set; } = new Dictionary<string, string>();
 
         // Per-(game, carId) cylinder lookup cache. Populated by CarCylinderResolver
-        // when its heuristic detects a car not present in the shipped bake — so
+        // when its heuristic detects a car not present in the shipped bake, so
         // the next session resolves instantly without re-reading ui_car.json.
         // Schema: outer key = SimHub GameName (e.g. "AssettoCorsa"), inner key
         // = carId, value = effective cylinder count (1..16; 0 reserved for EV
         // sentinel). Plugin owns invalidation via CarCylinderCacheVersion below
-        // — bump that integer when the heuristic improves and all caches are
+        //, bump that integer when the heuristic improves and all caches are
         // discarded next load.
         public Dictionary<string, Dictionary<string, int>> CarCylinderCache { get; set; }
             = new Dictionary<string, Dictionary<string, int>>();
@@ -79,7 +79,7 @@ namespace TrueforceForAll.Plugin
         // Skip the captured-FFB → ep3 cur mirror. With this on, our active
         // packets carry cur = 0x8000 (silence center). The wheel uses cur
         // as motor torque and ignores ep0 whenever active packets are
-        // streaming, so this means zero motor force from our path —
+        // streaming, so this means zero motor force from our path
         // appropriate ONLY for games that drive the wheel's motor through
         // their own native ep3 path (Forza Horizon, AC Rally, iRacing). For
         // games that rely on ep0 for FFB (vanilla AC, F1, PC2), enabling
@@ -101,6 +101,14 @@ namespace TrueforceForAll.Plugin
         // the override to take effect.
         public string ManualUsbPcapInterface     { get; set; } = "";
         public int    ManualUsbPcapDeviceAddress { get; set; } = 0;
+
+        // Opt-in raw USB packet logging. When true, the FFB tap writes every
+        // Set_Report observed on the wheel's USB address to a usb-trace.bin
+        // file alongside SimHub's logs, for support to analyze offline. Off
+        // by default because the file can grow quickly (~2-3 KB/sec of active
+        // FFB) and because users should make an explicit choice about
+        // including USB bus traffic in exported logs.
+        public bool   LogUsbBytesEnabled         { get; set; } = false;
 
         public float FfbPeakSoftLimitLsb      { get; set; } = 2061.90f;
 
@@ -125,7 +133,7 @@ namespace TrueforceForAll.Plugin
 
         // Per-machine performance tuning. Lives outside GameSettingsSnapshot
         // because ring sizes are a property of the machine (CPU, scheduler
-        // load), not of the game/preset — sharing a preset shouldn't override
+        // load), not of the game/preset, sharing a preset shouldn't override
         // a friend's tuned ring sizes.
         public PerformanceSettings Performance { get; set; } = new PerformanceSettings();
 
@@ -134,7 +142,7 @@ namespace TrueforceForAll.Plugin
         // here so it survives preset switches.
         public ForzaSettings Forza { get; set; } = new ForzaSettings();
 
-        // F1 (EA / Codemasters) UDP listener config. Mirrors ForzaSettings —
+        // F1 (EA / Codemasters) UDP listener config. Mirrors ForzaSettings
         // local-to-the-user, persists across preset switches. Default port
         // 20777 matches F1 25's factory default in Telemetry Settings.
         public F1Settings F1 { get; set; } = new F1Settings();
@@ -226,7 +234,7 @@ namespace TrueforceForAll.Plugin
     public sealed class CustomEngineDef
     {
         /// <summary>Stable identifier (Guid as string). Set on creation, never
-        /// changes — preset references survive renames.</summary>
+        /// changes, preset references survive renames.</summary>
         public string Id { get; set; }
 
         /// <summary>User-supplied display name. Surfaces in the dropdown and
@@ -299,8 +307,8 @@ namespace TrueforceForAll.Plugin
     /// <summary>Mode for the Performance tab. In Auto, the plugin starts at
     /// the smallest ring sizes and ratchets them up (one-way) when underruns
     /// or audio-ring lapping cross a 1-second threshold; the survived value
-    /// is persisted across sessions. In Manual, ring sizes are user-fixed —
-    /// no automatic changes — for users who want guaranteed-stable behavior
+    /// is persisted across sessions. In Manual, ring sizes are user-fixed
+    /// no automatic changes, for users who want guaranteed-stable behavior
     /// (streamers) or to force-test lower values.</summary>
     public enum PerformanceMode { Auto, Manual }
 
@@ -337,7 +345,7 @@ namespace TrueforceForAll.Plugin
         /// haptics from the same Forza title" coexistence problem: Forza
         /// only sends to one IP+port, so the user points Forza at us and we
         /// relay verbatim (no parsing, no transformation) to SimHub. Default
-        /// off so the user explicitly opts in — when off, packets stop here.</summary>
+        /// off so the user explicitly opts in, when off, packets stop here.</summary>
         public bool   ForwardEnabled { get; set; } = false;
 
         /// <summary>Where to forward each received packet. 127.0.0.1 covers
@@ -347,7 +355,7 @@ namespace TrueforceForAll.Plugin
         public string ForwardHost    { get; set; } = "127.0.0.1";
 
         /// <summary>UDP port of the secondary listener (typically SimHub's
-        /// configured Forza Data Out port — find it in SimHub's
+        /// configured Forza Data Out port, find it in SimHub's
         /// Game → Forza Horizon settings, in the "UDP port" field). Same
         /// value the user originally typed into SimHub when they set it up.
         /// Ignored when <see cref="ForwardEnabled"/> is false.</summary>
@@ -397,15 +405,15 @@ namespace TrueforceForAll.Plugin
     public enum ElectricCarMode
     {
         /// <summary>Play the same firing-frequency hum as a combustion car
-        /// but at half amplitude. Real EVs aren't silent — many pump
-        /// synthetic engine sound — so a muted hum reads more correctly
+        /// but at half amplitude. Real EVs aren't silent, many pump
+        /// synthetic engine sound, so a muted hum reads more correctly
         /// than dead silence. Default.</summary>
         MutedHum,
 
         /// <summary>EnginePulse is fully muted on EVs. For users who want
         /// authentic silence (or just don't like the synthetic-engine
         /// approach). Other effects (RoadBumps, TractionLoss, etc.) still
-        /// run normally — only the firing-rate hum is suppressed.</summary>
+        /// run normally, only the firing-rate hum is suppressed.</summary>
         Silent,
     }
 
@@ -488,7 +496,7 @@ namespace TrueforceForAll.Plugin
         // + FiringOrderEnabled (bool) as the engine-shape definition. New
         // code reads/writes Layout only. These fields are kept on the type
         // so Newtonsoft can still deserialize old JSON (and serialize them
-        // back at minimal cost) — one-time migration in ApplyEngineSettings
+        // back at minimal cost), one-time migration in ApplyEngineSettings
         // folds them into Layout on first load.
 
         /// <summary>LEGACY (pre-flat-enum). Old per-cylinder count. Read on
@@ -505,7 +513,7 @@ namespace TrueforceForAll.Plugin
         /// <summary>LEGACY (pre-flat-enum). Toggle between firing-pattern
         /// synthesis (true, the new default) and the uniform-pulse path
         /// (false). The legacy path was removed when Layout was
-        /// introduced — this field exists only so old JSON still
+        /// introduced, this field exists only so old JSON still
         /// deserializes. Ignored at runtime.</summary>
         public bool FiringOrderEnabled { get; set; } = true;
     }
@@ -522,7 +530,7 @@ namespace TrueforceForAll.Plugin
 
         // ---- Surface channel (Forza-only signal source today) ----
         // The surface oscillator is a separate voice with its own freq /
-        // waveform / LP / HP — see RoadBumpsEffect for what each does. These
+        // waveform / LP / HP, see RoadBumpsEffect for what each does. These
         // values still apply on non-Forza games but the channel just sits
         // silent because the source doesn't supply SurfaceRumble.
         public bool   SurfaceEnabled       { get; set; } = true;

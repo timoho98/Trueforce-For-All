@@ -45,21 +45,21 @@ namespace TrueforceForAll.Plugin.Effects
         Single,          // 1 cyl
         Inline,          // straight-N, even-fire (default for I3 / I4 / I5 / I6)
         Boxer,           // horizontally opposed, same firing intervals as inline
-        V60,             // 60° V — even-fire V6 / V12
-        V90Even,         // 90° V — even-fire V8 (flat-plane)
-        V8CrossPlane,    // 90° V8, cross-plane crank — "lopey" American
-        V8FlatPlane,     // 90° V8, flat-plane crank — Ferrari / Lotus / GT350
-        V6OddFire,       // 90° V6 with shared crankpins — older Buick 3.8 etc.
+        V60,             // 60° V, even-fire V6 / V12
+        V90Even,         // 90° V, even-fire V8 (flat-plane)
+        V8CrossPlane,    // 90° V8, cross-plane crank, "lopey" American
+        V8FlatPlane,     // 90° V8, flat-plane crank, Ferrari / Lotus / GT350
+        V6OddFire,       // 90° V6 with shared crankpins, older Buick 3.8 etc.
         VTwin90,         // 90° V-twin (Ducati L-twin)
         VTwin45,         // 45° V-twin shared crankpin (Harley big-twin "potato")
-        Rotary,          // Wankel — approximated as 2 firings per e-shaft rev
+        Rotary,          // Wankel, approximated as 2 firings per e-shaft rev
         Custom,          // user-supplied Positions / Amplitudes
     }
 
     /// <summary>
     /// Flat enum of every engine the user can pick from the dropdown. Each
     /// entry implies its own cylinder/rotor count and firing pattern, so the
-    /// UI no longer needs a separate "cylinders" control. Append-only —
+    /// UI no longer needs a separate "cylinders" control. Append-only
     /// removing or renumbering invalidates any user's saved preset value.
     ///
     /// Auto = resolver decides (or fall back to a generic 6-cyl even-fire).
@@ -98,8 +98,8 @@ namespace TrueforceForAll.Plugin.Effects
         // Appended after Custom so existing presets keep their saved
         // values; legal because the field is serialized by name, not by
         // ordinal, and Newtonsoft tolerates trailing additions.
-        Twin180,        // 180° parallel twin (Yamaha MT-07, R7, Aprilia RS660) — 0°/180° firings then 540° silence
-        V4TwinPulse,    // Ducati Panigale V4 "Twin Pulse" — 0°/90°/290°/380°
+        Twin180,        // 180° parallel twin (Yamaha MT-07, R7, Aprilia RS660), 0°/180° firings then 540° silence
+        V4TwinPulse,    // Ducati Panigale V4 "Twin Pulse", 0°/90°/290°/380°
     }
 
     /// <summary>One engine cycle's worth of firing events. Positions in
@@ -139,7 +139,7 @@ namespace TrueforceForAll.Plugin.Effects
         /// <summary>Resolve a firing pattern from a configured layout +
         /// cylinder count. Falls back to a uniform even-fire pattern when
         /// the requested combination has no built-in match. Never returns
-        /// null — a 1-pulse pattern at phase 0 is the worst case.</summary>
+        /// null, a 1-pulse pattern at phase 0 is the worst case.</summary>
         public static FiringPattern Resolve(int cyl, EngineConfig config)
         {
             if (cyl < 1) cyl = 1;
@@ -181,7 +181,7 @@ namespace TrueforceForAll.Plugin.Effects
                     };
 
                 case EngineConfig.VTwin45:
-                    // 45° V-twin (Harley): 315° / 405° split — the "potato".
+                    // 45° V-twin (Harley): 315° / 405° split, the "potato".
                     return new FiringPattern
                     {
                         Name = "V-twin 45° (Harley)",
@@ -298,7 +298,7 @@ namespace TrueforceForAll.Plugin.Effects
             }
         }
 
-        /// <summary>Effective cyl count implied by a layout — used by the
+        /// <summary>Effective cyl count implied by a layout, used by the
         /// firing-frequency oscillator (RPM/60 × cyl/2). For rotary entries
         /// this returns the firing-equivalent count (rotors × 2) so the
         /// pitch math comes out right. Returns 6 for Auto / Custom (generic
@@ -537,7 +537,7 @@ namespace TrueforceForAll.Plugin.Effects
             // reflect the unequal exhaust pulse spacing per bank produced
             // by an American firing order (e.g. 1-8-4-3-6-5-7-2). The
             // pattern repeats over a full 720° cycle, producing an audible
-            // subharmonic at half the firing rate — the recognizable
+            // subharmonic at half the firing rate, the recognizable
             // cross-plane burble. Magnitudes empirically chosen for a
             // clear-but-not-exaggerated "lope": 15% modulation depth.
             var positions = new double[8];
@@ -599,7 +599,7 @@ namespace TrueforceForAll.Plugin.Effects
         {
             // Subaru-style flat-4. Even-fire timing (0°/180°/360°/540°), but
             // unequal-length headers historically pair cylinders into the
-            // "rumble" — two firings sound stronger per bank than the other
+            // "rumble", two firings sound stronger per bank than the other
             // two. Modeled as alternating amplitude weighting which produces
             // a 2× firing-rate emphasis (half-firing-rate subharmonic) that
             // matches the classic boxer character.
@@ -616,7 +616,7 @@ namespace TrueforceForAll.Plugin.Effects
             // Ducati Panigale V4 "Twin Pulse": firing intervals
             // 90° / 200° / 90° / 340°. Cumulative crank degrees:
             // 0, 90, 290, 380. Two pairs of closely-spaced firings separated
-            // by longer gaps — gives the V4 a V-twin-like cadence.
+            // by longer gaps, gives the V4 a V-twin-like cadence.
             return new FiringPattern
             {
                 Name = "V4 Twin Pulse (Panigale)",
@@ -634,7 +634,7 @@ namespace TrueforceForAll.Plugin.Effects
         {
             // 180° crank parallel twin (Yamaha MT-07, R7, Aprilia RS660, Trident).
             // Firings at 0° and 180°, then a 540° silence before the cycle
-            // wraps. Uneven-fire — produces a strongly asymmetric "crossplane
+            // wraps. Uneven-fire, produces a strongly asymmetric "crossplane
             // twin" rhythm, completely different from the 360°-crank Honda
             // CB-style parallel twin we map Twin to.
             return new FiringPattern
@@ -671,8 +671,8 @@ namespace TrueforceForAll.Plugin.Effects
         /// <summary>
         /// Parse a user-supplied firing pattern from a comma-separated
         /// string. Two forms accepted:
-        ///   "0, 0.25, 0.5, 0.75"                       — positions only
-        ///   "0:1.0, 0.25:0.85, 0.5:1.0, 0.75:1.15"     — positions + amplitudes
+        ///   "0, 0.25, 0.5, 0.75"                      , positions only
+        ///   "0:1.0, 0.25:0.85, 0.5:1.0, 0.75:1.15"    , positions + amplitudes
         /// Whitespace is ignored. Positions are clamped to [0, 1) and
         /// sorted ascending. Returns null on parse failure (caller falls
         /// back to a built-in pattern).

@@ -68,6 +68,21 @@ namespace TrueforceForAll.Plugin
                 },
             },
             new ChangelogVersion {
+                Version = new Version(0, 1, 11),
+                Title = "FFB protocol diagnostics for unsupported wheels",
+                Entries = new List<ChangelogEntry>
+                {
+                    new ChangelogEntry {
+                        Headline = "Parser counters in the log every 5 seconds",
+                        Description = "The FFB tap now logs how many packets it sees on your wheel, how many are ep0 Set_Reports, how many it matched, and which (reportId, featIdx, funcByte) triplets the game is actually sending. Surfaces protocol mismatches for wheels where the HID++ FFB format diverges from what we expect.",
+                    },
+                    new ChangelogEntry {
+                        Headline = "Opt-in raw USB packet logging",
+                        Description = "Diagnostics has a new 'Log raw USB FFB packets to usb-trace.bin' checkbox. Off by default. When on, writes every Set_Report on your wheel's USB address to a binary trace next to SimHub's logs; the file is bundled into Export Logs. Use only when support asks for it: the file grows ~2 KB/sec during active FFB and the trace exposes raw USB bus traffic for your wheel.",
+                    },
+                },
+            },
+            new ChangelogVersion {
                 Version = new Version(0, 1, 10),
                 Title = "Manual USB device picker + log export for easier support",
                 Entries = new List<ChangelogEntry>

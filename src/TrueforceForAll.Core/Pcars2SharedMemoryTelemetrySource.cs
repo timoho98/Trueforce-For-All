@@ -2,7 +2,7 @@
 // PC1 before it) write a SharedMemory struct as defined by SMS's public
 // C header (mirrored at github.com/viper4gh/CREST2 SharedMemory.h). The
 // struct is updated once per graphics frame, so polling rate is bounded
-// by the user's framerate (60-144 Hz typical) — faster than the SimHub
+// by the user's framerate (60-144 Hz typical), faster than the SimHub
 // IDataPlugin tick (60 Hz). Reading directly bypasses SimHub's tick
 // rate cap and gives us per-tire data SimHub's NormalizedData doesn't
 // expose: mTerrain[4] (surface IDs), mTyreSlipSpeed[4] (true slip
@@ -49,7 +49,7 @@ namespace TrueforceForAll.Core
         // 4 mBuildVersionNumber (uint)
         private const int OFF_GAME_STATE              = 8;
         // 12 mSessionState, 16 mRaceState, 20 mViewedParticipantIndex,
-        // 24 mNumParticipants — not read.
+        // 24 mNumParticipants, not read.
         // ParticipantInfo struct = 100 bytes (bool+pad → 4, char[64], float[3]=12,
         // float, uint, uint, uint, int = 4+64+12+4+4+4+4+4 = 100). 64 entries.
         private const int OFF_PARTICIPANT_INFO_BLOCK  = 28;
@@ -373,7 +373,7 @@ namespace TrueforceForAll.Core
                 // Direct slip in m/s. RoadBumps and TractionLossEffect treat
                 // WheelSlip as a slip magnitude (~0 grip, >0.5 noticeable).
                 // mTyreSlipSpeed is the relative velocity at the contact
-                // patch — an excellent direct slip signal, no heuristic.
+                // patch, an excellent direct slip signal, no heuristic.
                 WheelSlip = maxSlipSpeed,
 
                 // mSuspensionVelocity scaled into 0..1 as a road-texture
@@ -387,13 +387,13 @@ namespace TrueforceForAll.Core
                 // units, observed) lands near 1.0 normalized, hitting the
                 // collision effect's mid-range. CollisionEffect's
                 // NormalizationScale further tunes the curve. >0 only when
-                // the field is non-zero — same frame as impact.
+                // the field is non-zero, same frame as impact.
                 CollisionMagnitude = collisionMag > 0 ? collisionMag * 0.05 : (double?)null,
 
                 // OnRumbleStrip would need terrain-ID classification; defer.
-                // NumCylinders, MaxRpm overlays — leave to SimHub fallback /
+                // NumCylinders, MaxRpm overlays, leave to SimHub fallback /
                 // user override. AbsActive, PitLimiterActive, DrsActive,
-                // KersActive — left null, DispatchFrame's overlay fills them.
+                // KersActive, left null, DispatchFrame's overlay fills them.
 
                 // Diagnostics: gameState used to gate paused/menu sessions.
                 // Effects already tolerate "no-input" frames (zero gas/RPM)

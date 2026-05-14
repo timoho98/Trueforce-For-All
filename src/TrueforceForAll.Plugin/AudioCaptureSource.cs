@@ -3,7 +3,7 @@
 //
 // Audio frames are pushed in via Feed() (called by HelperHost when the
 // TrueforceForAll.LoopbackHelper child process delivers a chunk over stdout).
-// The actual loopback runs in a separate .NET 8 process — this class is
+// The actual loopback runs in a separate .NET 8 process, this class is
 // agnostic to the source, it just consumes byte buffers in the agreed
 // format (48 kHz / 2-channel / 32-bit IEEE float) or whatever the WaveFormat
 // passed to Start() declares.
@@ -37,13 +37,13 @@ namespace TrueforceForAll.Plugin
         // and users on slower hardware get auto-tuned up by the ratchet.
         // WASAPI loopback (via IAudioClient3) typically fires at ~3 ms with
         // ~12 decimated samples per burst, so on most systems the very
-        // first noisy moment will trigger a ratchet UP to 16 (4 ms — the
+        // first noisy moment will trigger a ratchet UP to 16 (4 ms, the
         // safe default for typical hardware). Subsequent quiet sessions
         // ratchet back DOWN, so the system self-tunes to whatever the
         // user's hardware actually needs.
         public const int MaxRingSamples     = 128;     // power of two
         public const int MinRingSamples     = 8;       // power of two
-        public const int DefaultRingSamples = 8;       // 2 ms — start low, ratchet auto-tunes up if needed
+        public const int DefaultRingSamples = 8;       // 2 ms, start low, ratchet auto-tunes up if needed
 
         private int _ringCapacity = DefaultRingSamples;
         public int RingCapacity => System.Threading.Volatile.Read(ref _ringCapacity);
@@ -69,7 +69,7 @@ namespace TrueforceForAll.Plugin
         // Default lowpass cutoff. 350 Hz keeps the haptic-relevant rumble
         // band (0-300 Hz feels good through the wheel) while stripping
         // 400+ Hz "graininess" that doesn't translate well to motor torque.
-        // Tunable at runtime — the previous 1500 Hz default brought through
+        // Tunable at runtime, the previous 1500 Hz default brought through
         // too much high-frequency content; 350 is a better starting point.
         public const double DefaultLowpassCutoffHz  = 350.0;
         public const double DefaultHighpassCutoffHz =  30.0;
@@ -144,7 +144,7 @@ namespace TrueforceForAll.Plugin
         public float Gain { get; set; } = 1.0f;
 
         /// <summary>Extra gain scaled by current throttle position. Real engines
-        /// produce more audible kick the moment the throttle opens — without
+        /// produce more audible kick the moment the throttle opens, without
         /// this multiplier, the captured game audio's natural mix can feel
         /// flat compared to native Trueforce. 0.5 = up to +50% gain at full
         /// throttle on top of base Gain. Set to 0 to disable.</summary>
@@ -226,7 +226,7 @@ namespace TrueforceForAll.Plugin
         /// <summary>Live-resize the ring. <paramref name="newCapacity"/> must
         /// be a power of two in [MinRingSamples, MaxRingSamples]; backing
         /// array is already at MaxRingSamples so no allocation. Drops any
-        /// in-flight samples (head/tail reset) — at most a single ~10 ms
+        /// in-flight samples (head/tail reset), at most a single ~10 ms
         /// audio gap, vs. needing to stop/restart the capture chain.</summary>
         public void SetRingCapacity(int newCapacity)
         {
@@ -319,7 +319,7 @@ namespace TrueforceForAll.Plugin
             int frameCount = e.BytesRecorded / bytesPerFrame;
             if (frameCount == 0) return;
 
-            // Reusable scratch — accumulate emitted output samples, push to ring once.
+            // Reusable scratch, accumulate emitted output samples, push to ring once.
             // At 48 kHz input → 1 kHz output, frameCount/48 emissions per callback (~10 frames).
             int maxEmissions = frameCount + 1;
             if (_outBufScratch.Length < maxEmissions)
@@ -353,7 +353,7 @@ namespace TrueforceForAll.Plugin
                 }
                 else
                 {
-                    // Unsupported (24-bit, etc.) — skip frame.
+                    // Unsupported (24-bit, etc.), skip frame.
                     continue;
                 }
 

@@ -2,7 +2,7 @@
 //
 // Sums all active ISampleSources, applies a master gain, and clamps to
 // [-1, 1] before handing samples off to TrueforceDevice. The master gain
-// defaults to a conservative 0.5 — see Phase 1 testing notes: the G PRO's
+// defaults to a conservative 0.5, see Phase 1 testing notes: the G PRO's
 // DD motor crosses from "vibration" into "FFB pull" somewhere around
 // 0.7 effective amplitude, depending on frequency. 0.5 is comfortably
 // inside the vibration regime.
@@ -72,7 +72,7 @@ namespace TrueforceForAll.Core
 
             // Volatile read: any source visible to us was Add()-ed in a
             // happens-before sense. Iteration is safe even if a concurrent
-            // mutator publishes a new snapshot — we keep iterating the one
+            // mutator publishes a new snapshot, we keep iterating the one
             // we already read; the next Render picks up the change.
             var sources = _snapshot;
             for (int s = 0; s < sources.Length; s++)

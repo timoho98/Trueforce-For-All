@@ -1,4 +1,4 @@
-// Built-in preset library — shipped with the plugin, installed into the
+// Built-in preset library, shipped with the plugin, installed into the
 // user's preset library on first run if not already present.
 //
 // Built-in preset names are the key into BuiltinPresetJsons. Names ending
@@ -16,7 +16,7 @@ namespace TrueforceForAll.Plugin
 {
     internal static class BuiltinPresets
     {
-        /// <summary>Per-game default preset name — bound automatically as the
+        /// <summary>Per-game default preset name, bound automatically as the
         /// game's default if no user-chosen default exists yet. SimHub
         /// GameName → built-in preset name (must be a key in
         /// <see cref="BuiltinPresetJsons"/>).</summary>
@@ -89,7 +89,7 @@ namespace TrueforceForAll.Plugin
         // hard drift state. Cylinders=4 is just the slider-default fallback;
         // EnginePulse.AutoCylinders takes over from Forza's NumCylinders the
         // moment the user enters any car. SkipFfbPassthrough=false because
-        // FH does not ship native Trueforce — its FFB rides on ep0 like any
+        // FH does not ship native Trueforce, its FFB rides on ep0 like any
         // standard DirectInput game, so we mirror the captured target into
         // ep3 cur ourselves. (Forza Motorsport ships native Trueforce and
         // would want this true, but FM is in the auto-disable list.)

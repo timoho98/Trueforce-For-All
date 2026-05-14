@@ -121,7 +121,7 @@ namespace TrueforceForAll.Plugin
             var asmVersion = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
             HeaderVersionText.Text = asmVersion != null ? "v" + asmVersion.ToString(3) : "";
 
-            // Diagnostics expander (collapsed by default) — verbose status.
+            // Diagnostics expander (collapsed by default). Verbose status.
             WheelText.Text  = plugin.WheelStatus;
             StreamText.Text = plugin.StreamStatus;
             FfbTapText.Text = plugin.FfbTapStatus;
@@ -165,7 +165,14 @@ namespace TrueforceForAll.Plugin
                 FfbScaleSlider.Value   = _plugin.Settings?.FfbScale ?? 1.0;
                 FfbScaleText.Text      = FfbScaleSlider.Value.ToString("F2");
                 FfbInvertCheck.IsChecked = _plugin.Settings?.FfbInvertSign ?? true;
-                FfbSkipPassthroughCheck.IsChecked = _plugin.Settings?.SkipFfbPassthrough ?? false;
+                bool skipFfb = _plugin.Settings?.SkipFfbPassthrough ?? false;
+                FfbSkipPassthroughCheck.IsChecked         = skipFfb;
+                FfbSkipPassthroughPromotedCheck.IsChecked = skipFfb;
+                FfbSkipPassthroughPromotedPanel.Visibility = _plugin.ActiveGameIsNativeTrueforce
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+                if (LogUsbBytesCheck != null)
+                    LogUsbBytesCheck.IsChecked = _plugin.Settings?.LogUsbBytesEnabled ?? false;
                 FfbSmoothSlider.Value  = _plugin.Settings?.FfbSmoothTimeConstantMs ?? 0.0;
                 FfbSmoothText.Text     = FfbSmoothSlider.Value.ToString("F1");
                 SpikeTamingEnabledCheck.IsChecked = _plugin.Settings?.FfbSpikeTamingEnabled ?? false;
@@ -239,15 +246,23 @@ namespace TrueforceForAll.Plugin
                     F1ForwardPortBox.Text           = f1.ForwardPort > 0 ? f1.ForwardPort.ToString() : "";
                 }
 
-                // Header strip context.
+                // Header strip context. Prefer the resolver's DisplayName when
+                // available so opaque ordinals (Forza "Car_424") render as the
+                // actual car name ("1997 Mazda RX-7"). Falls back to carId for
+                // games whose carIds are already descriptive (AC) or for cars
+                // not in the catalog.
                 HeaderGameText.Text = string.IsNullOrEmpty(game) ? "(none)" : game;
-                HeaderCarText.Text  = string.IsNullOrEmpty(_plugin.ActiveCarId) ? "(none)" : _plugin.ActiveCarId;
+                string headerCar =
+                    !string.IsNullOrEmpty(_plugin.ActiveCarDisplayName) ? _plugin.ActiveCarDisplayName
+                    : !string.IsNullOrEmpty(_plugin.ActiveCarId)        ? _plugin.ActiveCarId
+                    : "(none)";
+                HeaderCarText.Text  = headerCar;
 
                 bool carDetected = !string.IsNullOrEmpty(_plugin.ActiveCarId);
                 RefreshCarPresetCombo();
 
                 // Skip-passthrough makes the FFB tuning controls (scale/smooth/invert/
-                // safety limiters) irrelevant — game writes the wheel directly. Grey
+                // safety limiters) irrelevant (game writes the wheel directly). Grey
                 // them so users don't waste time tuning controls that don't apply.
                 FfbPassthroughControls.IsEnabled = !(_plugin.Settings?.SkipFfbPassthrough ?? false);
 
@@ -411,7 +426,7 @@ namespace TrueforceForAll.Plugin
                     SelectWaveform(CollisionWaveformCombo, coll.Waveform);
                 }
 
-                // Override badges in expander headers — visible only when this
+                // Override badges in expander headers. Visible only when this
                 // section has its own per-car override active.
                 AudioOverrideBadge.Visibility    = (_plugin.IsAudioOverridden    && carDetected) ? Visibility.Visible : Visibility.Collapsed;
                 EngineOverrideBadge.Visibility   = (_plugin.IsEngineOverridden   && carDetected) ? Visibility.Visible : Visibility.Collapsed;
@@ -472,7 +487,7 @@ namespace TrueforceForAll.Plugin
         }
 
         // Public entry point used by ManagePresetsDialog when the user picks
-        // Edit on a row — load the preset and flip the banner on.
+        // Edit on a row. Load the preset and flip the banner on.
         public void EnterOfflineEditMode(string presetName)
         {
             if (_plugin == null || string.IsNullOrEmpty(presetName)) return;
@@ -487,7 +502,7 @@ namespace TrueforceForAll.Plugin
             string name = _plugin.OfflineEditingPresetName;
             if (_plugin.IsBuiltinPreset(name))
             {
-                // Built-in fast path — same as Save as new with a suggested
+                // Built-in fast path. Same as Save as new with a suggested
                 // name derived from the built-in's name.
                 PromptAndSaveAsNew(name);
                 return;
@@ -578,7 +593,7 @@ namespace TrueforceForAll.Plugin
                     if (UsbPcapReinstallButton.Visibility != want) UsbPcapReinstallButton.Visibility = want;
                 }
 
-                // Forza UDP section visibility — only relevant when running a
+                // Forza UDP section visibility. Only relevant when running a
                 // Forza title or when AlwaysListen is on (lets users toggle
                 // it off without launching Forza first).
                 if (ForzaSection != null)
@@ -750,13 +765,13 @@ namespace TrueforceForAll.Plugin
                     else if (fzSrc.PacketsReceived == 0)
                     {
                         ForzaStatusText.Text =
-                            $"Listening on {(_plugin.Settings?.Forza?.BindAddress ?? "0.0.0.0")}:{(_plugin.Settings?.Forza?.Port ?? 0)} — no packets yet (check Forza Data Out config + the troubleshooter below)";
+                            $"Listening on {(_plugin.Settings?.Forza?.BindAddress ?? "0.0.0.0")}:{(_plugin.Settings?.Forza?.Port ?? 0)}, no packets yet (check Forza Data Out config + the troubleshooter below)";
                     }
                     else
                     {
                         ForzaStatusText.Text = fzSrc.LastIsRaceOn
-                            ? $"Receiving — {fzSrc.PacketsReceived:N0} packets, driving"
-                            : $"Receiving — {fzSrc.PacketsReceived:N0} packets, paused / in menu";
+                            ? $"Receiving, {fzSrc.PacketsReceived:N0} packets, driving"
+                            : $"Receiving, {fzSrc.PacketsReceived:N0} packets, paused / in menu";
                     }
 
                     if (ForzaForwardStatusText != null)
@@ -893,7 +908,7 @@ namespace TrueforceForAll.Plugin
                 // No game → keep enabled so the user can still tune presets
                 // for any future session. Test buttons stay reachable from
                 // the disabled panel because IsEnabled=false dims but doesn't
-                // remove access — actually IsEnabled=false on a StackPanel
+                // remove access. Actually IsEnabled=false on a StackPanel
                 // disables children, so Test buttons would be inert too.
                 // That matches "no data, no point testing" intent.
                 if (TelemetryEffectsPanel != null)
@@ -939,7 +954,7 @@ namespace TrueforceForAll.Plugin
                     : Visibility.Collapsed;
             }
 
-            // Performance counters update every meter tick (cheap — array sum
+            // Performance counters update every meter tick (cheap; array sum
             // of 60 longs). Doesn't depend on any expander being open.
             UpdatePerfCounters();
 
@@ -1100,8 +1115,8 @@ namespace TrueforceForAll.Plugin
             }
         }
 
-        /// <summary>Fires once when the user opens an effect's expander —
-        /// counts as an "I've seen this" interaction and clears the NEW
+        /// <summary>Fires once when the user opens an effect's expander.
+        /// Counts as an "I've seen this" interaction and clears the NEW
         /// badge for that section. Routes via the Expander.Name suffix
         /// ("EngineExpander" → "Engine") to keep the XAML hookups one-shot.</summary>
         private void EffectExpander_Expanded(object sender, System.Windows.RoutedEventArgs e)
@@ -1169,7 +1184,7 @@ namespace TrueforceForAll.Plugin
             if (_plugin == null) dirty = true;
             else if (!_plugin.SectionHasAnchor(kind))
             {
-                // No game-preset snapshot AND no per-car override anchor —
+                // No game-preset snapshot AND no per-car override anchor:
                 // fall back to sticky-true so a global edit without a saved
                 // baseline still surfaces as unsaved.
                 dirty = true;
@@ -1194,8 +1209,8 @@ namespace TrueforceForAll.Plugin
             UpdateGlobalDirtyFromEffects();
         }
 
-        /// <summary>Recompute every section's dirty state from the plugin —
-        /// called from the end of RefreshFromPlugin (so override toggles,
+        /// <summary>Recompute every section's dirty state from the plugin.
+        /// Called from the end of RefreshFromPlugin (so override toggles,
         /// game/car switches, preset apply, etc. all sync the per-section
         /// indicators correctly without each handler having to enumerate).</summary>
         private void RecomputeAllEffectDirty()
@@ -1208,7 +1223,7 @@ namespace TrueforceForAll.Plugin
                 bool dirty;
                 if (!_plugin.SectionHasAnchor(kind))
                 {
-                    // No anchor — preserve sticky bit so a no-preset edit
+                    // No anchor: preserve sticky bit so a no-preset edit
                     // doesn't get auto-cleared by a refresh.
                     dirty = _effectDirty[i];
                 }
@@ -1322,7 +1337,7 @@ namespace TrueforceForAll.Plugin
         {
             if (_suppressEvents || _plugin == null) return;
             // Plugin-enabled is a per-game preference (GameEnabled dict), not
-            // part of preset content — so it doesn't dirty the active preset.
+            // part of preset content, so it doesn't dirty the active preset.
             _plugin.SetPluginEnabled(PluginEnabledCheck.IsChecked == true);
         }
 
@@ -1352,7 +1367,29 @@ namespace TrueforceForAll.Plugin
         {
             if (_suppressEvents || _plugin == null) return;
             bool skip = FfbSkipPassthroughCheck.IsChecked == true;
+            ApplySkipFfbPassthrough(skip, syncSource: FfbSkipPassthroughCheck);
+        }
+        private void FfbSkipPassthroughPromoted_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            bool skip = FfbSkipPassthroughPromotedCheck.IsChecked == true;
+            ApplySkipFfbPassthrough(skip, syncSource: FfbSkipPassthroughPromotedCheck);
+        }
+        private void ApplySkipFfbPassthrough(bool skip, CheckBox syncSource)
+        {
             _plugin.SetSkipFfbPassthrough(skip);
+            // Keep the promoted (main view) and advanced-modal checkboxes in
+            // sync without firing each other's Changed handler.
+            var prev = _suppressEvents;
+            _suppressEvents = true;
+            try
+            {
+                if (syncSource != FfbSkipPassthroughCheck)
+                    FfbSkipPassthroughCheck.IsChecked = skip;
+                if (syncSource != FfbSkipPassthroughPromotedCheck)
+                    FfbSkipPassthroughPromotedCheck.IsChecked = skip;
+            }
+            finally { _suppressEvents = prev; }
             // Grey/ungrey the passthrough-only controls live, without a full Refresh.
             FfbPassthroughControls.IsEnabled = !skip;
             MarkEffectDirty(EffectKind.Master);
@@ -1385,7 +1422,7 @@ namespace TrueforceForAll.Plugin
             string game = _plugin.ActiveGame;
             if (string.IsNullOrEmpty(game))
             {
-                // No active game — nothing to scope the override under.
+                // No active game. Nothing to scope the override under.
                 // Clear any stale text so it's not misleading.
                 if (!string.IsNullOrEmpty(CaptureExeOverrideBox.Text))
                     CaptureExeOverrideBox.Text = "";
@@ -1571,15 +1608,21 @@ namespace TrueforceForAll.Plugin
             if (string.IsNullOrEmpty(activeName) || onBuiltin)
             {
                 // No active preset, or active is a built-in: prompt for a
-                // new user-preset name and fork.
+                // new user-preset name and fork. Prefer the resolver's
+                // DisplayName when available (e.g. "2017 Acura NSX" for
+                // Forza ordinals) so the preset name reads as the actual
+                // car rather than an opaque ID. Falls back to carId for
+                // games where the ID is already descriptive (AC).
+                string friendly = _plugin.ActiveCarDisplayName;
                 string suggestion = onBuiltin
                     ? StripDefaultSuffix(activeName)
-                    : carId;
+                    : (!string.IsNullOrEmpty(friendly) ? friendly : carId);
+                string bodyLabel = !string.IsNullOrEmpty(friendly) ? friendly : carId;
                 string newName = PromptForCarPresetName(
                     title: "Save as new car preset",
                     body: onBuiltin
-                        ? $"'{activeName}' is a built-in default. Save the current tuning as a new user preset for '{carId}':"
-                        : $"Save the current tuning as a new user preset for '{carId}':",
+                        ? $"'{activeName}' is a built-in default. Save the current tuning as a new user preset for '{bodyLabel}':"
+                        : $"Save the current tuning as a new user preset for '{bodyLabel}':",
                     initial: suggestion,
                     existing: _plugin.GetCarPresets(carId));
                 if (string.IsNullOrEmpty(newName)) return;
@@ -1632,8 +1675,8 @@ namespace TrueforceForAll.Plugin
                 : name;
         }
 
-        // Built-in presets are stored with a trailing " (default)" suffix —
-        // that's the structural marker the rest of the plugin keys off
+        // Built-in presets are stored with a trailing " (default)" suffix.
+        // That's the structural marker the rest of the plugin keys off
         // (IsBuiltinPreset, refresh-on-load, export stripping, name
         // validator). For UI display we relabel to " (built-in)" so the
         // word "default" only ever means the per-game auto-load binding
@@ -1750,7 +1793,7 @@ namespace TrueforceForAll.Plugin
             Apply(EffectKind.Engine);
         }
         // GitHub issue template URL. Pre-fills title + body with the active
-        // car's state so users can submit corrections in one click — no need
+        // car's state so users can submit corrections in one click. No need
         // to remember the carId, the source attribution, or the format.
         private const string ReportIssuesBase = "https://github.com/Mhytee/Trueforce-For-All/issues/new";
         private const string RepoUrl          = "https://github.com/Mhytee/Trueforce-For-All";
@@ -1766,7 +1809,7 @@ namespace TrueforceForAll.Plugin
                 "After the GitHub form opens, drag the zip into the issue body to attach it. " +
                 "Including logs makes bugs MUCH easier to diagnose, especially anything wheel- or USBPcap-related.\n\n" +
                 "Click No to open the form without exporting logs.",
-                "Trueforce — Include logs?",
+                "Trueforce: Include logs?",
                 MessageBoxButton.YesNoCancel,
                 MessageBoxImage.Question);
             if (choice == MessageBoxResult.Cancel) return;
@@ -1850,6 +1893,16 @@ namespace TrueforceForAll.Plugin
                     {
                         try { AddFileToZip(zip, settings, "Trueforce-settings.json"); } catch { }
                     }
+                    // Opt-in raw USB packet trace. Only present when the user
+                    // explicitly enabled the Diagnostics toggle. Bundled with
+                    // the same zip as the rest of the logs so support gets
+                    // everything in one attachment.
+                    string usbTrace = TrueforcePlugin.GetUsbTraceLogPath();
+                    if (System.IO.File.Exists(usbTrace))
+                    {
+                        try { AddFileToZip(zip, usbTrace, "usb-trace.bin"); }
+                        catch (Exception ex) { TryAddNoteToZip(zip, "usb-trace.bin.error.txt", ex.Message); }
+                    }
                     // Mini context manifest so support knows what version
                     // generated the zip without unpacking everything.
                     string version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "?";
@@ -1861,6 +1914,8 @@ namespace TrueforceForAll.Plugin
                         $"Wheel status: {_plugin?.WheelStatus}\n" +
                         $"Stream status: {_plugin?.StreamStatus}\n" +
                         $"FFB tap status: {_plugin?.FfbTapStatus}\n" +
+                        $"Manual USBPcap override: {(_plugin?.HasManualUsbPcapDevice ?? false ? $"{_plugin.Settings.ManualUsbPcapInterface} dev {_plugin.Settings.ManualUsbPcapDeviceAddress}" : "(none)")}\n" +
+                        $"USB byte logging: {(_plugin?.Settings?.LogUsbBytesEnabled ?? false ? "enabled" : "disabled")}\n" +
                         $"SimHub root: {simHubRoot}\n";
                     TryAddNoteToZip(zip, "manifest.txt", manifest);
                 }
@@ -1879,7 +1934,7 @@ namespace TrueforceForAll.Plugin
                 {
                     MessageBox.Show(
                         $"Exported logs to:\n{zipPath}\n\nAttach this zip to your bug report so support can see what's happening.",
-                        "Trueforce — Logs exported",
+                        "Trueforce: Logs exported",
                         MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 return zipPath;
@@ -1918,8 +1973,17 @@ namespace TrueforceForAll.Plugin
             catch { }
         }
 
+        // Toggle raw USB packet logging on/off. Persists the choice and
+        // applies it to the live FFB tap so the next packet observed starts
+        // (or stops) writing to usb-trace.bin alongside SimHub's logs.
+        private void LogUsbBytes_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_suppressEvents || _plugin == null || LogUsbBytesCheck == null) return;
+            _plugin.SetUsbBytesLoggingEnabled(LogUsbBytesCheck.IsChecked == true);
+        }
+
         // Open the manual USB-device picker dialog. Always available, not
-        // gated on auto-discovery failing — users can override our detection
+        // gated on auto-discovery failing. Users can override our detection
         // at any time. Selection persists across restarts.
         private void UsbPcapPickDevice_Click(object sender, RoutedEventArgs e)
         {
@@ -2000,7 +2064,7 @@ namespace TrueforceForAll.Plugin
 
         // Submit engine data for the active car. Captures both what the bake/
         // resolver auto-detected AND what the user has selected via the
-        // dropdowns / slider. No "FILL IN" placeholders — the user's UI
+        // dropdowns / slider. No "FILL IN" placeholders; the user's UI
         // values ARE the proposed values; submission is one click on the
         // form. Maintainers read the response sheet to find diffs.
         private void ReportEngineDataButton_Click(object sender, RoutedEventArgs e)
@@ -2306,7 +2370,7 @@ namespace TrueforceForAll.Plugin
                         && string.Equals(it.Custom?.Id, customId, StringComparison.Ordinal))
                         return i;
                 }
-                return 0;   // referenced custom missing — fall back to Auto
+                return 0;   // referenced custom missing, fall back to Auto
             }
             for (int i = 0; i < _engineItems.Count; i++)
             {
@@ -2415,7 +2479,7 @@ namespace TrueforceForAll.Plugin
         }
 
         // Sync the pattern readout textbox to the currently selected layout.
-        // Read-only — authoring custom engines happens in the modal dialog,
+        // Read-only. Authoring custom engines happens in the modal dialog,
         // not inline. Shows a friendly message for Electric / dangling custom
         // references; shows the FiringPattern's Name + serialized positions
         // for built-ins and combustion customs.
@@ -2426,14 +2490,14 @@ namespace TrueforceForAll.Plugin
             string display;
             if (es.Layout == Effects.EngineLayout.Electric)
             {
-                display = "Electric — no firing pattern (behavior above)";
+                display = "Electric: no firing pattern (behavior above)";
             }
             else if (es.Layout == Effects.EngineLayout.Custom)
             {
                 var custom = FindCustomById(es.CustomEngineId);
                 if (custom == null)
                 {
-                    display = "Custom — referenced engine not found in library";
+                    display = "Custom: referenced engine not found in library";
                 }
                 else if (custom.IsElectric)
                 {
@@ -2444,7 +2508,7 @@ namespace TrueforceForAll.Plugin
                     var parsed = Effects.FiringPatternDb.ParseCustom(custom.Pattern);
                     display = parsed == null
                         ? $"Custom: {custom.Name} (invalid pattern)"
-                        : $"Custom: {custom.Name} — {Effects.FiringPatternDb.Format(parsed)}";
+                        : $"Custom: {custom.Name}, {Effects.FiringPatternDb.Format(parsed)}";
                 }
             }
             else
@@ -2581,7 +2645,7 @@ namespace TrueforceForAll.Plugin
             if (_suppressEvents || _plugin == null) return;
             var wf = WaveformOf(TractionWaveformCombo);
             _plugin.ActiveTraction.Waveform = wf;
-            // Show/hide noise filter rows live — they only matter for Noise.
+            // Show/hide noise filter rows live (they only matter for Noise).
             var vis = wf == Waveform.Noise ? Visibility.Visible : Visibility.Collapsed;
             TractionNoiseLpRow.Visibility = vis;
             TractionNoiseHpRow.Visibility = vis;
@@ -2869,7 +2933,7 @@ namespace TrueforceForAll.Plugin
             int idx = AbsModeCombo.SelectedIndex; if (idx < 0) idx = 0;
             var mode = (AbsMode)idx;
             _plugin.ActiveAbs.Mode = mode;
-            // Pulse rate / duty are unused in PerTick mode — grey them live.
+            // Pulse rate / duty are unused in PerTick mode (grey them live).
             AbsPulseControls.IsEnabled = mode == AbsMode.Pulse;
             Apply(EffectKind.Abs);
         }
@@ -3249,12 +3313,12 @@ namespace TrueforceForAll.Plugin
         }
 
         /// <summary>Per-effect Save popover. Two adaptive choices:
-        ///   • "For [car]" — toggles the override on (snapshotting current
+        ///   • "For [car]": toggles the override on (snapshotting current
         ///     section values into the per-car override) when not already
         ///     overridden; just clears the section's dirty dot if it was.
-        ///   • "Update preset 'X'" — updates the active preset in place
+        ///   • "Update preset 'X'": updates the active preset in place
         ///     (whole-snapshot save; clears global dirty too).
-        ///   • "Save as new preset…" — appears when there's no active preset;
+        ///   • "Save as new preset…": appears when there's no active preset;
         ///     opens the existing name-prompt flow.
         /// Choices are individually disabled when their precondition isn't
         /// met (no car detected → no per-car save; no preset → no update).</summary>
@@ -3300,7 +3364,7 @@ namespace TrueforceForAll.Plugin
                     IsEnabled = carDetected,
                     ToolTip = carDetected
                         ? "Saves these settings just for this car. Won't affect global tuning or other cars."
-                        : "No car detected yet — drive a car to enable this option.",
+                        : "No car detected yet. Drive a car to enable this option.",
                 };
                 sp.Children.Add(carBtn);
                 sp.Children.Add(new TextBlock
@@ -3485,14 +3549,14 @@ namespace TrueforceForAll.Plugin
                 }
             }
             RefreshFromPlugin();
-            // Prompt only on Engine-section saves — that's where the user
-            // committed cylinder/layout values worth submitting. Saves on
+            // Prompt only on Engine-section saves (that's where the user
+            // committed cylinder/layout values worth submitting). Saves on
             // other sections (Bumps, Traction, etc.) shouldn't trigger a
             // form-submission ask; their data isn't what we're collecting.
             if (which == EffectKind.Engine) MaybePromptToSubmitEngineData(carId);
         }
 
-        /// <summary>Update active preset in place — whole-snapshot save.
+        /// <summary>Update active preset in place. Whole-snapshot save.
         /// Clears all dirty indicators (global + every section).</summary>
         private void UpdateActivePresetFromUi()
         {
@@ -3503,8 +3567,8 @@ namespace TrueforceForAll.Plugin
             RefreshFromPlugin();
         }
 
-        /// <summary>Save current full state as a new named preset — same flow
-        /// as the existing "Save as new" preset library button.</summary>
+        /// <summary>Save current full state as a new named preset (same flow
+        /// as the existing "Save as new" preset library button).</summary>
         private void SaveAsNewPresetFromUi()
         {
             string suggested = _plugin.ActiveGame ?? "My preset";
@@ -3536,7 +3600,7 @@ namespace TrueforceForAll.Plugin
             UpdateHeaderPresetDisplay();
 
             // Repopulate dropdown without re-firing SelectionChanged into our
-            // handler — _suppressEvents wraps the whole RefreshFromPlugin call.
+            // handler. _suppressEvents wraps the whole RefreshFromPlugin call.
             // Items are ComboBoxItem with Tag=real name, Content=display name
             // (built-ins relabel " (default)" → " (built-in)" via
             // ToBuiltinDisplay so "default" only refers to the per-game
@@ -3571,7 +3635,7 @@ namespace TrueforceForAll.Plugin
             // missing, ForkAndSaveAsGamePreset takes over.
             SavePresetButton.IsEnabled    = true;
             SaveAsPresetButton.IsEnabled  = true;
-            // Built-in presets are factory defaults — refuse delete.
+            // Built-in presets are factory defaults; refuse delete.
             DeletePresetButton.IsEnabled  = hasSelection && !selBuiltin;
             SetDefaultButton.IsEnabled    = hasSelection && gameDetected;
             ClearDefaultButton.IsEnabled  = gameDetected && gameHasDefault;
@@ -3600,7 +3664,7 @@ namespace TrueforceForAll.Plugin
                     "Trueforce", MessageBoxButton.YesNo, MessageBoxImage.Warning);
                 if (r != MessageBoxResult.Yes)
                 {
-                    // User cancelled — revert dropdown to the previously-active
+                    // User cancelled; revert dropdown to the previously-active
                     // preset without re-entering this handler.
                     bool prev = _suppressEvents;
                     _suppressEvents = true;
@@ -3646,7 +3710,7 @@ namespace TrueforceForAll.Plugin
             for (int i = 0; i < _effectDirty.Length; i++) if (_effectDirty[i]) { gameDirty = true; break; }
             if (!gameDirty)
             {
-                // Nothing left to save — refresh and exit cleanly so the
+                // Nothing left to save. Refresh and exit cleanly so the
                 // header / button styling reflects the cleaned state.
                 RefreshFromPlugin();
                 return;
@@ -3727,7 +3791,7 @@ namespace TrueforceForAll.Plugin
                 baseName = game;
             else
             {
-                // No game and no built-in to fork from — fall back to name prompt.
+                // No game and no built-in to fork from. Fall back to name prompt.
                 SaveAsNewPresetFromUi();
                 return;
             }
@@ -4139,12 +4203,12 @@ namespace TrueforceForAll.Plugin
             // wired (NRE'd PerfTfRingText.Text in 0.1.0-localtest4).
             if (_suppressEvents || _plugin == null) return;
             // The slider snaps to TickFrequency=8 so e.NewValue is already
-            // {8,16,24,32,40,48,56,64} — round to nearest pow2 to avoid the
+            // {8,16,24,32,40,48,56,64}. Round to nearest pow2 to avoid the
             // 24/40/48/56 in-betweens (Apply() also sanitizes defensively).
             int v = NearestPow2((int)Math.Round(e.NewValue), 8, 64);
             if (PerfTfRingText != null) PerfTfRingText.Text = FormatRing(v);
-            // Only push down to the device in Manual mode — in Auto, the
-            // ratchet owns ring sizes and slider edits would conflict.
+            // Only push down to the device in Manual mode (in Auto, the
+            // ratchet owns ring sizes and slider edits would conflict).
             if (_plugin.Settings?.Performance?.Mode == PerformanceMode.Manual)
                 _plugin.ApplyTfRingSize(v);
         }
@@ -4195,7 +4259,7 @@ namespace TrueforceForAll.Plugin
 
             long sec = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             if (_perfLastBucketSec == 0) _perfLastBucketSec = sec;
-            // Advance buckets — clear any seconds we skipped (idle UI).
+            // Advance buckets. Clear any seconds we skipped (idle UI).
             int gap = (int)Math.Min(60, sec - _perfLastBucketSec);
             for (int i = 0; i < gap; i++)
             {
@@ -4219,7 +4283,7 @@ namespace TrueforceForAll.Plugin
 
         private void OnAutoRatchetBumped(bool isTf, int oldCap, int newCap)
         {
-            // Fired on the producer thread — marshal to UI for the modal and
+            // Fired on the producer thread. Marshal to UI for the modal and
             // refresh. Don't block the producer; BeginInvoke is fire-and-forget.
             try
             {
@@ -4233,7 +4297,7 @@ namespace TrueforceForAll.Plugin
         }
 
         /// <summary>Dismissable modal explaining the auto-bump and offering
-        /// Revert (drop back to the previous size — user takes the dropouts
+        /// Revert (drop back to the previous size; user takes the dropouts
         /// back in exchange for lower latency) or OK (accept the new size).
         /// Both options are non-destructive; either way the choice persists.</summary>
         private void ShowAutoRatchetModal(bool isTf, int oldCap, int newCap)
@@ -4252,7 +4316,7 @@ namespace TrueforceForAll.Plugin
 
             var win = new Window
             {
-                Title = "Trueforce — auto-tuned ring buffer",
+                Title = "Trueforce: auto-tuned ring buffer",
                 Width = 460,
                 Height = 230,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,

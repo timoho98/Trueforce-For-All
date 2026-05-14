@@ -47,7 +47,7 @@ namespace TrueforceForAll.Plugin
 
         private readonly Mixer _mixer = new Mixer();
 
-        // Per-car preset files — one .tfcar.json per car, the canonical
+        // Per-car preset files, one .tfcar.json per car, the canonical
         // home for car-specific tuning post-Model G refactor. Game presets
         // no longer carry CarOverrides; switching presets doesn't touch
         // per-car values.
@@ -64,6 +64,13 @@ namespace TrueforceForAll.Plugin
         // GameName backfill this session. Prevents re-scanning the car folder
         // every time the user toggles back to the same car.
         private readonly HashSet<string> _gameNameBackfillDone = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Same dedup set, but for DisplayName backfill — renames legacy presets
+        // whose PresetName was just the carId (e.g. "Car_424") to the resolver's
+        // DisplayName ("1997 Mazda RX-7") so the UI shows real car names instead
+        // of opaque ordinals. Only rewrites presets where the user clearly never
+        // customized the name; user-renamed presets are left alone.
+        private readonly HashSet<string> _displayNameBackfillDone = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         private TrueforceDevice _device;
         private AudioCaptureSource _audio;
@@ -119,7 +126,7 @@ namespace TrueforceForAll.Plugin
         // banner. The first scan fires DiscoveryNoPacketsTriggerMs after
         // the source starts; if it doesn't find anything (or finds
         // nothing the user adopts) we retry every DiscoveryRetryIntervalMs
-        // while the source keeps receiving zero packets — covers the case
+        // while the source keeps receiving zero packets, covers the case
         // where the user enables UDP in the game minutes after Trueforce
         // started.
         private const int DiscoveryNoPacketsTriggerMs = 10_000;
@@ -137,11 +144,11 @@ namespace TrueforceForAll.Plugin
         public event Action<string, int> AlternatePortDiscovered;
 
         /// <summary>True when the active game is one SimHub has a telemetry
-        /// reader for — i.e. anything with a non-Custom GameName. SimHub's
+        /// reader for, i.e. anything with a non-Custom GameName. SimHub's
         /// "Custom_*" code is a definitive marker that the user added the
         /// game manually and SimHub has no built-in way to source telemetry,
         /// so engine/RPM/speed-driven effects can't fire. Built-in games
-        /// keep this true even at the main menu / paused — we don't grey
+        /// keep this true even at the main menu / paused, we don't grey
         /// out the panel just because telemetry isn't flowing right now.</summary>
         public bool HasUsefulTelemetry =>
             !string.IsNullOrEmpty(_activeGame)
@@ -151,10 +158,10 @@ namespace TrueforceForAll.Plugin
         // When an enhanced source is active, DispatchFrame overlays these
         // onto each frame: MaxRpm is static per car (no benefit to physics
         // rate), and AC's `physics.abs` is the *configuration level*, not
-        // pump activity — SimHub derives a usable AbsActive signal that we
+        // pump activity, SimHub derives a usable AbsActive signal that we
         // inherit instead of re-implementing. PitLimiter and DRS are also
         // overlaid: AC's MMF source and Forza UDP both leave them null, but
-        // SimHub's per-game readers know how to extract them — so we mirror
+        // SimHub's per-game readers know how to extract them, so we mirror
         // SimHub's value into enhanced frames so the effects fire on AC pit
         // lane and any DRS-equipped sim using an enhanced source.
         private double _lastSimHubMaxRpm;
@@ -195,7 +202,7 @@ namespace TrueforceForAll.Plugin
         // Settings so reinstalls don't re-glitch sessions; manual reset is
         // available from the Performance tab.
         //
-        // Ratchet-DOWN is asymmetric — slow + hysteresis-protected — so a
+        // Ratchet-DOWN is asymmetric, slow + hysteresis-protected, so a
         // brief noisy moment (Chrome update kicking in, antivirus scan)
         // doesn't leave the ring permanently inflated. After UP fires, a
         // 5-minute cooldown blocks any DOWN; after the cooldown, sustained
@@ -244,20 +251,28 @@ namespace TrueforceForAll.Plugin
         private long _audioLastRatchetActionTicks;
         // True iff the last action on this ring was a DOWN step. Lets the
         // DOWN cooldown switch to the fast 30s value once descent has begun
-        // — UP re-arms the long 5min cooldown by clearing this.
+        //, UP re-arms the long 5min cooldown by clearing this.
         private bool _tfLastActionWasDown;
         private bool _audioLastActionWasDown;
 
         // Fired on the producer thread when auto-ratchet bumps a ring size.
         // Args: isTfRing (true = Trueforce stream ring, false = audio ring),
         // oldCapacity, newCapacity. SettingsControl subscribes to show the
-        // dismissable Revert/OK modal — must marshal to the UI thread.
+        // dismissable Revert/OK modal, must marshal to the UI thread.
         public event Action<bool, int, int> AutoRatchetBumped;
 
         // Per-car override tracking. Updated on each DataUpdate; if the CarId
         // changes we re-apply per-section overrides (or fall back to globals).
         private string _activeCarId;
         public string ActiveCarId => _activeCarId;
+
+        // Human-readable name of the active car (e.g. "2017 Acura NSX"), set
+        // by the car-change handler from CarCylinderResolver.Result.DisplayName
+        // when a catalog hit provides one. Cleared on car change. Used to
+        // auto-name per-car presets so the user sees the actual car name
+        // instead of an opaque ordinal ("3445"). Null when no catalog hit.
+        private string _activeCarDisplayName;
+        public string ActiveCarDisplayName => _activeCarDisplayName;
 
         // Active game + active preset tracking. Presets are a named library
         // (Settings.Presets) that the user can apply to any game. GameDefaults
@@ -268,6 +283,7 @@ namespace TrueforceForAll.Plugin
         private string _activePresetName;
         public string ActiveGame        => _activeGame;
         public string ActivePresetName  => _activePresetName;
+        public bool   ActiveGameIsNativeTrueforce => IsNativeTrueforceGame(_activeGame);
 
         public IEnumerable<string> PresetNames =>
             Settings?.Presets != null ? (IEnumerable<string>)Settings.Presets.Keys : Array.Empty<string>();
@@ -321,7 +337,7 @@ namespace TrueforceForAll.Plugin
 
         // True when HID enumeration found a supported wheel (so Trueforce
         // effects play) but USBPcap discovery couldn't find it on the bus
-        // (so FFB pass-through is broken — the game's own force feedback
+        // (so FFB pass-through is broken, the game's own force feedback
         // gets clobbered). This is the smoking-gun divergence pattern that
         // motivates surfacing the manual-picker call to action prominently
         // rather than burying it in Diagnostics.
@@ -394,7 +410,7 @@ namespace TrueforceForAll.Plugin
                 // 5. HID stream state.
                 string stream = StreamStatus ?? "";
                 if (!stream.StartsWith("Streaming", StringComparison.OrdinalIgnoreCase))
-                    return $"Wheel stream is '{stream}'. The plugin is opened but not actively driving the wheel — check the Diagnostics panel.";
+                    return $"Wheel stream is '{stream}'. The plugin is opened but not actively driving the wheel, check the Diagnostics panel.";
 
                 // 6. No game / not in session
                 if (string.IsNullOrEmpty(_activeGame))
@@ -406,7 +422,7 @@ namespace TrueforceForAll.Plugin
                     return $"'{_activeGame}' is detected but no telemetry is arriving. You may be in a menu or paused.";
 
                 // 7. All telemetry-driven effects disabled. Engine pulse,
-                //    bumps, traction, gear, ABS, pit limiter, DRS — if all
+                //    bumps, traction, gear, ABS, pit limiter, DRS, if all
                 //    seven are off and audio capture is also off, nothing
                 //    can produce output.
                 bool anyEffectOn =
@@ -642,7 +658,7 @@ namespace TrueforceForAll.Plugin
         {
             SimHub.Logging.Current.Info("[Trueforce] Init: loading settings...");
             // wasFreshInstall flips iff the factory ran, which only happens
-            // when SimHub had no prior settings file for us — the cleanest
+            // when SimHub had no prior settings file for us, the cleanest
             // signal for "this is a first-run install" that the SimHub
             // ReadCommonSettings API gives us.
             bool wasFreshInstall = false;
@@ -663,7 +679,7 @@ namespace TrueforceForAll.Plugin
             // stamped): pre-seed every known effect as already-seen and
             // stamp LastSeenVersion to the running build. Without this, an
             // existing user upgrading from a pre-feature version would get
-            // badges on every effect they've already been using — useless
+            // badges on every effect they've already been using, useless
             // noise. After this seed, badges only ever fire for effects
             // introduced in versions strictly newer than this one.
             if (wasFreshInstall || string.IsNullOrEmpty(Settings.LastSeenVersion))
@@ -742,13 +758,13 @@ namespace TrueforceForAll.Plugin
                 // Init sequence is required: empirically, skipping it leaves the
                 // wheel in slower-default-rate mode and Trueforce response is
                 // noticeably delayed (~game tick of latency). It does NOT cause
-                // the FFB-suppression problem either way — diagnosed 2026-05-03.
+                // the FFB-suppression problem either way, diagnosed 2026-05-03.
                 SimHub.Logging.Current.Info("[Trueforce] Sending init sequence (68 packets x 2)...");
                 _device.RunInitSequence();
 
                 // Spawn the USBPcap FFB tap. Reads AC's outgoing HID++ FFB target
                 // off the bus and feeds it to TrueforceDevice so we can mirror it
-                // into ep3 bytes 6-9 — without this, our ep3 stream overrides AC's
+                // into ep3 bytes 6-9, without this, our ep3 stream overrides AC's
                 // FFB with zero motor torque whenever Trueforce content plays.
                 // Override precedence: env var > persisted manual picker > auto.
                 // The persisted picker exists because USBPcap's descriptor-cache
@@ -760,6 +776,7 @@ namespace TrueforceForAll.Plugin
                     Logger = msg => SimHub.Logging.Current.Info($"[Trueforce] {msg}"),
                 };
                 _ffbTap.SetHidDiscoveredWheel(match.Vid, match.Pid);
+                ApplyUsbBytesLoggingSetting();
                 _device.FfbTargetProvider = () =>
                 {
                     // SkipFfbPassthrough: return Some(0) so the device sends
@@ -1035,7 +1052,7 @@ namespace TrueforceForAll.Plugin
             _capturedProcess = null;
 
             // Wake the producer if it's parked inside PushFloats on a full
-            // ring — the plugin's _shuttingDown flag doesn't propagate into
+            // ring, the plugin's _shuttingDown flag doesn't propagate into
             // the device's wait condition, so without this the join below can
             // time out and leave the producer alive while CleanupDevice tears
             // the device down underneath it.
@@ -1066,7 +1083,7 @@ namespace TrueforceForAll.Plugin
             {
                 _activeGame = gameName;
                 SwapTelemetrySource(gameName);
-                // Auto-apply the bound game default — UNLESS the user is
+                // Auto-apply the bound game default, UNLESS the user is
                 // offline-editing a preset. In that case we don't clobber
                 // their in-progress edits; the SettingsControl banner stays
                 // up so they can decide (Save / Save as new / Discard).
@@ -1084,7 +1101,7 @@ namespace TrueforceForAll.Plugin
 
                 // Per-game master enable. Default is "true" for unseen games,
                 // EXCEPT for games that ship native Trueforce (Forza Motorsport
-                // 2023) — for those we default to "false" so our ep3 stream
+                // 2023), for those we default to "false" so our ep3 stream
                 // doesn't fight the game's own Trueforce path. Saved values
                 // always win over defaults so a user who explicitly enabled
                 // us for a native-TF game keeps that choice.
@@ -1149,18 +1166,20 @@ namespace TrueforceForAll.Plugin
                     }
                 }
                 _device?.ResetFfbFilters();
-                // New car — discard the previous car's auto-detected layout so
+                // New car, discard the previous car's auto-detected layout so
                 // the next resolver hit (or first telemetry frame) populates
                 // fresh.
                 if (EnginePulse != null)
                 {
                     EnginePulse.AutoLayout = null;
                     EnginePulse.AutoLayoutSource = null;
+                    EnginePulse.CatalogCyl = null;
+                    _activeCarDisplayName = null;
 
                     // Seed AutoLayout from baked lookup / heuristic for games
                     // that don't ship cylinder count in telemetry (AC, etc.).
                     // Forza populates NumCylinders directly each frame and
-                    // OnTelemetry converts that to AutoLayout — they agree on
+                    // OnTelemetry converts that to AutoLayout, they agree on
                     // any car in both lookups. The user's saved Layout
                     // (when not Auto) always wins via EffectiveLayout, so this
                     // is purely the auto-default cascade.
@@ -1169,10 +1188,13 @@ namespace TrueforceForAll.Plugin
                         EnginePulse.AutoLayout = Effects.FiringPatternDb.LayoutFromLegacy(
                             carSpec.Cylinders, carSpec.EngineConfig, carSpec.IsElectric);
                         EnginePulse.AutoLayoutSource = carSpec.Source;
+                        EnginePulse.CatalogCyl = carSpec.Cylinders;
+                        _activeCarDisplayName = carSpec.DisplayName;
                         SimHub.Logging.Current.Info(
                             $"[Trueforce] Car '{carId}' resolved: cyl={carSpec.Cylinders}, "
                             + $"electric={carSpec.IsElectric}, source={carSpec.Source}, "
-                            + $"engineConfig={carSpec.EngineConfig} ({carSpec.EngineConfigSource ?? "auto"})"
+                            + $"engineConfig={carSpec.EngineConfig} ({carSpec.EngineConfigSource ?? "auto"}), "
+                            + $"name={carSpec.DisplayName ?? "(none)"}"
                             + $" -> layout={EnginePulse.AutoLayout}");
                     }
                     else if (_telemetrySource?.ProvidesNumCylinders == true)
@@ -1187,7 +1209,7 @@ namespace TrueforceForAll.Plugin
                     else if (!string.IsNullOrEmpty(carId))
                     {
                         SimHub.Logging.Current.Info(
-                            $"[Trueforce] Car '{carId}' not auto-resolved — user can set engine layout manually.");
+                            $"[Trueforce] Car '{carId}' not auto-resolved, user can set engine layout manually.");
                     }
                 }
                 ApplyActiveCarOverride();
@@ -1205,6 +1227,19 @@ namespace TrueforceForAll.Plugin
                     && _gameNameBackfillDone.Add(_activeGame + "|" + _activeCarId))
                 {
                     BackfillGameNameForActiveCar();
+                }
+                // Similar one-shot per-car for DisplayName: rename legacy
+                // presets whose name was just the carId (e.g. "Car_424") into
+                // the friendlier resolver-provided name ("1997 Mazda RX-7").
+                // Gated on resolver having a DisplayName for this car so it
+                // doesn't fire for AC where carIds are already descriptive.
+                if (_carStore != null
+                    && !string.IsNullOrEmpty(_activeGame)
+                    && !string.IsNullOrEmpty(_activeCarId)
+                    && !string.IsNullOrEmpty(_activeCarDisplayName)
+                    && _displayNameBackfillDone.Add(_activeGame + "|" + _activeCarId))
+                {
+                    BackfillDisplayNameForActiveCar();
                 }
             }
 
@@ -1297,7 +1332,7 @@ namespace TrueforceForAll.Plugin
                 frame.MaxRpm    = _lastSimHubMaxRpm;
                 frame.AbsActive = _lastSimHubAbsActive;
                 // Only overlay PitLimiter/DRS when the enhanced source itself
-                // didn't populate them — preserves any future enhanced source
+                // didn't populate them, preserves any future enhanced source
                 // that does read them natively (e.g., a richer AC plugin
                 // reading the static page's pit-lane flags).
                 if (frame.PitLimiterActive == null) frame.PitLimiterActive = _lastSimHubPitLimiterActive;
@@ -1307,7 +1342,7 @@ namespace TrueforceForAll.Plugin
             // Universal collision derivation: if the source didn't populate
             // CollisionMagnitude (only PC2's opponent-collision signal does
             // directly), derive from a sudden three-axis accel spike.
-            // Threshold ≈ 5g (≈49 m/s²) — well above hard cornering
+            // Threshold ≈ 5g (≈49 m/s²), well above hard cornering
             // (~1.5-2g) and hard braking (~1g), squarely in "something hit
             // something" territory. Surge (longitudinal) catches head-on /
             // rear-end impacts; sway catches T-bones; heave catches hard
@@ -1349,7 +1384,7 @@ namespace TrueforceForAll.Plugin
         /// <summary>Polled from ProducerLoop. Once per RatchetWindowMs, snapshots
         /// the device + audio glitch counters and bumps the corresponding ring
         /// capacity if the per-window delta crossed RatchetThreshold. One-way
-        /// only — never shrinks. Survived capacities are persisted to Settings
+        /// only, never shrinks. Survived capacities are persisted to Settings
         /// so the user doesn't re-pay the discovery glitch cost next session.
         /// In Manual mode the ratchet is bypassed; user controls sizes directly.</summary>
         private void CheckAutoRatchet()
@@ -1367,7 +1402,7 @@ namespace TrueforceForAll.Plugin
 
             // Skip the very first tick (no baseline yet). Also seed the
             // last-underrun-seen timestamps to "now" so a session that
-            // starts clean has a real quiet-window anchor — without this,
+            // starts clean has a real quiet-window anchor, without this,
             // _tfLastUnderrunSeenTicks would stay 0 and the (now - 0)
             // arithmetic would falsely make every clean session look like
             // it had been quiet for the entire wall-clock since boot.
@@ -1396,7 +1431,7 @@ namespace TrueforceForAll.Plugin
             if (audioDelta > 0) _audioLastUnderrunSeenTicks = now;
 
             // ----- Ratchet UP -----
-            // Forza UDP exposes IsRaceOn — when paused / in menu / loading,
+            // Forza UDP exposes IsRaceOn, when paused / in menu / loading,
             // CPU spikes there don't reflect race-time conditions, so don't
             // bake a ratchet UP from them. Other sources don't have an
             // equivalent flag; SimHub's own GameRunning isn't precise enough
@@ -1868,7 +1903,7 @@ namespace TrueforceForAll.Plugin
             }
 
             // Filter the candidate list to skip the user's currently-configured
-            // port — we already know that one isn't receiving (received==0).
+            // port, we already know that one isn't receiving (received==0).
             var filtered = new List<int>(candidates.Length);
             foreach (int p in candidates) if (p != currentPort) filtered.Add(p);
             if (filtered.Count == 0) return;
@@ -1956,7 +1991,7 @@ namespace TrueforceForAll.Plugin
 
         // Build the forward endpoint used by ForzaUdpTelemetrySource.
         // Returns null when forwarding is disabled or the user's host/port is
-        // invalid — the source treats null as "don't forward." Hostname (vs
+        // invalid, the source treats null as "don't forward." Hostname (vs
         // IP) lookups go through Dns.GetHostAddresses so users can type
         // "localhost" or a NAS hostname; first resolved address wins.
         /// <summary>Same as BuildForzaForwardEndpoint, for the F1 forwarder.</summary>
@@ -2213,7 +2248,7 @@ namespace TrueforceForAll.Plugin
                 {
                     SimHub.Logging.Current.Info(
                         $"[Trueforce] Preset references custom engine Id '{s.CustomEngineId}' "
-                        + "that's no longer in the library — falling back to silence.");
+                        + "that's no longer in the library, falling back to silence.");
                 }
             }
             EnginePulse.ActiveCustomIsElectric = activeCustom != null && activeCustom.IsElectric;
@@ -2585,6 +2620,66 @@ namespace TrueforceForAll.Plugin
             }
         }
 
+        /// <summary>Rename presets whose PresetName equals the carId (the
+        /// historical default for newly-saved presets pre-DisplayName) to the
+        /// resolver-provided DisplayName. Idempotent — once the rename has
+        /// happened, subsequent invocations find PresetName != CarId and skip.
+        /// Updates CarDefaults so the pointer to the active preset stays
+        /// correct. Skips when the target DisplayName name already exists
+        /// (don't clobber a user-saved file with the same name).</summary>
+        private void BackfillDisplayNameForActiveCar()
+        {
+            string carId       = _activeCarId;
+            string displayName = _activeCarDisplayName;
+            if (string.IsNullOrEmpty(carId) || string.IsNullOrEmpty(displayName)) return;
+            // Equal names → nothing to do (e.g. AC carIds are already descriptive)
+            if (string.Equals(carId, displayName, StringComparison.OrdinalIgnoreCase)) return;
+            try
+            {
+                var loaded = _carStore.LoadAll();
+                if (!loaded.TryGetValue(carId, out var perCar)) return;
+                int rewritten = 0;
+                // Snapshot keys: we mutate the store inside the loop.
+                var names = new List<string>(perCar.Keys);
+                foreach (var oldName in names)
+                {
+                    var entry = perCar[oldName];
+                    if (entry == null || entry.IsBuiltin) continue;
+                    // Only rename when the user clearly never customized the
+                    // preset name. Heuristic: PresetName equals CarId.
+                    if (!string.Equals(entry.PresetName, carId, StringComparison.OrdinalIgnoreCase)) continue;
+                    // Don't clobber an existing different file at the target name
+                    if (_carStore.Exists(carId, displayName)) continue;
+                    // Save under new name (writes the new file) and delete the old.
+                    _carStore.Save(carId, displayName, _activeGame, entry.Override, isBuiltin: false);
+                    _carStore.Delete(carId, oldName);
+                    // Re-point CarDefaults if it pointed at the renamed preset.
+                    if (Settings?.CarDefaults != null
+                        && Settings.CarDefaults.TryGetValue(carId, out var ptr)
+                        && string.Equals(ptr, oldName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Settings.CarDefaults[carId] = displayName;
+                    }
+                    // If this was the currently-active preset name, update it
+                    // so the UI reflects the rename without needing a reload.
+                    if (string.Equals(_activePresetName, oldName, StringComparison.OrdinalIgnoreCase))
+                        _activePresetName = displayName;
+                    rewritten++;
+                }
+                if (rewritten > 0)
+                {
+                    this.SaveCommonSettings("GeneralSettings", Settings);
+                    SimHub.Logging.Current.Info(
+                        $"[Trueforce] Renamed {rewritten} preset(s) for car '{carId}' to '{displayName}'.");
+                }
+            }
+            catch (Exception ex)
+            {
+                SimHub.Logging.Current.Info(
+                    $"[Trueforce] BackfillDisplayNameForActiveCar('{_activeCarId}') failed: {ex.Message}");
+            }
+        }
+
         /// <summary>Pick the preset to load for a car. CarDefaults[carId]
         /// wins if it points at a real preset on disk; else fall back to the
         /// first built-in "(default)" preset for the car; else null (no
@@ -2925,14 +3020,14 @@ namespace TrueforceForAll.Plugin
         }
 
         /// <summary>True if the named preset is a built-in / read-only one.
-        /// Built-ins refuse delete and refuse in-place overwrite — the UI
+        /// Built-ins refuse delete and refuse in-place overwrite, the UI
         /// forks to a user-named preset instead.</summary>
         public bool IsBuiltinPreset(string presetName) => BuiltinPresets.IsBuiltin(presetName);
 
         /// <summary>One-time migration of legacy per-game presets (keyed by
         /// game name with no separate "preset library" concept) into the new
         /// model: each becomes a preset named after the game, and the game's
-        /// default is bound to it. Idempotent — runs once when GamePresets is
+        /// default is bound to it. Idempotent, runs once when GamePresets is
         /// non-empty and the new fields are still empty.</summary>
         private void MigrateLegacyGamePresets()
         {
@@ -3093,7 +3188,7 @@ namespace TrueforceForAll.Plugin
         /// <summary>True iff the current values for this section differ from
         /// the active preset's snapshot. False when there's no active preset
         /// (no anchor). Used by the UI to show/hide per-section "Save" /
-        /// "Revert" buttons based on actual drift, not on a sticky flag —
+        /// "Revert" buttons based on actual drift, not on a sticky flag
         /// so changing a value and changing it back clears the dirty state.</summary>
         public bool IsSectionDirty(SectionKind kind)
         {
@@ -3209,7 +3304,7 @@ namespace TrueforceForAll.Plugin
 
         // Tolerances match the UI's display precision so that two values
         // displayed as the same string (e.g. "0.07", "60", "0.0") count as
-        // equal — which is what users expect when they drag a slider away
+        // equal, which is what users expect when they drag a slider away
         // and back. Without these, slider-snap noise stays "dirty" forever.
         // Round both sides to the precision the UI shows, then exact-compare.
         // Distance-based epsilon was off by a factor of two at the F2 boundary
@@ -3627,7 +3722,7 @@ namespace TrueforceForAll.Plugin
 
         /// <summary>Snapshot the current settings into the library under the
         /// given name. Overwrites any existing preset with that name. Sets it
-        /// as the active preset. Refuses to overwrite built-in presets — the
+        /// as the active preset. Refuses to overwrite built-in presets, the
         /// UI must fork to a user-named preset for those.</summary>
         public void SavePresetAs(string presetName)
         {
@@ -3743,7 +3838,7 @@ namespace TrueforceForAll.Plugin
 
         /// <summary>Delete a preset from the library. Also clears any
         /// GameDefaults entries that pointed to this preset. Refuses on
-        /// built-in presets — they're factory defaults the user can always
+        /// built-in presets, they're factory defaults the user can always
         /// fall back to.</summary>
         public bool DeletePreset(string presetName)
         {
@@ -3892,7 +3987,7 @@ namespace TrueforceForAll.Plugin
 
         /// <summary>Exit offline edit mode by writing the in-memory edits
         /// back into the preset being edited. Built-ins refuse in-place
-        /// overwrite — caller falls back to <see cref="ExitOfflineEditSaveAs"/>
+        /// overwrite, caller falls back to <see cref="ExitOfflineEditSaveAs"/>
         /// for those. Returns false on the built-in case so the caller can
         /// prompt for a new name.</summary>
         public bool ExitOfflineEditSave()
@@ -3973,7 +4068,7 @@ namespace TrueforceForAll.Plugin
             // they live in <plugin data>/Cars/<carId>.tfcar.json files,
             // independent of the active preset. Switching presets doesn't
             // touch per-car tuning. Legacy snap.CarOverrides (from old
-            // saved presets) is intentionally ignored here — migration
+            // saved presets) is intentionally ignored here, migration
             // already extracted any useful data into per-car files.
 
             // Push live: master, FFB tap, audio, and effects (via car-override apply).
@@ -4026,7 +4121,7 @@ namespace TrueforceForAll.Plugin
 
         // ---------- single-preset export/import (sharing) ----------
 
-        /// <summary>Snapshot of the current top-level settings — used by
+        /// <summary>Snapshot of the current top-level settings, used by
         /// both "Save preset" and "Export preset". Per-car overrides are
         /// intentionally omitted: in Model G they live in per-car files
         /// independent of game presets, so applying a preset never touches
@@ -4055,7 +4150,7 @@ namespace TrueforceForAll.Plugin
                 PitLimiter              = Clone(Settings.PitLimiter),
                 Drs                     = Clone(Settings.Drs),
                 Collision               = Clone(Settings.Collision),
-                // CarOverrides intentionally omitted — per-car tuning is
+                // CarOverrides intentionally omitted, per-car tuning is
                 // managed via per-car .tfcar.json files post-Model-G.
             };
         }
@@ -4063,7 +4158,7 @@ namespace TrueforceForAll.Plugin
         /// <summary>Write a named preset (or the current settings if the name
         /// doesn't exist in the library yet) to a shareable JSON file. The
         /// file carries the preset name but no game binding. Metadata fields
-        /// (Author/Description/AuthorVersion) are optional — pass null to
+        /// (Author/Description/AuthorVersion) are optional, pass null to
         /// omit; the importer just won't surface them.</summary>
         public void ExportPreset(string presetName, string path,
             string author = null, string description = null, string authorVersion = null)
@@ -4097,7 +4192,7 @@ namespace TrueforceForAll.Plugin
 
         /// <summary>Read a preset file and store it in the library under the
         /// name embedded in the file. Does NOT auto-apply or auto-bind to a
-        /// game — the user explicitly chooses what to do with it next.
+        /// game, the user explicitly chooses what to do with it next.
         /// Returns a result struct with the imported name plus any author /
         /// description / version metadata in the file (all nullable).</summary>
         public ImportPresetResult ImportPreset(string path)
@@ -4176,7 +4271,7 @@ namespace TrueforceForAll.Plugin
             }
             // Carry the active preset name into the exported file so a
             // recipient sees what the author named it. IsBuiltin is forced
-            // false on export — only the plugin's bundled factory files are
+            // false on export, only the plugin's bundled factory files are
             // built-ins; an exported community preset is always user-tier.
             string presetName = GetActiveCarPresetName(_activeCarId) ?? _activeCarId;
             var file = new CarPresetFile
@@ -4252,7 +4347,7 @@ namespace TrueforceForAll.Plugin
             if (file.Type != CarPresetFile.FileType)
                 throw new System.IO.InvalidDataException($"Wrong file type '{file.Type}'. Expected '{CarPresetFile.FileType}'.");
 
-            // PresetName may be missing on legacy v1 imports — fall back to
+            // PresetName may be missing on legacy v1 imports, fall back to
             // the carId. IsBuiltin is force-cleared regardless of source.
             string desired = string.IsNullOrEmpty(file.PresetName) ? file.CarId : file.PresetName;
             string presetName = MakeUniqueCarPresetName(file.CarId, desired);
@@ -4623,7 +4718,7 @@ namespace TrueforceForAll.Plugin
         // Code (the "Custom_<guid>" string SimHub reports as data.GameName),
         // Name (the friendly name the user typed), and ProcessNames
         // (comma-separated exe basenames the user configured for detection).
-        // We pull the same data SimHub uses for game detection — the user
+        // We pull the same data SimHub uses for game detection, the user
         // doesn't have to configure their exe in two places.
         private sealed class CustomGameInfo
         {
@@ -4757,7 +4852,7 @@ namespace TrueforceForAll.Plugin
                     try { stillAlive = !_capturedProcess.HasExited; } catch { /* invalid handle */ }
                     if (stillAlive) return;
 
-                    // Process exited — tear down and fall through to the scan.
+                    // Process exited, tear down and fall through to the scan.
                     SimHub.Logging.Current.Info($"[Trueforce] Captured process {_capturedProcess.Id} exited; releasing.");
                     try { _capturedProcess.Dispose(); } catch { }
                     _capturedProcess = null;
@@ -4767,11 +4862,11 @@ namespace TrueforceForAll.Plugin
 
                 // Scan path: walk the process table once. Match priority:
                 //   1. Per-game user override (Settings.AudioCaptureExeOverrides)
-                //      — highest priority so users can fix any miss.
+                //     , highest priority so users can fix any miss.
                 //   2. Curated exe→label dict (known-quirky exes like ACC's
                 //      "AC2-Win64-Shipping" or AC's short "acs").
                 //   3. SimHub Custom-game ProcessNames (read from
-                //      CustomGames.json — same source SimHub uses for game
+                //      CustomGames.json, same source SimHub uses for game
                 //      detection, so the user only configures their exe once).
                 //   4. Fuzzy match against the active GameName (or the
                 //      Custom-game friendly Name) so non-custom games whose
@@ -4849,7 +4944,7 @@ namespace TrueforceForAll.Plugin
         // ---------- producer ----------
 
         // Float-space silence floor. Samples with |v| < this are zeroed so the
-        // u16 conversion produces exactly 0x8000 — TrueforceDevice's silence
+        // u16 conversion produces exactly 0x8000, TrueforceDevice's silence
         // detection requires exact-center samples to choose the keepalive packet
         // shape. ~3e-4 corresponds to ±10 LSB out of 32767, well below any
         // perceptible content but above floating-point noise.
@@ -4858,23 +4953,23 @@ namespace TrueforceForAll.Plugin
         // Sidechain ducking state. Three buses, all driven by max-activity
         // of relevant effects with the same depth/attack/release params:
         //
-        //   _duckSmoothed           — Bus 1. Driven by ALL transients +
+        //   _duckSmoothed          , Bus 1. Driven by ALL transients +
         //                             modal flags (RoadBumps, TractionLoss,
         //                             GearShift, AbsClick, PitLimiter, Drs).
         //                             Applied to EnginePulse + audio capture
         //                             so any "event" haptic ducks the
         //                             continuous background.
-        //   _duckSmoothedMomentary  — Bus 2. Truly-momentary transients only
-        //                             (RoadBumps, GearShift, AbsClick) —
+        //   _duckSmoothedMomentary , Bus 2. Truly-momentary transients only
+        //                             (RoadBumps, GearShift, AbsClick)
         //                             excludes the sustained ones.
         //                             Applied to TractionLoss so a sustained
         //                             slide doesn't drown out an ABS pump
         //                             or curb hit on top of it.
-        //   _duckSmoothedDrsSustained — Bus 3. Driven by the transients that
+        //   _duckSmoothedDrsSustained, Bus 3. Driven by the transients that
         //                             should override a held-DRS hum
         //                             (AbsClick, TractionLoss, GearShift).
         //                             Applied to DrsEffect.SustainedDuck-
-        //                             Multiplier — only the sustained tone;
+        //                             Multiplier, only the sustained tone;
         //                             the activation chirp ignores all
         //                             ducking by design (alert event).
         private float _duckSmoothed             = 1.0f;
@@ -4892,10 +4987,10 @@ namespace TrueforceForAll.Plugin
             if (PitLimiter   != null) maxAll = Math.Max(maxAll, PitLimiter.ActivityLevel);
             if (Drs          != null) maxAll = Math.Max(maxAll, Drs.ActivityLevel);
 
-            // Bus 2: truly-momentary transients only — excludes TractionLoss
+            // Bus 2: truly-momentary transients only, excludes TractionLoss
             // because a sustained slide is itself a "constant effect" relative
             // to the impulse-shaped events below. PitLimiter / Drs sustained
-            // are also excluded — they represent ongoing modes, not
+            // are also excluded, they represent ongoing modes, not
             // momentary events.
             double maxMomentary = 0;
             if (RoadBumps != null) maxMomentary = Math.Max(maxMomentary, RoadBumps.ActivityLevel);
@@ -4903,7 +4998,7 @@ namespace TrueforceForAll.Plugin
             if (AbsClick  != null) maxMomentary = Math.Max(maxMomentary, AbsClick.ActivityLevel);
 
             // Bus 3: drives DRS sustained ducking. ABS pumps, traction loss,
-            // gear shifts all happen "on top of" a held DRS — those
+            // gear shifts all happen "on top of" a held DRS, those
             // signals matter more in the moment than the DRS hum, so we
             // duck the hum to make room for them.
             double maxDrsTransient = 0;
@@ -4915,7 +5010,7 @@ namespace TrueforceForAll.Plugin
             float attackMs  = Settings?.DuckAttackMs  ?? 5.0f;
             float releaseMs = Settings?.DuckReleaseMs ?? 80.0f;
 
-            // IIR with attack-or-release time constant (dt ≈ 1 ms — producer
+            // IIR with attack-or-release time constant (dt ≈ 1 ms, producer
             // pushes ~1 batch per ms). alpha = 1 - exp(-dt/tau).
             float targetAll          = (float)Math.Max(0.0, 1.0 - depth * maxAll);
             float targetMomentary    = (float)Math.Max(0.0, 1.0 - depth * maxMomentary);
@@ -5109,7 +5204,43 @@ namespace TrueforceForAll.Plugin
             };
             if (_hidWheelVid != 0 || _hidWheelPid != 0)
                 _ffbTap.SetHidDiscoveredWheel(_hidWheelVid, _hidWheelPid);
+            ApplyUsbBytesLoggingSetting();
             return _ffbTap.Start();
+        }
+
+        // Returns the path where usb-trace.bin should live: alongside SimHub's
+        // log dir, so the Export Logs zip picks it up next to the .txt logs
+        // without any additional plumbing. Computed from the host process
+        // path rather than our assembly path because we live in PluginsData
+        // but SimHub's log dir is at the install root.
+        public static string GetUsbTraceLogPath()
+        {
+            string simHubRoot = System.IO.Path.GetDirectoryName(
+                System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName);
+            return System.IO.Path.Combine(simHubRoot, "usb-trace.bin");
+        }
+
+        // Apply the persisted LogUsbBytesEnabled flag to the live FFB tap.
+        // Called after each tap (re)start and from the Diagnostics toggle
+        // handler. Idempotent and safe on a null tap.
+        public void ApplyUsbBytesLoggingSetting()
+        {
+            if (_ffbTap == null) return;
+            bool enabled = Settings?.LogUsbBytesEnabled ?? false;
+            _ffbTap.SetRawPacketLogPath(enabled ? GetUsbTraceLogPath() : null);
+        }
+
+        // Toggle the raw USB packet log. Persists the new state and applies
+        // it to the live tap immediately. Called from the Diagnostics
+        // checkbox in SettingsControl.
+        public void SetUsbBytesLoggingEnabled(bool enabled)
+        {
+            if (Settings == null) return;
+            if (Settings.LogUsbBytesEnabled == enabled) return;
+            Settings.LogUsbBytesEnabled = enabled;
+            try { this.SaveCommonSettings("GeneralSettings", Settings); } catch { }
+            ApplyUsbBytesLoggingSetting();
+            SimHub.Logging.Current.Info($"[Trueforce] USB byte logging {(enabled ? "enabled" : "disabled")}.");
         }
 
         // Launches the bundled USBPcap installer (silent /S, elevated). Called

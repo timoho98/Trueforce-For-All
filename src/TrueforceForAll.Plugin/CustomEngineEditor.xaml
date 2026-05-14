@@ -91,7 +91,7 @@
         <Grid Grid.Row="6" x:Name="ElectricBehaviorRow" Margin="0,0,0,8" Visibility="Collapsed">
             <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
             <TextBlock Grid.Column="0" Text="Behavior:" Style="{StaticResource LabelText}"
-                       ToolTip="Muted hum keeps the firing-frequency tone at half amplitude (real EVs aren't silent — many pump synthetic sound). Silent fully mutes the engine effect for this car."/>
+                       ToolTip="Muted hum keeps the firing-frequency tone at half amplitude (real EVs aren't silent, many pump synthetic sound). Silent fully mutes the engine effect for this car."/>
             <ComboBox Grid.Column="1" x:Name="ElectricBehaviorCombo">
                 <ComboBoxItem Content="Muted hum (50%)"/>
                 <ComboBoxItem Content="Silent (off)"/>

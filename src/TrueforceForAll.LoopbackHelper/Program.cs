@@ -49,7 +49,7 @@ var pidBuf = new byte[4];
 while (true)
 {
     int got = ReadFull(stdin, pidBuf, 4);
-    if (got < 4) break;  // EOF — parent closed stdin
+    if (got < 4) break;  // EOF, parent closed stdin
     uint pid = (uint)pidBuf[0] | ((uint)pidBuf[1] << 8) | ((uint)pidBuf[2] << 16) | ((uint)pidBuf[3] << 24);
 
     try { current?.Dispose(); } catch { }

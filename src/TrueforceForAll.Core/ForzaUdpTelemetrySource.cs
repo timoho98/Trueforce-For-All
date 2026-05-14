@@ -2,7 +2,7 @@
 // the binary packets Forza Horizon 5 / Forza Motorsport (2023) emit when the
 // user enables UDP RACE TELEMETRY in Settings → HUD and Gameplay.
 //
-// Forza emits ~60 Hz, so the rate is the same as the SimHub fallback — the
+// Forza emits ~60 Hz, so the rate is the same as the SimHub fallback, the
 // reason this source is "enhanced" is the per-tire data Forza exposes that
 // SimHub's StatusDataBase doesn't surface: SurfaceRumble[4] (the same channel
 // Turn 10's own Trueforce path consumes), WheelOnRumbleStrip[4] for kerb
@@ -12,7 +12,7 @@
 // Packet layout (little-endian, FM7-compatible "Sled" + Horizon-Dash for
 // FH4/5; offsets verified against the Forza Motorsport Data Out docs):
 //
-//   Sled (0..231) — present in every Forza title:
+//   Sled (0..231), present in every Forza title:
 //     0   IsRaceOn           int32  (0 = paused / menu / cutscene)
 //     8   EngineMaxRpm       float32
 //     16  CurrentEngineRpm   float32
@@ -26,16 +26,16 @@
 //     180 TireCombinedSlip[4] float32×4
 //     228 NumCylinders       int32
 //
-//   Horizon insert (232..243) — 12 bytes Microsoft hasn't documented; skipped.
+//   Horizon insert (232..243), 12 bytes Microsoft hasn't documented; skipped.
 //
-//   Dash (244..end on Horizon, 232..end on Motorsport — we only handle the
+//   Dash (244..end on Horizon, 232..end on Motorsport, we only handle the
 //   Horizon-shape here since our target is FH5/FH6):
 //     256 Speed              float32  (m/s)
 //     315 Accel              uint8    (throttle, 0..255)
 //     316 Brake              uint8    (0..255)
 //     319 Gear               uint8    (0=R, 1=N, 2..n=fwd)
 //
-// IsRaceOn handling: in FH4/FH5 this flag is 1 during freeroam too — it's
+// IsRaceOn handling: in FH4/FH5 this flag is 1 during freeroam too, it's
 // just "is the player driving" despite the name. We emit on every received
 // packet regardless of the flag, but zero engine/slip/grip channels when
 // IsRaceOn=0 so effects decay to silence during pause/menu instead of
@@ -212,7 +212,7 @@ namespace TrueforceForAll.Core
                 catch (Exception)
                 {
                     if (_stopping) return;
-                    // Unexpected — back off briefly so we don't busy-loop on
+                    // Unexpected, back off briefly so we don't busy-loop on
                     // a permanent error (e.g. socket torn down externally).
                     Thread.Sleep(50);
                     continue;
@@ -221,7 +221,7 @@ namespace TrueforceForAll.Core
                 if (len < MinSledLength) continue;
 
                 // Forward FIRST so a parse error in our pipeline can't strand
-                // SimHub without telemetry. Forward is fire-and-forget UDP —
+                // SimHub without telemetry. Forward is fire-and-forget UDP
                 // we don't care if the target listener exists.
                 if (_forwardSocket != null && _forwardTo != null)
                 {
@@ -372,8 +372,8 @@ namespace TrueforceForAll.Core
 
         /// <summary>Cheap shape check used by UdpPortScanner: packet length
         /// matches one of the known Forza Data Out sizes. Forza ships three
-        /// sizes — Sled-only (FM7), Sled + Horizon-Dash (FH4/FH5), and
-        /// Sled + Motorsport-Dash (FM2023) — so we accept any of them. The
+        /// sizes, Sled-only (FM7), Sled + Horizon-Dash (FH4/FH5), and
+        /// Sled + Motorsport-Dash (FM2023), so we accept any of them. The
         /// length match is a strong enough signal for discovery; random
         /// UDP traffic won't be exactly 232/311/324 bytes by chance.</summary>
         public static bool IsValidPacketCandidate(byte[] buf, int len)
