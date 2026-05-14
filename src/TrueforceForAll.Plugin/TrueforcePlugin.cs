@@ -5208,16 +5208,17 @@ namespace TrueforceForAll.Plugin
             return _ffbTap.Start();
         }
 
-        // Returns the path where usb-trace.bin should live: alongside SimHub's
-        // log dir, so the Export Logs zip picks it up next to the .txt logs
-        // without any additional plumbing. Computed from the host process
-        // path rather than our assembly path because we live in PluginsData
-        // but SimHub's log dir is at the install root.
+        // Returns the path where usb-trace.pcap should live: alongside
+        // SimHub's log dir, so the Export Logs zip picks it up next to the
+        // .txt logs without any additional plumbing. Computed from the host
+        // process path rather than our assembly path because we live in
+        // PluginsData but SimHub's log dir is at the install root. Written
+        // as a real pcap with DLT_USBPCAP so Wireshark opens it directly.
         public static string GetUsbTraceLogPath()
         {
             string simHubRoot = System.IO.Path.GetDirectoryName(
                 System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName);
-            return System.IO.Path.Combine(simHubRoot, "usb-trace.bin");
+            return System.IO.Path.Combine(simHubRoot, "usb-trace.pcap");
         }
 
         // Apply the persisted LogUsbBytesEnabled flag to the live FFB tap.

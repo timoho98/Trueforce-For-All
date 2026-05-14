@@ -1850,17 +1850,20 @@
                         <TextBlock Grid.Row="4" Grid.Column="0" Text="Active sources:" Style="{StaticResource LabelText}" Margin="0,4,0,0"/>
                         <TextBlock Grid.Row="4" Grid.Column="1" x:Name="VoicesText" Text="0" Margin="0,4,0,0"/>
                         <!-- Raw USB packet logging. Off by default. When on,
-                             every Set_Report on the wheel's USB address is
-                             appended to usb-trace.bin alongside SimHub's logs
-                             so support can analyze the actual bus traffic. The
-                             Export Logs button bundles the trace if it exists.
-                             File caps at 50 MB; toggle off and on to reset. -->
+                             every OUT transfer (host → wheel) on every
+                             endpoint is captured to usb-trace.pcap alongside
+                             SimHub's logs, in real pcap format so Wireshark
+                             with USBPcap opens it directly. Export Logs
+                             bundles the trace when present. Caps at 50 MB;
+                             toggle off + on to reset. Wider than ep0 only so
+                             FFB protocols on non-control endpoints are
+                             visible too (some Logitech wheels use ep1 OUT). -->
                         <CheckBox Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="2"
                                   x:Name="LogUsbBytesCheck"
                                   Margin="0,12,0,0"
-                                  Content="Log raw USB FFB packets to usb-trace.bin (for support)"
+                                  Content="Log raw USB FFB packets to usb-trace.pcap (for support)"
                                   Checked="LogUsbBytes_Changed" Unchecked="LogUsbBytes_Changed"
-                                  ToolTip="Off by default. When on, writes USB Set_Report bytes from your wheel's address to a usb-trace.bin file alongside SimHub's logs. Use only when support asks for it: the file grows ~2 KB/sec during active FFB. Capped at 50 MB; toggle off and on to reset."/>
+                                  ToolTip="Off by default. When on, captures every USB OUT transfer to your wheel (any endpoint, any transfer type) as a pcap file alongside SimHub's logs. Open in Wireshark with USBPcap. Use only when support asks for it: the file grows several KB/sec during active FFB. Capped at 50 MB; toggle off and on to reset."/>
                     </Grid>
                 </Expander>
             </StackPanel>

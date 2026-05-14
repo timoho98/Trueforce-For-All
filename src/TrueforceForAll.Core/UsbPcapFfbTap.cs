@@ -95,16 +95,33 @@ namespace TrueforceForAll.Core
         public long FfbSamplesCaptured { get; private set; }
 
         // Diagnostic counters. Written only by the parser thread; read by any
-        // thread via property getters. Used to triage cases where the tap is
-        // running but FFB pass-through still feels broken, are we seeing
-        // packets, are they reaching ep0 control, are they Set_Reports, and
-        // which (reportId, featIdx, funcHi) tuples is the game actually
-        // sending? Critical for wheels where the HID++ FFB protocol differs
-        // from AC's known pattern (Logitech RS50 reportedly differs).
+        // thread via property getters. Triage tool for the case where the tap
+        // is running but FFB pass-through still feels broken: tells us which
+        // endpoint(s) and transfer type(s) the game is actually using.
+        // Critical for wheels where the HID++ FFB protocol differs from AC's
+        // known pattern (Logitech RS50 reportedly differs).
         public long PacketsForOurDevice { get; private set; }
         public long ControlTransfersOnOurDevice { get; private set; }
         public long Ep0ControlTransfersOnOurDevice { get; private set; }
         public long SetReportsOnOurDevice { get; private set; }
+
+        // OUT-direction counters (host → wheel). Per-transfer-type and
+        // per-endpoint breakdown. If the wheel's game protocol uses a
+        // non-ep0 / non-control transport, the parser-match counters above
+        // stay at zero but these tell us where to look.
+        // Indices for transfer types: 0=Iso, 1=Interrupt, 2=Control, 3=Bulk.
+        private readonly long[] _outTransferTypeCounts = new long[4];
+        private readonly long[] _outEndpointCounts     = new long[16];
+        public long IsoOutOnOurDevice       => _outTransferTypeCounts[0];
+        public long InterruptOutOnOurDevice => _outTransferTypeCounts[1];
+        public long ControlOutOnOurDevice   => _outTransferTypeCounts[2];
+        public long BulkOutOnOurDevice      => _outTransferTypeCounts[3];
+        public long[] SnapshotOutEndpointCounts()
+        {
+            var snap = new long[16];
+            Array.Copy(_outEndpointCounts, snap, 16);
+            return snap;
+        }
 
         // (reportId << 16) | (featIdx << 8) | (funcByte & 0xf0) → count of
         // Set_Reports observed with that triplet. Surfaces the actual HID++
@@ -122,16 +139,26 @@ namespace TrueforceForAll.Core
         }
 
         // Optional file path for raw-packet logging. When non-null, the parser
-        // appends every Set_Report on the wheel's device address to this file
-        // for offline analysis. Off by default; toggled via the Diagnostics
-        // panel and explicitly opt-in because the file can grow quickly
-        // (~2-3 KB/sec of active FFB) and ships USB bus traffic with logs.
+        // writes a real pcap file (DLT_USBPCAP, magic 0xa1b2c3d4) containing
+        // every OUT transfer to the wheel's device address, regardless of
+        // endpoint or transfer type. Off by default; toggled via the
+        // Diagnostics panel and explicitly opt-in because the file can grow
+        // quickly (~2-3 KB/sec of active FFB) and ships USB bus traffic with
+        // logs. Wireshark opens the trace directly: install USBPcap and
+        // drag-drop the .pcap.
+        //
+        // Why pcap rather than a custom binary: third-party tools (Wireshark)
+        // already decode every USBPcap field for us, so we don't have to ship
+        // or document a parser. Recipient can sort packets, filter by
+        // endpoint, decode HID++ payloads without writing code.
+        //
         // Set once at construction or via SetRawPacketLogPath; the parser
-        // reads it through Volatile so changes take effect at the next packet.
+        // re-reads it on each packet so toggle takes effect quickly.
         private string _rawLogPath;
         private FileStream _rawLogStream;
         private long _rawLogBytesWritten;
         private const long RawLogMaxBytes = 50L * 1024 * 1024; // 50 MB safety cap
+        private static readonly DateTime UnixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         public void SetRawPacketLogPath(string path)
         {
@@ -394,6 +421,20 @@ namespace TrueforceForAll.Core
                 byte xfer    = payload[22];
                 if (dev != _deviceAddress) continue;
                 PacketsForOurDevice++;
+
+                // Per-direction / per-transfer-type / per-endpoint breakdown.
+                // OUT direction is the host writing to the wheel (FFB and our
+                // Trueforce stream live here). The bit 7 of the endpoint byte
+                // is direction (0=OUT, 1=IN); low 4 bits are endpoint number.
+                bool isOut = (ep & 0x80) == 0;
+                int epNum  = ep & 0x0f;
+                if (isOut)
+                {
+                    if (xfer < _outTransferTypeCounts.Length) _outTransferTypeCounts[xfer]++;
+                    _outEndpointCounts[epNum]++;
+                    MaybeLogPcap(rh, payload, caplen);
+                }
+
                 MaybeEmitDiagnostics();
                 if (xfer != 0x02) continue;             // control transfer
                 ControlTransfersOnOurDevice++;
@@ -419,7 +460,6 @@ namespace TrueforceForAll.Core
                 byte featIdx  = payload[dataOffset + 2];
                 byte funcByte = payload[dataOffset + 3];
                 RecordTupleSeen(reportId, featIdx, funcByte);
-                MaybeLogRawPacket(payload, dataOffset, dataLen);
 
                 // AC's FFB: feature 0x0e long form, function 2 (high nibble of funcByte).
                 // FFB target = signed int16, big-endian, at offset 10-11 of the HID++ payload.
@@ -477,17 +517,29 @@ namespace TrueforceForAll.Core
                     tuples = string.Join(" ", parts);
                 }
             }
-            Log($"FFB tap diag: packets={PacketsForOurDevice} ctrl={ControlTransfersOnOurDevice} " +
+            // Build the OUT-endpoint histogram (only emit non-zero slots so
+            // the line stays readable when one endpoint dominates).
+            var epOut = new List<string>();
+            for (int i = 0; i < _outEndpointCounts.Length; i++)
+                if (_outEndpointCounts[i] > 0) epOut.Add($"ep{i}={_outEndpointCounts[i]}");
+
+            Log($"FFB tap diag: packets={PacketsForOurDevice} " +
+                $"out_ctrl={ControlOutOnOurDevice} out_int={InterruptOutOnOurDevice} " +
+                $"out_bulk={BulkOutOnOurDevice} out_iso={IsoOutOnOurDevice} " +
+                $"out_by_ep=[{string.Join(" ", epOut)}] " +
                 $"ep0ctrl={Ep0ControlTransfersOnOurDevice} setrep={SetReportsOnOurDevice} " +
                 $"matched={FfbSamplesCaptured} tuples=[{tuples}]" +
-                (_rawLogStream != null ? $" rawlog={RawLogBytesWritten}b" : ""));
+                (_rawLogStream != null ? $" trace={RawLogBytesWritten}b" : ""));
         }
 
-        // Write one Set_Report's data bytes to the raw-log file. Format:
-        // [8 bytes LE: stopwatch ms timestamp][2 bytes LE: length][bytes].
-        // Bounded by RawLogMaxBytes; once exceeded we stop writing and log
-        // a one-time warning so the user knows to disable the toggle.
-        private void MaybeLogRawPacket(byte[] payload, int offset, int len)
+        // Append one packet to the pcap trace. Wireshark (with USBPcap)
+        // opens the file directly because we write a real DLT_USBPCAP pcap
+        // stream: 24-byte global header on first packet, then per-packet
+        // 16-byte record headers + the full pseudo-header + payload that
+        // USBPcap originally emitted. Wall-clock timestamps so the recipient
+        // sees real times in Wireshark instead of stopwatch ticks. Bounded by
+        // RawLogMaxBytes; once hit, we close and warn one time.
+        private void MaybeLogPcap(byte[] _, byte[] payload, int caplen)
         {
             string path = _rawLogPath;
             if (path == null)
@@ -499,20 +551,24 @@ namespace TrueforceForAll.Core
             {
                 try
                 {
-                    _rawLogStream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read);
-                    _rawLogBytesWritten = _rawLogStream.Length;
-                    Log($"FFB tap: raw packet log opened at {path}");
+                    // Create (truncate). Each enable starts a fresh trace,
+                    // and the global header below assumes byte 0 of the
+                    // file is the magic.
+                    _rawLogStream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
+                    WritePcapGlobalHeader(_rawLogStream);
+                    _rawLogBytesWritten = 24;
+                    Log($"FFB tap: pcap trace opened at {path} (Wireshark + USBPcap dissector).");
                 }
                 catch (Exception ex)
                 {
-                    Log($"FFB tap: failed to open raw log {path}: {ex.Message}");
+                    Log($"FFB tap: failed to open pcap trace {path}: {ex.Message}");
                     _rawLogPath = null;
                     return;
                 }
             }
             if (_rawLogBytesWritten >= RawLogMaxBytes)
             {
-                Log($"FFB tap: raw packet log hit {RawLogMaxBytes / (1024 * 1024)} MB cap; disabling. " +
+                Log($"FFB tap: pcap trace hit {RawLogMaxBytes / (1024 * 1024)} MB cap; disabling. " +
                     "Toggle off and on in Diagnostics to reset.");
                 CloseRawLog();
                 _rawLogPath = null;
@@ -520,22 +576,53 @@ namespace TrueforceForAll.Core
             }
             try
             {
-                long ts = _sw.ElapsedMilliseconds;
-                byte[] hdr = new byte[10];
-                hdr[0] = (byte)(ts);       hdr[1] = (byte)(ts >> 8);
-                hdr[2] = (byte)(ts >> 16); hdr[3] = (byte)(ts >> 24);
-                hdr[4] = (byte)(ts >> 32); hdr[5] = (byte)(ts >> 40);
-                hdr[6] = (byte)(ts >> 48); hdr[7] = (byte)(ts >> 56);
-                hdr[8] = (byte)(len);      hdr[9] = (byte)(len >> 8);
-                _rawLogStream.Write(hdr, 0, hdr.Length);
-                _rawLogStream.Write(payload, offset, len);
-                Interlocked.Add(ref _rawLogBytesWritten, hdr.Length + len);
+                DateTime now = DateTime.UtcNow;
+                long delta = (now - UnixEpoch).Ticks;
+                uint secs  = (uint)(delta / TimeSpan.TicksPerSecond);
+                uint usecs = (uint)((delta % TimeSpan.TicksPerSecond) / 10); // 1 tick = 100 ns
+                byte[] rec = new byte[16];
+                WriteUint32Le(rec, 0,  secs);
+                WriteUint32Le(rec, 4,  usecs);
+                WriteUint32Le(rec, 8,  (uint)caplen);  // captured length
+                WriteUint32Le(rec, 12, (uint)caplen);  // original length (same; we don't truncate)
+                _rawLogStream.Write(rec, 0, rec.Length);
+                _rawLogStream.Write(payload, 0, caplen);
+                Interlocked.Add(ref _rawLogBytesWritten, rec.Length + caplen);
             }
             catch (Exception ex)
             {
-                Log($"FFB tap: raw log write failed: {ex.Message}");
+                Log($"FFB tap: pcap trace write failed: {ex.Message}");
                 CloseRawLog();
             }
+        }
+
+        private static void WritePcapGlobalHeader(Stream s)
+        {
+            // pcap "classic" global header. Wireshark recognizes DLT_USBPCAP
+            // (linktype 249) so the USBPcap dissector kicks in automatically.
+            byte[] gh = new byte[24];
+            WriteUint32Le(gh, 0,  0xa1b2c3d4); // magic_number
+            WriteUint16Le(gh, 4,  2);          // version_major
+            WriteUint16Le(gh, 6,  4);          // version_minor
+            WriteInt32Le (gh, 8,  0);          // thiszone (UTC)
+            WriteUint32Le(gh, 12, 0);          // sigfigs
+            WriteUint32Le(gh, 16, 65535);      // snaplen
+            WriteUint32Le(gh, 20, 249);        // network = DLT_USBPCAP
+            s.Write(gh, 0, gh.Length);
+        }
+
+        private static void WriteUint32Le(byte[] buf, int offset, uint v)
+        {
+            buf[offset + 0] = (byte)(v);
+            buf[offset + 1] = (byte)(v >> 8);
+            buf[offset + 2] = (byte)(v >> 16);
+            buf[offset + 3] = (byte)(v >> 24);
+        }
+        private static void WriteInt32Le(byte[] buf, int offset, int v) => WriteUint32Le(buf, offset, (uint)v);
+        private static void WriteUint16Le(byte[] buf, int offset, ushort v)
+        {
+            buf[offset + 0] = (byte)(v);
+            buf[offset + 1] = (byte)(v >> 8);
         }
 
         private void CloseRawLog()

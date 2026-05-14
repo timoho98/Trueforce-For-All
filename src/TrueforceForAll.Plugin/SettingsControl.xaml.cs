@@ -1894,14 +1894,14 @@ namespace TrueforceForAll.Plugin
                         try { AddFileToZip(zip, settings, "Trueforce-settings.json"); } catch { }
                     }
                     // Opt-in raw USB packet trace. Only present when the user
-                    // explicitly enabled the Diagnostics toggle. Bundled with
-                    // the same zip as the rest of the logs so support gets
-                    // everything in one attachment.
+                    // explicitly enabled the Diagnostics toggle. Real pcap
+                    // file with USBPcap link type; bundled into the zip so
+                    // support can open it with Wireshark + USBPcap dissector.
                     string usbTrace = TrueforcePlugin.GetUsbTraceLogPath();
                     if (System.IO.File.Exists(usbTrace))
                     {
-                        try { AddFileToZip(zip, usbTrace, "usb-trace.bin"); }
-                        catch (Exception ex) { TryAddNoteToZip(zip, "usb-trace.bin.error.txt", ex.Message); }
+                        try { AddFileToZip(zip, usbTrace, "usb-trace.pcap"); }
+                        catch (Exception ex) { TryAddNoteToZip(zip, "usb-trace.pcap.error.txt", ex.Message); }
                     }
                     // Mini context manifest so support knows what version
                     // generated the zip without unpacking everything.
