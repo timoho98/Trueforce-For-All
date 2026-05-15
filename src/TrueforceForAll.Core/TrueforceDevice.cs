@@ -146,6 +146,15 @@ namespace TrueforceForAll.Core
         // via the AC built-in preset, or by the user via the UI checkbox.
         public bool FfbSpikeTamingEnabled { get; set; } = false;
 
+        // Algorithm switch (A/B experiment, will likely collapse to a single
+        // path once one wins). True = pure slew-rate limiter (iRacing's
+        // approach: cap dV/dt, no amplitude reduction). False = transient
+        // detector that compares post-scale |t| against a slow-follower
+        // envelope and soft-caps the excess. FfbSpikeMaxLsbPerMs is read as
+        // an LSB/ms rate in slew mode, or an LSB magnitude threshold in
+        // transient mode. FfbPeakSoftLimitLsb is only used by transient mode.
+        public bool FfbSpikeUseSlewLimiter { get; set; } = true;
+
         // Slew-rate limit (LSB per ms) applied to the captured FFB target
         // BEFORE the smoothing IIR. Caps how fast the input can change in
         // either direction, so a sudden curb hit (which AC sends as a single
@@ -207,6 +216,20 @@ namespace TrueforceForAll.Core
         private float _sumDeltas;
         private float _sumAbsDeltas;
         private float _spikeSlewEnv;
+
+        // Slow-follower envelope of |t| (post-scale FFB magnitude). Drives
+        // the transient detector for spike attenuation: only the excess of
+        // current magnitude OVER this envelope counts as a spike, so
+        // sustained heavy cornering (envelope catches up) passes through
+        // unattenuated, while sudden jumps (envelope lags) get capped.
+        // 200ms time constant: fast enough to track corner-to-corner
+        // load changes (multi-second timescale), slow enough that crash
+        // impacts (~50-100ms) don't pull the envelope up before the cap
+        // engages. Same TC for attack and release for simplicity.
+        private const float SustainedFfbTimeConstantMs = 200f;
+        private static readonly float SustainedFfbAlpha =
+            1f / (SustainedFfbTimeConstantMs + 1f);
+        private float _sustainedFfbEnv;
 
         // Force-active override. When the deadline is in the future, StreamTick
         // emits active packets even if the FFB tap is stale, so the settings
@@ -367,6 +390,7 @@ namespace TrueforceForAll.Core
             _sumDeltas       = 0f;
             _sumAbsDeltas    = 0f;
             _spikeSlewEnv    = 0f;
+            _sustainedFfbEnv = 0f;
         }
 
         // Protocol-level mode commands. Per mescon's protocol doc:
@@ -634,12 +658,12 @@ namespace TrueforceForAll.Core
                         _spikeSlewEnv *= SpikeEnvDecayPerTick;
                     }
 
-                    // Slew-rate limit: caps the input step a curb hit can
-                    // produce. Smoothing afterwards turns the clamped step
-                    // into a soft ramp, so a violent AC curb impact lands as
-                    // a firm shove instead of a wheel-yank. Bypassed when the
-                    // spike-taming gate is off, regardless of stored value.
-                    float maxDelta = FfbSpikeTamingEnabled ? FfbSpikeMaxLsbPerMs : 0f;
+                    // Slew-rate clamp (iRacing-style). Caps how fast the
+                    // input can change per tick; preserves peak amplitude
+                    // because the wheel still reaches the target value,
+                    // just over a few extra ms. Only active in slew mode.
+                    bool useSlew = FfbSpikeTamingEnabled && FfbSpikeUseSlewLimiter;
+                    float maxDelta = useSlew ? FfbSpikeMaxLsbPerMs : 0f;
                     if (maxDelta > 0f)
                     {
                         float delta = raw - _slewLimitedFfb;
@@ -667,22 +691,39 @@ namespace TrueforceForAll.Core
                     if (FfbInvertSign) t = -t;
                     if (FfbScale != 1.0f) t = (int)(t * FfbScale);
 
-                    // Multiplicative spike attenuation. Triggers when the
-                    // peak-followed slew envelope exceeds SpikeSlewThreshold
-                    //, anything below is normal cornering / steering input
-                    // and passes through at full amp. Above threshold,
-                    // factor = cap / (cap + slewExcess) asymptotes to 0 as
-                    // slew grows; lower cap = stronger attenuation per LSB
-                    // of slew excess. The env's slow decay extends the
-                    // attenuation window for ~200-300 ms after a spike, so
-                    // both the rise and AC's sustained "elevated force"
-                    // phase are attenuated.
-                    float spikeCap = FfbSpikeTamingEnabled ? FfbPeakSoftLimitLsb : 0f;
-                    if (spikeCap > 0f && _spikeSlewEnv > SpikeSlewThresholdLsbPerMs)
+                    // Transient-detector soft ceiling. Tracks a slow-follower
+                    // envelope of |t| (200ms TC) and treats only the excess
+                    // of current magnitude over the envelope as a spike.
+                    // Sustained heavy cornering (envelope catches up within
+                    // ~half a second) passes through at full amplitude;
+                    // sudden jumps (crash, big hit) blow past the envelope
+                    // and trigger attenuation.
+                    //
+                    // Baseline floor is max(threshold, envelope): even if
+                    // envelope is low, attenuation only engages once |t|
+                    // exceeds the user-set threshold, so small-magnitude
+                    // transients (light bumps) pass through unaffected.
+                    //
+                    // softExcess = cap * magExcess / (cap + magExcess) is a
+                    // standard soft-knee: at magExcess = cap, softExcess =
+                    // cap/2; asymptotes to cap as the spike grows. Output
+                    // ceiling = baseline + softExcess, so peak FFB during a
+                    // big crash asymptotes toward baseline + cap.
+                    bool useTransient = FfbSpikeTamingEnabled && !FfbSpikeUseSlewLimiter;
+                    float spikeCap = useTransient ? FfbPeakSoftLimitLsb : 0f;
+                    float magThreshold = useTransient ? FfbSpikeMaxLsbPerMs : 0f;
+                    int absT = t < 0 ? -t : t;
+                    _sustainedFfbEnv += (absT - _sustainedFfbEnv) * SustainedFfbAlpha;
+                    if (spikeCap > 0f && magThreshold > 0f)
                     {
-                        float slewExcess = _spikeSlewEnv - SpikeSlewThresholdLsbPerMs;
-                        float factor = spikeCap / (spikeCap + slewExcess);
-                        t = (int)(t * factor);
+                        float baseline = magThreshold > _sustainedFfbEnv ? magThreshold : _sustainedFfbEnv;
+                        if (absT > baseline)
+                        {
+                            float magExcess = absT - baseline;
+                            float softExcess = spikeCap * magExcess / (spikeCap + magExcess);
+                            float factor = (baseline + softExcess) / absT;
+                            t = (int)(t * factor);
+                        }
                     }
 
                     if (t >  32767) t =  32767;

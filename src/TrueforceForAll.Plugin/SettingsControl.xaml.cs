@@ -175,7 +175,8 @@ namespace TrueforceForAll.Plugin
                     LogUsbBytesCheck.IsChecked = _plugin.Settings?.LogUsbBytesEnabled ?? false;
                 FfbSmoothSlider.Value  = _plugin.Settings?.FfbSmoothTimeConstantMs ?? 0.0;
                 FfbSmoothText.Text     = FfbSmoothSlider.Value.ToString("F1");
-                SpikeTamingEnabledCheck.IsChecked = _plugin.Settings?.FfbSpikeTamingEnabled ?? false;
+                SpikeTamingEnabledCheck.IsChecked  = _plugin.Settings?.FfbSpikeTamingEnabled  ?? false;
+                SpikeUseSlewLimiterCheck.IsChecked = _plugin.Settings?.FfbSpikeUseSlewLimiter ?? true;
                 FfbSpikeLimitSlider.Value = _plugin.Settings?.FfbSpikeMaxLsbPerMs ?? 0.0;
                 FfbSpikeLimitText.Text    = FfbSpikeLimitSlider.Value <= 0
                     ? "off"
@@ -1398,6 +1399,12 @@ namespace TrueforceForAll.Plugin
         {
             if (_suppressEvents || _plugin == null) return;
             _plugin.SetFfbSpikeTamingEnabled(SpikeTamingEnabledCheck.IsChecked == true);
+            MarkEffectDirty(EffectKind.SpikeReduction);
+        }
+        private void SpikeUseSlewLimiter_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_suppressEvents || _plugin == null) return;
+            _plugin.SetFfbSpikeUseSlewLimiter(SpikeUseSlewLimiterCheck.IsChecked == true);
             MarkEffectDirty(EffectKind.SpikeReduction);
         }
 

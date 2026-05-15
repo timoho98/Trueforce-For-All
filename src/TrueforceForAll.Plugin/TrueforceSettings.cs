@@ -74,6 +74,13 @@ namespace TrueforceForAll.Plugin
         // regardless of stored values, so users can flip the feature off
         // without losing their tuning.
         public bool  FfbSpikeTamingEnabled    { get; set; } = true;
+        // Algorithm switch (experimental A/B). True = pure slew-rate limiter
+        // (iRacing-style, no amplitude reduction). False = transient detector
+        // with magnitude threshold + soft cap. Each interprets
+        // FfbSpikeMaxLsbPerMs differently: as a rate cap (LSB/ms) when true,
+        // or as a magnitude threshold (LSB) when false. FfbPeakSoftLimitLsb
+        // is only used by the transient detector.
+        public bool  FfbSpikeUseSlewLimiter   { get; set; } = true;
         public float FfbSpikeMaxLsbPerMs      { get; set; } = 2508.36f;
 
         // Skip the captured-FFB → ep3 cur mirror. With this on, our active
@@ -272,6 +279,7 @@ namespace TrueforceForAll.Plugin
         public bool  FfbInvertSign             { get; set; } = true;
         public float FfbSmoothTimeConstantMs   { get; set; } = 0.0f;
         public bool  FfbSpikeTamingEnabled     { get; set; } = true;
+        public bool  FfbSpikeUseSlewLimiter    { get; set; } = true;
         public float FfbSpikeMaxLsbPerMs       { get; set; } = 2508.36f;
         public float FfbPeakSoftLimitLsb       { get; set; } = 2061.90f;
         public bool  SkipFfbPassthrough        { get; set; } = false;

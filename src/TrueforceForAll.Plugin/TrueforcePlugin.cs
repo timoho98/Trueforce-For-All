@@ -548,6 +548,12 @@ namespace TrueforceForAll.Plugin
             if (Settings != null) Settings.FfbSpikeTamingEnabled = v;
         }
 
+        public void SetFfbSpikeUseSlewLimiter(bool v)
+        {
+            if (_device != null) _device.FfbSpikeUseSlewLimiter = v;
+            if (Settings != null) Settings.FfbSpikeUseSlewLimiter = v;
+        }
+
         public void SetSkipFfbPassthrough(bool v)
         {
             // Stored on Settings only; the FfbTargetProvider lambda reads it
@@ -794,6 +800,7 @@ namespace TrueforceForAll.Plugin
                 _device.FfbInvertSign            = Settings.FfbInvertSign;
                 _device.FfbSmoothTimeConstantMs  = Settings.FfbSmoothTimeConstantMs;
                 _device.FfbSpikeTamingEnabled    = Settings.FfbSpikeTamingEnabled;
+                _device.FfbSpikeUseSlewLimiter   = Settings.FfbSpikeUseSlewLimiter;
                 _device.FfbSpikeMaxLsbPerMs      = Settings.FfbSpikeMaxLsbPerMs;
                 _device.FfbPeakSoftLimitLsb      = Settings.FfbPeakSoftLimitLsb;
 
@@ -3291,6 +3298,7 @@ namespace TrueforceForAll.Plugin
         private bool SpikeReductionEquals(GameSettingsSnapshot snap)
         {
             return Settings.FfbSpikeTamingEnabled  == snap.FfbSpikeTamingEnabled
+                &&     Settings.FfbSpikeUseSlewLimiter == snap.FfbSpikeUseSlewLimiter
                 && EqI(Settings.FfbSpikeMaxLsbPerMs,  snap.FfbSpikeMaxLsbPerMs)
                 && EqI(Settings.FfbPeakSoftLimitLsb,  snap.FfbPeakSoftLimitLsb);
         }
@@ -3517,14 +3525,16 @@ namespace TrueforceForAll.Plugin
                     return true;
 
                 case SectionKind.SpikeReduction:
-                    Settings.FfbSpikeTamingEnabled = snap.FfbSpikeTamingEnabled;
-                    Settings.FfbSpikeMaxLsbPerMs   = snap.FfbSpikeMaxLsbPerMs;
-                    Settings.FfbPeakSoftLimitLsb   = snap.FfbPeakSoftLimitLsb;
+                    Settings.FfbSpikeTamingEnabled  = snap.FfbSpikeTamingEnabled;
+                    Settings.FfbSpikeUseSlewLimiter = snap.FfbSpikeUseSlewLimiter;
+                    Settings.FfbSpikeMaxLsbPerMs    = snap.FfbSpikeMaxLsbPerMs;
+                    Settings.FfbPeakSoftLimitLsb    = snap.FfbPeakSoftLimitLsb;
                     if (_device != null)
                     {
-                        _device.FfbSpikeTamingEnabled = Settings.FfbSpikeTamingEnabled;
-                        _device.FfbSpikeMaxLsbPerMs   = Settings.FfbSpikeMaxLsbPerMs;
-                        _device.FfbPeakSoftLimitLsb   = Settings.FfbPeakSoftLimitLsb;
+                        _device.FfbSpikeTamingEnabled  = Settings.FfbSpikeTamingEnabled;
+                        _device.FfbSpikeUseSlewLimiter = Settings.FfbSpikeUseSlewLimiter;
+                        _device.FfbSpikeMaxLsbPerMs    = Settings.FfbSpikeMaxLsbPerMs;
+                        _device.FfbPeakSoftLimitLsb    = Settings.FfbPeakSoftLimitLsb;
                     }
                     return true;
 
@@ -3763,9 +3773,10 @@ namespace TrueforceForAll.Plugin
                     snap.SkipFfbPassthrough      = Settings.SkipFfbPassthrough;
                     break;
                 case SectionKind.SpikeReduction:
-                    snap.FfbSpikeTamingEnabled = Settings.FfbSpikeTamingEnabled;
-                    snap.FfbSpikeMaxLsbPerMs   = Settings.FfbSpikeMaxLsbPerMs;
-                    snap.FfbPeakSoftLimitLsb   = Settings.FfbPeakSoftLimitLsb;
+                    snap.FfbSpikeTamingEnabled  = Settings.FfbSpikeTamingEnabled;
+                    snap.FfbSpikeUseSlewLimiter = Settings.FfbSpikeUseSlewLimiter;
+                    snap.FfbSpikeMaxLsbPerMs    = Settings.FfbSpikeMaxLsbPerMs;
+                    snap.FfbPeakSoftLimitLsb    = Settings.FfbPeakSoftLimitLsb;
                     break;
                 case SectionKind.Ducking:
                     snap.DuckDepth     = Settings.DuckDepth;
@@ -4048,6 +4059,7 @@ namespace TrueforceForAll.Plugin
             Settings.FfbInvertSign           = snap.FfbInvertSign;
             Settings.FfbSmoothTimeConstantMs = snap.FfbSmoothTimeConstantMs;
             Settings.FfbSpikeTamingEnabled   = snap.FfbSpikeTamingEnabled;
+            Settings.FfbSpikeUseSlewLimiter  = snap.FfbSpikeUseSlewLimiter;
             Settings.FfbSpikeMaxLsbPerMs     = snap.FfbSpikeMaxLsbPerMs;
             Settings.FfbPeakSoftLimitLsb     = snap.FfbPeakSoftLimitLsb;
             Settings.SkipFfbPassthrough      = snap.SkipFfbPassthrough;
@@ -4079,6 +4091,7 @@ namespace TrueforceForAll.Plugin
                 _device.FfbInvertSign           = Settings.FfbInvertSign;
                 _device.FfbSmoothTimeConstantMs = Settings.FfbSmoothTimeConstantMs;
                 _device.FfbSpikeTamingEnabled   = Settings.FfbSpikeTamingEnabled;
+                _device.FfbSpikeUseSlewLimiter  = Settings.FfbSpikeUseSlewLimiter;
                 _device.FfbSpikeMaxLsbPerMs     = Settings.FfbSpikeMaxLsbPerMs;
                 _device.FfbPeakSoftLimitLsb     = Settings.FfbPeakSoftLimitLsb;
             }
@@ -4135,6 +4148,7 @@ namespace TrueforceForAll.Plugin
                 FfbInvertSign           = Settings.FfbInvertSign,
                 FfbSmoothTimeConstantMs = Settings.FfbSmoothTimeConstantMs,
                 FfbSpikeTamingEnabled   = Settings.FfbSpikeTamingEnabled,
+                FfbSpikeUseSlewLimiter  = Settings.FfbSpikeUseSlewLimiter,
                 FfbSpikeMaxLsbPerMs     = Settings.FfbSpikeMaxLsbPerMs,
                 FfbPeakSoftLimitLsb     = Settings.FfbPeakSoftLimitLsb,
                 SkipFfbPassthrough      = Settings.SkipFfbPassthrough,

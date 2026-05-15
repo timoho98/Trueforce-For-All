@@ -539,30 +539,37 @@
             <StackPanel x:Name="SpikeTamingBody" Margin="0,4,0,16"
                         IsEnabled="{Binding IsChecked, ElementName=SpikeTamingEnabledCheck}">
                 <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8"
-                           Text="Some games deliver curb and collision FFB spikes well beyond what's safe or comfortable on stronger wheelbases (Assetto Corsa is the worst offender we've seen). Hits can be sharp enough to wrench the wheel against your grip, ruin a racing line, or strain your wrists on a long session. This attenuates spikes only; sustained cornering load is untouched. Lower values = stronger reduction."/>
+                           Text="Some games deliver curb and collision FFB spikes well beyond what's safe or comfortable on stronger wheelbases (Assetto Corsa is the worst offender we've seen). Hits can be sharp enough to wrench the wheel against your grip, ruin a racing line, or strain your wrists on a long session."/>
+                <CheckBox x:Name="SpikeUseSlewLimiterCheck" Content="Slew-rate limiter (iRacing-style)"
+                          Margin="0,0,0,4"
+                          Checked="SpikeUseSlewLimiter_Changed" Unchecked="SpikeUseSlewLimiter_Changed"/>
+                <TextBlock Style="{StaticResource HelpText}" Margin="20,0,0,8"
+                           Text="When ON: caps how fast FFB can change (LSB/ms), no amplitude reduction. Sustained forces always reach full strength; spikes get spread across a few extra ms. When OFF: uses a transient detector that soft-caps sudden jumps above a magnitude threshold while letting sustained heavy cornering through."/>
                 <Grid Margin="0,0,0,2">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="Spike attenuation:" Style="{StaticResource LabelText}"/>
-                    <Slider     Grid.Column="1" x:Name="FfbPeakLimitSlider"
-                                Minimum="0" Maximum="20000" SmallChange="500" LargeChange="2000"
-                                TickFrequency="2000" ValueChanged="FfbPeakLimitSlider_ValueChanged" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Column="2" x:Name="FfbPeakLimitText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="1562"/>
+                    <TextBlock Grid.Column="0" x:Name="FfbSpikeLimitLabel" Text="Slew rate (LSB/ms):" Style="{StaticResource LabelText}"/>
+                    <Slider     Grid.Column="1" x:Name="FfbSpikeLimitSlider"
+                                Minimum="0" Maximum="30000" SmallChange="500" LargeChange="2000"
+                                TickFrequency="2500" ValueChanged="FfbSpikeLimitSlider_ValueChanged" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="2" x:Name="FfbSpikeLimitText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="2061"/>
                 </Grid>
+                <TextBlock Style="{StaticResource HelpText}" Margin="140,4,0,8" x:Name="FfbSpikeLimitHelp"
+                           Text="In slew mode: max change in FFB per millisecond. Lower = harsher spikes get spread over more time. In transient mode: minimum FFB magnitude (LSB) before the cap can engage."/>
                 <Expander x:Name="SpikeTamingAdvancedExpander" IsExpanded="False" Margin="0,12,0,0">
                     <Expander.Header>
-                        <TextBlock Text="Advanced" FontSize="11" Opacity="0.7"/>
+                        <TextBlock Text="Advanced (transient mode only)" FontSize="11" Opacity="0.7"/>
                     </Expander.Header>
                     <StackPanel Margin="0,8,0,0">
                         <Grid Margin="0,0,0,2">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="Rate limit (LSB/ms):" Style="{StaticResource LabelText}"/>
-                            <Slider     Grid.Column="1" x:Name="FfbSpikeLimitSlider"
-                                        Minimum="0" Maximum="10000" SmallChange="100" LargeChange="500"
-                                        TickFrequency="1000" ValueChanged="FfbSpikeLimitSlider_ValueChanged" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="2" x:Name="FfbSpikeLimitText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="2061"/>
+                            <TextBlock Grid.Column="0" Text="Cap softness:" Style="{StaticResource LabelText}"/>
+                            <Slider     Grid.Column="1" x:Name="FfbPeakLimitSlider"
+                                        Minimum="0" Maximum="20000" SmallChange="500" LargeChange="2000"
+                                        TickFrequency="2000" ValueChanged="FfbPeakLimitSlider_ValueChanged" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" x:Name="FfbPeakLimitText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="1562"/>
                         </Grid>
                         <TextBlock Style="{StaticResource HelpText}" Margin="140,4,0,0"
-                                   Text="Caps how fast FFB can change in either direction. Pairs with Spike attenuation (which controls how much spikes are reduced); this controls how fast they're allowed to ramp. The default value rarely needs adjustment."/>
+                                   Text="Only used in transient mode. Controls how aggressively forces above the spike threshold get compressed. Ceiling asymptotes toward threshold + this value."/>
                     </StackPanel>
                 </Expander>
             </StackPanel>
