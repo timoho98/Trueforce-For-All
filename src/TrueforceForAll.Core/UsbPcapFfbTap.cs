@@ -3,9 +3,12 @@
 // FFB target value for the Trueforce stream to inject into ep3 bytes 6-9.
 //
 // AC sends DirectInput-equivalent FFB to the wheel as HID Set_Output_Reports
-// on ep0 (control endpoint). The actual force command is HID++ feature 0x0e
-// function 2 long-form messages, signed 16-bit big-endian at offset 10-11
-// of the HID++ payload. When we stream Trueforce on ep3, the wheel uses
+// on ep0 (control endpoint). The actual force command is HID++ feature page
+// 0x8123 (G-series force feedback) function 2 long-form messages, signed
+// 16-bit big-endian at offset 10-11 of the HID++ payload. The firmware-
+// assigned feature *index* varies per wheel (0x0e on G PRO); it is seeded
+// to 0x0e and auto-resolved per wheel (see _ffbFeatureIndex). When we
+// stream Trueforce on ep3, the wheel uses
 // bytes 6-9 of our packet as motor torque, ignoring AC's ep0 commands. By
 // mirroring AC's commands into bytes 6-9, FFB and Trueforce coexist.
 //
@@ -98,8 +101,8 @@ namespace TrueforceForAll.Core
         // thread via property getters. Triage tool for the case where the tap
         // is running but FFB pass-through still feels broken: tells us which
         // endpoint(s) and transfer type(s) the game is actually using.
-        // Critical for wheels where the HID++ FFB protocol differs from AC's
-        // known pattern (Logitech RS50 reportedly differs).
+        // Critical when the resolved 0x8123 feature index is wrong or the
+        // game uses an unexpected HID++ shape; the tuple histogram surfaces it.
         public long PacketsForOurDevice { get; private set; }
         public long ControlTransfersOnOurDevice { get; private set; }
         public long Ep0ControlTransfersOnOurDevice { get; private set; }
@@ -129,6 +132,27 @@ namespace TrueforceForAll.Core
         // (0x11, 0x0e, 0x20) jumps out in the log dump. Guarded by _tupleLock.
         private readonly Dictionary<int, long> _tupleCounts = new Dictionary<int, long>();
         private readonly object _tupleLock = new object();
+
+        // Resolved HID++ FFB feature index. Logitech wheels deliver native FFB
+        // via HID++ feature page 0x8123, but the firmware-assigned feature
+        // *index* varies per model/firmware. G PRO places it at 0x0e, so we
+        // seed with that and behaviour on G PRO is unchanged from the first
+        // packet. For any other index, MaybeResolveFfbFeatureIndex() promotes
+        // the dominant high-rate (reportId 0x11, func 0x20) tuple's index.
+        //
+        // The RS50 (C276) IS in scope here. Windows USBPcap evidence (issue #5
+        // woTF capture, BeamNG + G Hub) proves RS50 native FFB on Windows is
+        // HID++ feat 0x10 (page 0x8123) fn2, BE16 force at payload offset
+        // 10-11: structurally identical to G PRO's 0x0e path, just a different
+        // index. mescon's "raw report-0x01 on ep3" is its Linux *driver's* own
+        // transport choice, NOT how the Windows runtime drives the wheel.
+        // So the resolver auto-promotes 0x10 on RS50 with no special-casing.
+        private const byte FfbFeatureIndexSeed = 0x0e;
+        private const long FfbIndexMinSamples = 200;   // min count before switching
+        private volatile byte _ffbFeatureIndex = FfbFeatureIndexSeed;
+        private bool _ffbIndexResolved;                 // parser-thread only
+        public byte ResolvedFfbFeatureIndex => _ffbFeatureIndex;
+        public bool IsFfbFeatureIndexResolved => _ffbIndexResolved;
 
         // Returns a snapshot of the tuple histogram. Safe to call from any
         // thread; the parser thread updates under _tupleLock and this also
@@ -176,6 +200,14 @@ namespace TrueforceForAll.Core
         // counters/histogram during the user's repro session.
         private long _nextDiagEmitTicks;
         private const int DiagEmitIntervalMs = 5000;
+
+        // The FFB feature-index resolver is gated on its own fast cadence,
+        // separate from the 5 s diagnostics emit, so first FFB on a non-0x0e
+        // wheel (RS50 -> 0x10) latches sub-second instead of waiting up to one
+        // diagnostics interval. Only runs until _ffbIndexResolved; after that
+        // the gate stops calling it entirely (zero steady-state cost).
+        private long _nextFfbResolveTicks;
+        private const int FfbResolveIntervalMs = 250;
 
         // True when this tap was constructed with an explicit (interface,
         // address) override. The UI uses this to decide whether to show the
@@ -436,6 +468,15 @@ namespace TrueforceForAll.Core
                 }
 
                 MaybeEmitDiagnostics();
+                if (!_ffbIndexResolved)
+                {
+                    long nowMs = Environment.TickCount;
+                    if (nowMs >= _nextFfbResolveTicks)
+                    {
+                        _nextFfbResolveTicks = nowMs + FfbResolveIntervalMs;
+                        MaybeResolveFfbFeatureIndex();
+                    }
+                }
                 if (xfer != 0x02) continue;             // control transfer
                 ControlTransfersOnOurDevice++;
                 if ((ep & 0x7f) != 0x00) continue;       // ep0
@@ -461,9 +502,10 @@ namespace TrueforceForAll.Core
                 byte funcByte = payload[dataOffset + 3];
                 RecordTupleSeen(reportId, featIdx, funcByte);
 
-                // AC's FFB: feature 0x0e long form, function 2 (high nibble of funcByte).
+                // G-series FFB: HID++ page 0x8123 long form, function 2 (high
+                // nibble of funcByte), at the per-wheel-resolved feature index.
                 // FFB target = signed int16, big-endian, at offset 10-11 of the HID++ payload.
-                if (reportId == 0x11 && featIdx == 0x0e && (funcByte & 0xf0) == 0x20)
+                if (reportId == 0x11 && featIdx == _ffbFeatureIndex && (funcByte & 0xf0) == 0x20)
                 {
                     short ffbTarget = (short)((payload[dataOffset + 10] << 8) | payload[dataOffset + 11]);
                     long timestamp = _sw.ElapsedTicks & TimestampMask;
@@ -486,11 +528,51 @@ namespace TrueforceForAll.Core
             }
         }
 
-        // Periodic snapshot of the parser counters + tuple histogram into the
-        // log. Runs from inside the parser thread so we don't need a separate
-        // timer; emission cost is one TickCount comparison per packet on the
-        // fast path. The first emission happens after the first packet so we
-        // don't spam logs for taps that never see traffic.
+        // Promote the dominant HID++ FFB feature index for any wheel whose
+        // firmware places page 0x8123 at an index other than the 0x0e seed
+        // (RS50 -> 0x10, G PRO stays 0x0e). The FFB feature streams at
+        // ~250-500 Hz during play; HID++ settings features are occasional, so
+        // the dominant (reportId 0x11, func&0xf0==0x20) tuple by count is
+        // unambiguously the FFB feature. Switch once, then latch; parser-thread
+        // only. Called from the parse loop on the FfbResolveIntervalMs cadence
+        // until resolved, so first FFB on a non-0x0e wheel latches within a
+        // few hundred ms of gameplay (the seed means G PRO is never delayed).
+        private void MaybeResolveFfbFeatureIndex()
+        {
+            if (_ffbIndexResolved) return;
+            // No per-wheel gate: RS50 (C276) resolves to feat 0x10 by the same
+            // dominant-tuple rule that resolves G PRO to 0x0e (issue #5 woTF
+            // Windows capture confirmed RS50 native FFB is HID++ 0x8123 fn2).
+
+            byte bestIdx = 0;
+            long bestCount = 0, secondCount = 0;
+            lock (_tupleLock)
+            {
+                foreach (var kv in _tupleCounts)
+                {
+                    // Key = (reportId<<16)|(featIdx<<8)|(funcByte&0xf0).
+                    if ((byte)(kv.Key >> 16) != 0x11) continue;   // long form
+                    if ((byte)kv.Key != 0x20) continue;            // function 2
+                    byte f = (byte)(kv.Key >> 8);
+                    if (kv.Value > bestCount) { secondCount = bestCount; bestCount = kv.Value; bestIdx = f; }
+                    else if (kv.Value > secondCount) { secondCount = kv.Value; }
+                }
+            }
+            // Require a well-sampled, clearly dominant winner (>=4x runner-up)
+            // so a stray HID++ settings write can't hijack the FFB index.
+            if (bestCount >= FfbIndexMinSamples && bestCount >= secondCount * 4)
+            {
+                _ffbIndexResolved = true;
+                if (bestIdx != _ffbFeatureIndex)
+                {
+                    byte old = _ffbFeatureIndex;
+                    _ffbFeatureIndex = bestIdx;
+                    Log($"FFB tap: resolved HID++ 0x8123 feature index 0x{bestIdx:X2} " +
+                        $"(was seed 0x{old:X2}); {bestCount} samples, runner-up {secondCount}.");
+                }
+            }
+        }
+
         private void MaybeEmitDiagnostics()
         {
             long now = Environment.TickCount;
@@ -528,6 +610,7 @@ namespace TrueforceForAll.Core
                 $"out_bulk={BulkOutOnOurDevice} out_iso={IsoOutOnOurDevice} " +
                 $"out_by_ep=[{string.Join(" ", epOut)}] " +
                 $"ep0ctrl={Ep0ControlTransfersOnOurDevice} setrep={SetReportsOnOurDevice} " +
+                $"ffbIdx=0x{_ffbFeatureIndex:X2}{(_ffbIndexResolved ? "*" : "")} " +
                 $"matched={FfbSamplesCaptured} tuples=[{tuples}]" +
                 (_rawLogStream != null ? $" trace={RawLogBytesWritten}b" : ""));
         }
