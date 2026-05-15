@@ -150,7 +150,7 @@ gracefully
   wheel's own Trueforce intensity scaling stops responding to the dial.
   Use the in-plugin Master Gain and per-effect Gain controls to set
   intensity instead.
-- **Validated only on G PRO + AC + Wreckfest 2 + FH5** so far. Other
+- **Validated only on G PRO + AC + Wreckfest 2 + FH5 + FH6** so far. Other
   supported wheels (RS50) and other SimHub-supported games should work
   but haven't been tested by us yet. Feedback welcome.
 
