@@ -54,6 +54,14 @@ namespace TrueforceForAll.Core
         // real change-write already refreshed it within the interval.
         private const int KeepAliveMs = 1000;
         private const int ArmGapMs    = 4;          // pace the one-time arm burst
+        // Minimum gap between level-pair writes. G HUB sends the pair at a
+        // STEADY ~156 ms regardless of how fast revs change; it never bursts.
+        // Sending immediately on every level change (which happens rapidly
+        // near the shift point) delayed MAIRA's FFB packets on the shared
+        // HID++ pipe enough that the wheel decayed force -> "FFB goes limp
+        // when the lights come on". One fixed-cadence sender, no bursts,
+        // matches G HUB's proven-safe footprint.
+        private const int ChangeMinMs = 160;
 
         private readonly Action<string> _log;
         private readonly object _io = new object();
@@ -65,7 +73,8 @@ namespace TrueforceForAll.Core
         private byte _idxRev;       // resolved feature index of page 0x807A
         private bool _ready;
         private volatile bool _armed;
-        private volatile int  _level;       // current rev level 0..10
+        private volatile int  _level;       // target rev level 0..10 (set by SetLevel)
+        private int  _sentLevel = -1;       // last level actually written to the wire
         private long _lastWriteMs;          // last time the level pair hit the wire
         private Thread _hbThread;
         private volatile bool _hbStop;
@@ -278,11 +287,12 @@ namespace TrueforceForAll.Core
             WriteShort(new byte[] { RepShort, DevWired, _idxRev, Fn(0), 0x00, 0x00, 0x00 });
             ArmGap();
             SendPair(0);
+            _sentLevel = 0;
             _armed = true;
 
             _hbStop = false;
-            _hbThread = new Thread(HeartbeatLoop)
-            { IsBackground = true, Name = "RpmLedHeartbeat" };
+            _hbThread = new Thread(SenderLoop)
+            { IsBackground = true, Name = "RpmLedSender" };
             _hbThread.Start();
         }
 
@@ -300,57 +310,68 @@ namespace TrueforceForAll.Core
             _lastWriteMs = NowMs();
         }
 
-        private void HeartbeatLoop()
+        // The ONLY thing that writes the level pair after arming. Fixed
+        // cadence, never bursts: at most one pair per ChangeMinMs when the
+        // target moved, plus a ~1 Hz keepalive when it's steady. This bounds
+        // our HID++ pipe usage to G HUB's footprint so it doesn't starve the
+        // sim's FFB.
+        private void SenderLoop()
         {
-            // Wake often enough to be responsive, but only actually hit the
-            // wire if the level pair hasn't been refreshed within KeepAliveMs.
-            // A real change-write already counts as a keepalive, so a steady
-            // rev sweep produces zero extra heartbeat traffic; an idle hold
-            // costs one cheap pair per second instead of ~7.
-            const int tickMs = 100;
+            const int tickMs = 30;
             while (!_hbStop)
             {
                 Thread.Sleep(tickMs);
                 if (_hbStop || !_ready) continue;
-                if (NowMs() - _lastWriteMs < KeepAliveMs) continue;
+
+                long now = NowMs();
+                bool changed   = _level != _sentLevel;
+                bool dueChange = changed && (now - _lastWriteMs) >= ChangeMinMs;
+                bool dueKeep   = !changed && (now - _lastWriteMs) >= KeepAliveMs;
+                if (!dueChange && !dueKeep) continue;
+
                 lock (_io)
                 {
                     if (!_ready || !_armed) continue;
-                    if (NowMs() - _lastWriteMs < KeepAliveMs) continue;
-                    try { SendPair(_level); }
+                    int target = _level;
+                    if (target == _sentLevel && (NowMs() - _lastWriteMs) < KeepAliveMs)
+                        continue;
+                    try
+                    {
+                        SendPair(target);
+                        _sentLevel = target;
+                    }
                     catch (Exception ex)
                     {
-                        _log($"[RPM-LED] heartbeat failed: {ex.Message}");
+                        _log($"[RPM-LED] sender failed: {ex.Message}");
                         _ready = false;   // force re-probe next OpenAndResolve()
                     }
                 }
             }
         }
 
-        /// <summary>Set the rev level 0..10 (count of LEDs lit). Arms on first
-        /// call. Pushes immediately for low latency; the heartbeat keeps it
-        /// alive thereafter.</summary>
+        /// <summary>Set the target rev level 0..10. Arms on first call. Does
+        /// NOT write here, only updates the target; SenderLoop writes it at a
+        /// fixed cadence so we never burst the shared HID++ pipe and starve
+        /// FFB. Worst-case LED latency ~ ChangeMinMs, same as G HUB.</summary>
         public void SetLevel(int level)
         {
             if (!_ready) return;
             if (level < 0) level = 0; else if (level > LedCount) level = LedCount;
-            lock (_io)
+            if (!_armed)
             {
-                try
+                lock (_io)
                 {
-                    if (!_armed) Arm();
-                    if (level != _level)
+                    if (!_ready) return;
+                    try { if (!_armed) Arm(); }
+                    catch (Exception ex)
                     {
-                        _level = level;
-                        SendPair(level);
+                        _log($"[RPM-LED] arm failed: {ex.Message}");
+                        _ready = false;
+                        return;
                     }
                 }
-                catch (Exception ex)
-                {
-                    _log($"[RPM-LED] SetLevel failed: {ex.Message}");
-                    _ready = false;
-                }
             }
+            _level = level;   // volatile; SenderLoop picks it up
         }
 
         /// <summary>Map a 0..1 rev fill (or redline) to the 0..10 level. The
@@ -377,6 +398,7 @@ namespace TrueforceForAll.Core
                 try { if (_armed) SendPair(0); }
                 catch (Exception ex) { _log($"[RPM-LED] TurnOff failed: {ex.Message}"); }
                 _level = 0;
+                _sentLevel = -1;
                 _armed = false;
             }
         }
