@@ -2978,13 +2978,18 @@ namespace TrueforceForAll.Plugin
         {
             if (_plugin == null) return;
             _plugin.TestRpmLeds();
-            // Surface the probe result after the open attempt settles.
+            // Live-poll the controller's status so the current effect mode is
+            // visible in the panel while the sweep runs (the log timing is
+            // hard to eyeball against the wheel). Stop a moment after the
+            // test ends so the final "LEDs off" line shows.
             var t = new System.Windows.Threading.DispatcherTimer
-            { Interval = TimeSpan.FromMilliseconds(1500) };
+            { Interval = TimeSpan.FromMilliseconds(250) };
+            int idleTicks = 0;
             t.Tick += (s2, e2) =>
             {
-                t.Stop();
                 if (RpmLedStatusText != null) RpmLedStatusText.Text = _plugin.RpmLedStatus;
+                if (_plugin.RpmLedIsTesting) idleTicks = 0;
+                else if (++idleTicks > 4) t.Stop();   // ~1s after test ends
             };
             t.Start();
         }

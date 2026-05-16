@@ -1431,6 +1431,7 @@ namespace TrueforceForAll.Plugin
         public void TurnOffRpmLeds() => _rpmLeds?.ForceOff();
 
         public string RpmLedStatus => _rpmLeds?.Status ?? "(n/a)";
+        public bool RpmLedIsTesting => _rpmLeds?.IsTesting ?? false;
 
         // ---------- Performance auto-ratchet ----------
 

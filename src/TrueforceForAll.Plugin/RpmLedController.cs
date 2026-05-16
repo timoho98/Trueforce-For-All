@@ -27,6 +27,7 @@ namespace TrueforceForAll.Plugin
         private bool _lastRedline;
         private long _lastPushTicks;
         private volatile bool _testing;
+        private volatile string _testStatus = "";
 
         // Don't pound the wheel: at most ~50 Hz, and only when the visible
         // state changed. A full rev sweep is ~10 discrete steps so this is
@@ -40,8 +41,10 @@ namespace TrueforceForAll.Plugin
         }
 
         public bool IsReady => _channel.IsReady;
+        public bool IsTesting => _testing;
         public string Status =>
-            _openState == 2 ? $"open ({_channel.ResolvedInfo})"
+            _testing          ? _testStatus
+          : _openState == 2 ? $"open ({_channel.ResolvedInfo})"
           : _openState == 3 ? "channel not found (see log)"
           : _openState == 1 ? "opening…"
           : "idle";
@@ -162,9 +165,12 @@ namespace TrueforceForAll.Plugin
             {
                 try
                 {
+                    int n = 0;
                     foreach (byte m in modes)
                     {
                         if (!_channel.IsReady) break;
+                        n++;
+                        _testStatus = $"▶ EFFECT MODE {m}  ({n}/{modes.Length})  — expect LED1=red 2=green 3=blue 4=white, rest off";
                         _log($"[RPM-LED] Test: trying effect mode {m} " +
                              "(expect LED1=red 2=green 3=blue 4=white, rest off, steady)");
                         _channel.ApplyRgbMode(m, pattern);
@@ -176,6 +182,7 @@ namespace TrueforceForAll.Plugin
                 {
                     try { _channel.TurnOff(); } catch { }
                     _lastBucket = -1;
+                    _testStatus = "test finished — LEDs off (mode 0)";
                     _testing = false;
                     _log("[RPM-LED] Test: finished, LEDs turned off (effect mode 0).");
                 }
