@@ -1,0 +1,56 @@
+name: Download stats
+
+on:
+  schedule:
+    # Daily at 06:17 UTC (off-peak so the runner queue is short)
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: download-stats
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Append download counts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p stats
+          CSV=stats/download-stats.csv
+          if [ ! -f "$CSV" ]; then
+            echo "date,tag,asset,downloads" > "$CSV"
+          fi
+          DATE=$(date -u +%Y-%m-%d)
+          # Skip if a snapshot for today already exists (manual run after the cron run)
+          if grep -q "^\"${DATE}\"," "$CSV"; then
+            echo "Snapshot for ${DATE} already present, nothing to do."
+            exit 0
+          fi
+          gh api --paginate "repos/${REPO}/releases" \
+            | jq -r --arg d "$DATE" \
+                '.[] | .tag_name as $t | .assets[] | [$d, $t, .name, .download_count] | @csv' \
+            >> "$CSV"
+
+      - name: Commit snapshot
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add stats/download-stats.csv
+          if git diff --cached --quiet; then
+            echo "No change to commit."
+          else
+            git commit -m "chore: download-stats snapshot $(date -u +%Y-%m-%d)"
+            git push
+          fi
