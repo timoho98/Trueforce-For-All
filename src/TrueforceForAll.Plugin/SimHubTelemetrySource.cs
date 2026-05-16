@@ -79,6 +79,8 @@ namespace TrueforceForAll.Plugin
                     $"SL1={d.CarSettings_RPMShiftLight1:F0} SL2={d.CarSettings_RPMShiftLight2:F0} " +
                     $"redRPM={d.CarSettings_RedLineRPM:F0} gearRed={d.CarSettings_CurrentGearRedLineRPM:F0} " +
                     $"minShown={d.CarSettings_MinimumShownRPM:F0} redReached={d.CarSettings_RPMRedLineReached:F0} " +
+                    $"| redSet={d.CarSettings_RPMRedLineSetting:F0} redDisp%={d.CarSettings_RedLineDisplayedPercent:F1} " +
+                    $"Redline={d.Redline:F0} perGearOvr={d.CarSettings_RPMRedLinePerGearOverride} " +
                     $"-> revPct={Clamp01(revPct):F2} level={(int)Math.Floor(Clamp01(revPct)*10+0.5)}");
             }
 
