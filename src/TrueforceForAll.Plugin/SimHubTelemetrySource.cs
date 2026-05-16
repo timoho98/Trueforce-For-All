@@ -18,6 +18,7 @@ namespace TrueforceForAll.Plugin
         public override bool   IsEnhanced => false;
         public override bool   IsRunning  => _running;
         private bool _running;
+        private int  _lastRpmDiagMs;
 
         public override void Start() { _running = true; }
         public override void Stop()  { _running = false; }
@@ -50,6 +51,22 @@ namespace TrueforceForAll.Plugin
                 revPct = d.Rpms / d.MaxRpm;
             else
                 revPct = 0;
+
+            // Diagnostic: once/sec, dump the raw iRacing RPM fields so we can
+            // see which the sim actually publishes and why the bar mismatches.
+            // Temporary, removed once the mapping is dialled in.
+            int nowMs = Environment.TickCount;
+            if (d.Rpms > 0 && unchecked(nowMs - _lastRpmDiagMs) >= 1000)
+            {
+                _lastRpmDiagMs = nowMs;
+                SimHub.Logging.Current.Info(
+                    $"[RPM-LED-DIAG] rpm={d.Rpms:F0} max={d.MaxRpm:F0} " +
+                    $"dispPct={d.CarSettings_CurrentDisplayedRPMPercent:F1} " +
+                    $"SL1={d.CarSettings_RPMShiftLight1:F0} SL2={d.CarSettings_RPMShiftLight2:F0} " +
+                    $"redRPM={d.CarSettings_RedLineRPM:F0} gearRed={d.CarSettings_CurrentGearRedLineRPM:F0} " +
+                    $"minShown={d.CarSettings_MinimumShownRPM:F0} redReached={d.CarSettings_RPMRedLineReached:F0} " +
+                    $"-> revPct={Clamp01(revPct):F2} level={(int)Math.Floor(Clamp01(revPct)*10+0.5)}");
+            }
 
             var frame = new TelemetryFrame
             {
