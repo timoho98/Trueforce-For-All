@@ -69,13 +69,13 @@ namespace TrueforceForAll.Plugin
             if (!EnsureOpening()) return;
             if (!_channel.IsReady) return;
 
-            // SimHub fills RpmPercent on its source; raw UDP sources don't, so
-            // fall back to Rpms/MaxRpm there. iRacing runs through the SimHub
-            // source so it gets the good (idle→shift band) signal.
-            double pct = rpmPercent;
-            if (pct <= 0 && maxRpm > 0) pct = Math.Min(1.0, rpms / maxRpm);
-
-            Push(pct, redline, force: false);
+            // Trust rpmPercent as-is. The SimHub source already computes the
+            // sim-matched rev-band fill AND owns the fallback chain (shift
+            // band -> displayed% -> rpm/max). 0 is a LEGITIMATE value here
+            // (below shift-light onset = lights off); the old "pct<=0 ->
+            // rpm/maxRpm" fallback clobbered that, lighting ~1 LED at idle
+            // and looping at low revs. Do not second-guess the source.
+            Push(rpmPercent, redline, force: false);
         }
 
         private void Push(double pct, bool redline, bool force)
