@@ -20,6 +20,7 @@ For the record on what this project is: Original Windows code built on top of a 
 | Logitech G PRO Racing Wheel (Xbox/PC) | `046D:C272` | Full: Trueforce haptics + game FFB pass-through |
 | Logitech G PRO Racing Wheel (PS/PC) | `046D:C268` | Full: Trueforce haptics + game FFB pass-through |
 | Logitech RS50 | `046D:C276` | Full: Trueforce haptics + game FFB pass-through |
+| Logitech G923 (Xbox/PC and PlayStation/PC) | `046D` (PID TBD) | Not yet supported. Investigating, needs a USB capture to confirm. |
 
 The G PRO and RS50 use byte-identical Trueforce packets, so the haptic
 layer works on both. The plugin keeps a game's normal force feedback alive
@@ -28,7 +29,12 @@ tap resolves the wheel's HID++ force-feedback feature index automatically,
 so both the G PRO and the RS50 get Trueforce haptics and their native game
 force feedback at the same time.
 
-G923 support may come in the future.
+The G923 is belt-driven, so it sits outside the reverse-engineered
+direct-drive Trueforce protocol the plugin relies on. It is not enabled
+yet: a passive USB capture from a G923 is needed to confirm it speaks the
+same Trueforce stream (and to read the exact USB product IDs of the Xbox/PC
+and PlayStation/PC variants) before support can be added safely. If you
+have a G923 and want to help, that capture is the gating step.
 
 ## What it does
 
