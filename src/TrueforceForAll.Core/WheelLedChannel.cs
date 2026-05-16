@@ -44,7 +44,16 @@ namespace TrueforceForAll.Core
         private const byte SwId            = 0x0D;   // fn-byte sw-id nibble G HUB uses
 
         public const int LedCount = 10;             // rev level range is 0..10
-        private const int HeartbeatMs = 150;        // G HUB resends ~every 156 ms
+
+        // iRacing/MAIRA FFB and these LEDs share ONE HID++ control pipe into a
+        // single command processor on the wheel. G HUB resends the level pair
+        // ~every 156 ms, but it isn't fighting a sim's ~250-500 Hz FFB stream
+        // for that pipe; we are. Resending that fast starved FFB (it cut in/out
+        // and the soft endstop snapped). The wheel holds the level fine for far
+        // longer, so we keep alive only ~1 Hz, and skip even that whenever a
+        // real change-write already refreshed it within the interval.
+        private const int KeepAliveMs = 1000;
+        private const int ArmGapMs    = 4;          // pace the one-time arm burst
 
         private readonly Action<string> _log;
         private readonly object _io = new object();
@@ -57,6 +66,7 @@ namespace TrueforceForAll.Core
         private bool _ready;
         private volatile bool _armed;
         private volatile int  _level;       // current rev level 0..10
+        private long _lastWriteMs;          // last time the level pair hit the wire
         private Thread _hbThread;
         private volatile bool _hbStop;
 
@@ -244,18 +254,29 @@ namespace TrueforceForAll.Core
 
         private byte Fn(int fn) => (byte)((fn << 4) | SwId);
 
-        /// <summary>Run G HUB's arm sequence once, then start the ~6 Hz
-        /// keepalive that re-sends the current level (the wheel reverts if it
-        /// stops being refreshed).</summary>
+        private static void ArmGap() { try { Thread.Sleep(ArmGapMs); } catch { } }
+
+        private static long NowMs() => DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+
+        /// <summary>Run G HUB's arm sequence once, then start the ~1 Hz
+        /// keepalive that re-sends the current level (the wheel holds it for a
+        /// good while but reverts eventually if never refreshed).</summary>
         private void Arm()
         {
             if (_armed) return;
-            // SHORT fn0, fn1, fn2, fn3(param 0x02), fn0
+            // SHORT fn0, fn1, fn2, fn3(param 0x02), fn0. This is a one-time
+            // 7-transfer burst; space the writes a few ms apart so it doesn't
+            // monopolise the shared HID++ pipe and hitch FFB at session start.
             WriteShort(new byte[] { RepShort, DevWired, _idxRev, Fn(0), 0x00, 0x00, 0x00 });
+            ArmGap();
             WriteShort(new byte[] { RepShort, DevWired, _idxRev, Fn(1), 0x00, 0x00, 0x00 });
+            ArmGap();
             WriteShort(new byte[] { RepShort, DevWired, _idxRev, Fn(2), 0x00, 0x00, 0x00 });
+            ArmGap();
             WriteShort(new byte[] { RepShort, DevWired, _idxRev, Fn(3), 0x02, 0x00, 0x00 });
+            ArmGap();
             WriteShort(new byte[] { RepShort, DevWired, _idxRev, Fn(0), 0x00, 0x00, 0x00 });
+            ArmGap();
             SendPair(0);
             _armed = true;
 
@@ -276,17 +297,26 @@ namespace TrueforceForAll.Core
             f6[4] = 0x00; f6[5] = 0x01; f6[6] = 0x00; f6[7] = 0x0A; f6[8] = 0x00;
             f6[9] = lvl;   // 0..10 = LEDs lit
             WriteLong(f6);
+            _lastWriteMs = NowMs();
         }
 
         private void HeartbeatLoop()
         {
+            // Wake often enough to be responsive, but only actually hit the
+            // wire if the level pair hasn't been refreshed within KeepAliveMs.
+            // A real change-write already counts as a keepalive, so a steady
+            // rev sweep produces zero extra heartbeat traffic; an idle hold
+            // costs one cheap pair per second instead of ~7.
+            const int tickMs = 100;
             while (!_hbStop)
             {
-                Thread.Sleep(HeartbeatMs);
+                Thread.Sleep(tickMs);
                 if (_hbStop || !_ready) continue;
+                if (NowMs() - _lastWriteMs < KeepAliveMs) continue;
                 lock (_io)
                 {
                     if (!_ready || !_armed) continue;
+                    if (NowMs() - _lastWriteMs < KeepAliveMs) continue;
                     try { SendPair(_level); }
                     catch (Exception ex)
                     {
