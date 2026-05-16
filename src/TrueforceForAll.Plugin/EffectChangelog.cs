@@ -76,6 +76,10 @@ namespace TrueforceForAll.Plugin
                         Headline = "Logitech RS50: game force feedback alongside Trueforce",
                         Description = "The FFB tap now resolves the HID++ force-feedback feature index per wheel instead of assuming the G PRO's. On the RS50 the game's native constant force is mirrored into the Trueforce stream, so you feel the game's normal force feedback and Trueforce haptics at the same time. G PRO is unchanged.",
                     },
+                    new ChangelogEntry {
+                        Headline = "Engine pulse auto-detects your car's engine in Forza Horizon 5",
+                        Description = "The engine-pulse effect matches each car's real cylinder count and engine layout from a baked car catalog, so the firing-pattern rumble is correct with no manual setup. Forza Horizon 5 is covered now (this catalog actually shipped in v0.1.11 but was never called out); more Forza titles are being added.",
+                    },
                 },
             },
             new ChangelogVersion {
