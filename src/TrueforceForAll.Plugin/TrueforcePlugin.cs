@@ -1603,9 +1603,6 @@ namespace TrueforceForAll.Plugin
             if (game == "AssettoCorsa") return true;
             if (game == "PCars2") return true;
             if (IsForzaGameName(game)) return true;
-            // Always-listen lets users force the Forza source on for an FH6
-            // build SimHub doesn't know yet, etc.
-            if (Settings?.Forza?.AlwaysListen == true && Settings.Forza.Enabled) return true;
             return false;
         }
 
@@ -1619,13 +1616,11 @@ namespace TrueforceForAll.Plugin
         }
 
         /// <summary>True when the Forza UDP section should be visible in the
-        /// settings UI. Shown only when a Forza title is active or when the
-        /// user has AlwaysListen enabled (so they can find the toggle to
-        /// turn it off without launching Forza first). Hidden otherwise to
-        /// keep the panel uncluttered for non-Forza users.</summary>
+        /// settings UI. Shown only while a Forza title is the active game;
+        /// hidden in every other game so the panel stays uncluttered for
+        /// the non-Forza majority.</summary>
         public bool ShouldShowForzaSection =>
-            IsForzaGameName(_activeGame)
-            || (Settings?.Forza?.AlwaysListen == true);
+            IsForzaGameName(_activeGame);
 
         /// <summary>True when the F1 UDP section should be visible.</summary>
         public bool ShouldShowF1Section =>
@@ -1761,8 +1756,7 @@ namespace TrueforceForAll.Plugin
                     }
                 }
             }
-            else if (IsForzaGameName(game)
-                     || (Settings?.Forza?.AlwaysListen == true && Settings.Forza.Enabled))
+            else if (IsForzaGameName(game))
             {
                 if (Settings?.Forza?.Enabled == true)
                 {
@@ -2046,17 +2040,15 @@ namespace TrueforceForAll.Plugin
         /// when needed. Settings are saved unconditionally. The source is
         /// rebuilt whenever either (a) a Forza source is currently running
         /// (so port/bind/forward changes take effect, or a disable tears it
-        /// down) or (b) the new settings now say we should be listening (so
-        /// flipping AlwaysListen on starts the source without waiting for a
-        /// game change).</summary>
+        /// down) or (b) a Forza title is the active game (so a port/bind
+        /// change applies without waiting for a game change).</summary>
         public void ApplyForzaSettings()
         {
             if (Settings?.Forza == null) return;
             this.SaveCommonSettings("GeneralSettings", Settings);
 
             bool currentlyForza = _telemetrySource is ForzaUdpTelemetrySource;
-            bool shouldListen   = (Settings.Forza.AlwaysListen && Settings.Forza.Enabled)
-                               || (!string.IsNullOrEmpty(_activeGame) && IsForzaGameName(_activeGame));
+            bool shouldListen   = !string.IsNullOrEmpty(_activeGame) && IsForzaGameName(_activeGame);
             if (!currentlyForza && !shouldListen) return;
 
             // Route through the SimHub fallback first so the old source's

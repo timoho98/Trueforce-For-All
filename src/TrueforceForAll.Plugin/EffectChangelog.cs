@@ -68,6 +68,17 @@ namespace TrueforceForAll.Plugin
                 },
             },
             new ChangelogVersion {
+                Version = new Version(0, 1, 13),
+                Title = "Forza UDP settings only show up in Forza",
+                Entries = new List<ChangelogEntry>
+                {
+                    new ChangelogEntry {
+                        Headline = "The Forza telemetry (UDP) section no longer appears in non-Forza games",
+                        Description = "It now shows only while a Forza title (Horizon 4/5/6 or Motorsport) is the active game, instead of staying visible in Assetto Corsa and everything else. The old internal 'always listen' setting that kept it on for every game has been retired (it was a bridge for Forza Horizon 6 before SimHub auto-detected it, which it now does), so the panel stays uncluttered for the non-Forza majority.",
+                    },
+                },
+            },
+            new ChangelogVersion {
                 Version = new Version(0, 1, 12),
                 Title = "RS50 native force feedback now works",
                 Entries = new List<ChangelogEntry>

@@ -1320,9 +1320,9 @@
                   - Steam build: FH5 sends to the gateway IP (a long-known
                     bug Playground hasn't fixed). User has to send to their
                     LAN IP, not 127.0.0.1.
-                 The Always-listen toggle keeps the source open for FH6 day-1
-                 (before SimHub's GameName recognizes it) or other Forza
-                 variants the auto-detect doesn't cover. -->
+                 This whole section is collapsed unless a Forza title is the
+                 active game (ShouldShowForzaSection), so non-Forza users
+                 never see it. -->
             <StackPanel x:Name="ForzaSection" Visibility="Collapsed">
             <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Forza telemetry (UDP)" Style="{StaticResource SectionHeaderText}"/></Border>
             <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"

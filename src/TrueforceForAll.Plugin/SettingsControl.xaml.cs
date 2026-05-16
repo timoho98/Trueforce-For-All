@@ -593,9 +593,8 @@ namespace TrueforceForAll.Plugin
                     if (UsbPcapReinstallButton.Visibility != want) UsbPcapReinstallButton.Visibility = want;
                 }
 
-                // Forza UDP section visibility. Only relevant when running a
-                // Forza title or when AlwaysListen is on (lets users toggle
-                // it off without launching Forza first).
+                // Forza UDP section visibility. Shown only while a Forza
+                // title is the active game; hidden in every other game.
                 if (ForzaSection != null)
                 {
                     var want = _plugin.ShouldShowForzaSection
@@ -650,9 +649,9 @@ namespace TrueforceForAll.Plugin
                 RefreshNewBadges();
 
                 // Forza listener status: the source object exposes packet
-                // count + last IsRaceOn. When the source isn't active (game
-                // isn't Forza, or AlwaysListen is off + no Forza game), we
-                // show "(idle)". This is the user's primary "is my Data Out
+                // count + last IsRaceOn. When the source isn't active (the
+                // active game isn't a Forza title), we show "(idle)".
+                // This is the user's primary "is my Data Out
                 // wiring working" feedback so make it specific.
                 // Engine auto-detect indicator: shows the layout the resolver
                 // chose for the active car when Layout=Auto, or surfaces the

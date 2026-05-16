@@ -333,20 +333,15 @@ namespace TrueforceForAll.Plugin
     ///     loopback listener gets nothing. They have to send to their LAN IP.
     ///
     /// Default port 5300 picked to avoid colliding with SimHub's typical 4123
-    /// or Sim Racing Studio's 4123. AlwaysListen lets users force the listener
-    /// on for FH6 launch / unrecognized Forza variants where SimHub's GameName
-    /// detection won't have caught up yet.</summary>
+    /// or Sim Racing Studio's 4123. The listener is opened only while a Forza
+    /// title is the active game (FH4/5/6, FM); SimHub's GameName detection now
+    /// covers the shipped Forza titles, so the old always-on escape hatch was
+    /// retired.</summary>
     public sealed class ForzaSettings
     {
         public bool   Enabled       { get; set; } = true;
         public int    Port          { get; set; } = 5300;
         public string BindAddress   { get; set; } = "0.0.0.0";
-
-        /// <summary>When true, the listener stays open regardless of which
-        /// game SimHub thinks is running. Use for FH6 day-1 (before SimHub's
-        /// GameName recognizes it) or any Forza variant where the in-game
-        /// telemetry stream is on but the auto-detect fails.</summary>
-        public bool   AlwaysListen  { get; set; } = false;
 
         /// <summary>Re-broadcast every received Forza packet to a second
         /// destination. Solves the "I want SimHub dashboards AND Trueforce
