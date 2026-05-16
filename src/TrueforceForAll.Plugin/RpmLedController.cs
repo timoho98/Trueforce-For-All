@@ -137,42 +137,40 @@ namespace TrueforceForAll.Plugin
                 }
             }
 
-            const int cycles = 3;
-            const int rampMs = 1100;   // idle → redline
-            const int holdMs = 150;    // brief hold at the top
-            const int flashMs = 1200;  // final shift-now flash
-            int total = cycles * (rampMs + holdMs) + flashMs;
+            // Diagnostic sequence (not the final UX). Each phase applies ONCE
+            // and holds untouched so we can see, separately: does a single
+            // apply latch? are colours/order/count right? does slow stepping
+            // work without the re-arm flicker the 50 Hz sweep caused?
+            const int staticHoldMs = 4000;
+            const int steps        = 10;
+            const int stepMs       = 500;
+            const int redlineMs    = 3000;
+            int total = staticHoldMs + steps * stepMs + redlineMs;
 
             _testing = true;
             Task.Run(() =>
             {
                 try
                 {
-                    for (int c = 0; c < cycles && _channel.IsReady; c++)
+                    // Phase 1: static half bar, applied once, held 4 s. If it
+                    // holds steady the protocol latches and the earlier
+                    // flicker was purely from re-arming at 50 Hz.
+                    _log("[RPM-LED] Test phase 1: static 50% bar (one apply, 4 s hold)");
+                    _channel.ApplyRevBar(0.5, false);
+                    Thread.Sleep(staticHoldMs);
+
+                    // Phase 2: slow stepped ramp, one apply per ~500 ms step.
+                    _log("[RPM-LED] Test phase 2: slow stepped ramp (2 Hz)");
+                    for (int i = 1; i <= steps && _channel.IsReady; i++)
                     {
-                        var sw = System.Diagnostics.Stopwatch.StartNew();
-                        while (sw.ElapsedMilliseconds < rampMs)
-                        {
-                            double p = sw.ElapsedMilliseconds / (double)rampMs;
-                            _channel.ApplyRevBar(p, false);
-                            Thread.Sleep(20);
-                        }
-                        // hold at redline, then a hard "shift" snap to empty
-                        _channel.ApplyRevBar(1.0, true);
-                        Thread.Sleep(holdMs);
-                        _channel.ApplyRevBar(0.0, false);
-                        Thread.Sleep(60);
+                        _channel.ApplyRevBar(i / (double)steps, false);
+                        Thread.Sleep(stepMs);
                     }
-                    // final shift-now flash: blink the full red bar
-                    var fsw = System.Diagnostics.Stopwatch.StartNew();
-                    bool on = true;
-                    while (fsw.ElapsedMilliseconds < flashMs && _channel.IsReady)
-                    {
-                        _channel.ApplyRevBar(1.0, on);
-                        if (!on) _channel.ApplyRgb(new byte[WheelLedChannel.LedCount * 3]);
-                        on = !on;
-                        Thread.Sleep(120);
-                    }
+
+                    // Phase 3: solid full red (redline), one apply, no blink.
+                    _log("[RPM-LED] Test phase 3: solid redline (3 s, no blink)");
+                    _channel.ApplyRevBar(1.0, true);
+                    Thread.Sleep(redlineMs);
                 }
                 catch (Exception ex) { _log($"[RPM-LED] test error: {ex.Message}"); }
                 finally
