@@ -40,11 +40,28 @@ namespace TrueforceForAll.Plugin
             // shift-light band so the fill matches the sim; fall back to the
             // displayed percent, then raw Rpms/MaxRpm, for games/cars that
             // don't publish shift points.
-            double slFirst = d.CarSettings_RPMShiftLight1;
-            double slShift = d.CarSettings_RPMShiftLight2;
+            // iRacing telemetry reality (from the diag capture): SL1/SL2 are
+            // BOOLEAN "shift light on" flags (0/1), not RPM thresholds, and
+            // CurrentDisplayedRPMPercent is just rpm/maxRpm (lights way too
+            // early). The reliable signals are RedLineRPM and the SL1/SL2
+            // booleans, which are the sim's own rev-light stages. So: ramp
+            // across the top band (RevBandStart*red .. red), but hard-gate
+            // dark until the sim itself raises SL1 (never pre-empt iRacing),
+            // and force near-full once SL2 (final stage) is on.
+            const double RevBandStart = 0.83;
+            double red = d.CarSettings_RedLineRPM > 0 ? d.CarSettings_RedLineRPM
+                       : d.CarSettings_CurrentGearRedLineRPM > 0 ? d.CarSettings_CurrentGearRedLineRPM
+                       : d.MaxRpm;
+            bool sl1 = d.CarSettings_RPMShiftLight1 >= 0.5;
+            bool sl2 = d.CarSettings_RPMShiftLight2 >= 0.5;
             double revPct;
-            if (slFirst > 0 && slShift > slFirst)
-                revPct = (d.Rpms - slFirst) / (slShift - slFirst);
+            if (red > 0)
+            {
+                double lo = red * RevBandStart;
+                revPct = red > lo ? (d.Rpms - lo) / (red - lo) : 0;
+                if (!sl1 && !sl2) revPct = 0;                  // sim: no rev lights yet
+                if (sl2) revPct = Math.Max(revPct, 0.95);      // sim: final stage -> all on
+            }
             else if (d.CarSettings_CurrentDisplayedRPMPercent > 0)
                 revPct = d.CarSettings_CurrentDisplayedRPMPercent / 100.0;
             else if (d.MaxRpm > 0)
