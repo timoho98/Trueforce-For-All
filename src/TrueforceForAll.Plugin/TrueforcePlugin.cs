@@ -784,40 +784,47 @@ namespace TrueforceForAll.Plugin
                 // The persisted picker exists because USBPcap's descriptor-cache
                 // can go stale for hot-plugged wheels, leaving auto-discovery
                 // unable to find a wheel that HID enumeration sees fine.
-                if (Settings != null && Settings.MairaFfbPassthrough)
+                // MAIRA auto-link: TF4ALL always watches for MAIRA's shared
+                // memory. When the user flips MAIRA's "Pass FFB signal through
+                // TF4ALL" toggle, MAIRA starts publishing and stops sending PID
+                // to the wheel; we detect that and prefer the shared-memory FFB
+                // (and drive the LEDs), no separate TF4ALL toggle needed. When
+                // MAIRA isn't passing through, the map is absent and we fall
+                // back to the USBPcap FFB tap exactly as before. The legacy
+                // USBPcap path is always set up as that fallback.
+                bool mairaAutoLink = Settings == null || Settings.MairaFfbPassthrough;
+                if (mairaAutoLink)
                 {
-                    // MAIRA passthrough: no USBPcap tap, no PID on the HID++
-                    // pipe. MAIRA writes its force into shared memory; we
-                    // render it through ep3 and (separately) drive the LEDs.
                     _mairaIpc = new MairaIpcSource(msg => SimHub.Logging.Current.Info($"[Trueforce] {msg}"));
-                    _device.FfbTargetProvider = () =>
-                        _mairaIpc?.TryGetFreshFfbTarget(_device.FfbTargetMaxAgeMs);
-                    SimHub.Logging.Current.Info("[Trueforce] MAIRA FFB passthrough mode: USBPcap tap disabled, FFB via shared memory.");
                     StartMairaLedPump();
                 }
-                else
+
+                var (ifaceOverride, devOverride) = ResolveUsbPcapOverride();
+                _ffbTap = new UsbPcapFfbTap(ifaceOverride, devOverride, Settings?.UsbPcapCmdPathOverride)
                 {
-                    var (ifaceOverride, devOverride) = ResolveUsbPcapOverride();
-                    _ffbTap = new UsbPcapFfbTap(ifaceOverride, devOverride, Settings?.UsbPcapCmdPathOverride)
-                    {
-                        Logger = msg => SimHub.Logging.Current.Info($"[Trueforce] {msg}"),
-                    };
-                    _ffbTap.SetHidDiscoveredWheel(match.Vid, match.Pid);
-                    ApplyUsbBytesLoggingSetting();
-                    _device.FfbTargetProvider = () =>
-                    {
-                        // SkipFfbPassthrough: return Some(0) so the device sends
-                        // active packets (audio plays) with cur = 0x8000. The
-                        // wheel uses cur as motor torque and IGNORES ep0 once
-                        // active packets are streaming, so this means zero motor
-                        // force from the FFB-target path. Only correct for games
-                        // that drive the wheel's motor through their own native
-                        // ep3 path (Forza Horizon, AC Rally, iRacing); for games
-                        // that rely on ep0 (vanilla AC, F1, PC2), this kills FFB.
-                        if (Settings != null && Settings.SkipFfbPassthrough) return (short?)0;
-                        return _ffbTap?.TryGetFreshFfbTarget(_device.FfbTargetMaxAgeMs);
-                    };
-                }
+                    Logger = msg => SimHub.Logging.Current.Info($"[Trueforce] {msg}"),
+                };
+                _ffbTap.SetHidDiscoveredWheel(match.Vid, match.Pid);
+                ApplyUsbBytesLoggingSetting();
+                _device.FfbTargetProvider = () =>
+                {
+                    // Prefer MAIRA shared-memory FFB when it's live (its toggle
+                    // is on and it's publishing). No PID is on the HID++ pipe
+                    // then, so LEDs + FFB coexist.
+                    var fromMaira = _mairaIpc?.TryGetFreshFfbTarget(_device.FfbTargetMaxAgeMs);
+                    if (fromMaira.HasValue) return fromMaira;
+
+                    // SkipFfbPassthrough: return Some(0) so the device sends
+                    // active packets (audio plays) with cur = 0x8000. The
+                    // wheel uses cur as motor torque and IGNORES ep0 once
+                    // active packets are streaming, so this means zero motor
+                    // force from the FFB-target path. Only correct for games
+                    // that drive the wheel's motor through their own native
+                    // ep3 path (Forza Horizon, AC Rally, iRacing); for games
+                    // that rely on ep0 (vanilla AC, F1, PC2), this kills FFB.
+                    if (Settings != null && Settings.SkipFfbPassthrough) return (short?)0;
+                    return _ffbTap?.TryGetFreshFfbTarget(_device.FfbTargetMaxAgeMs);
+                };
                 _device.FfbScale                 = Settings.FfbScale;
                 _device.FfbInvertSign            = Settings.FfbInvertSign;
                 _device.FfbSmoothTimeConstantMs  = Settings.FfbSmoothTimeConstantMs;
@@ -5216,9 +5223,17 @@ namespace TrueforceForAll.Plugin
                     var leds = _rpmLeds;
                     if (ipc == null || leds == null) continue;
 
-                    bool gate = (Settings?.MairaFfbPassthrough ?? false)
-                                && (Settings?.RpmLedsEnabled ?? false);
-                    if (!gate) { leds.OnFrame(0, 0, 0, false, false); continue; }
+                    // Auto: drive the LEDs whenever MAIRA is actually
+                    // publishing (its toggle is on => map present & fresh)
+                    // and the user enabled rim LEDs. ipc.TryRefresh() pulls
+                    // the latest sample; ipc.IsOpen is false until MAIRA
+                    // creates the map, so the LEDs stay off until MAIRA's
+                    // toggle goes on, then "just talk".
+                    if (!(Settings?.RpmLedsEnabled ?? false))
+                    {
+                        leds.OnFrame(0, 0, 0, false, false);
+                        continue;
+                    }
 
                     ipc.TryRefresh();
                     float rpm = ipc.Rpm, slF = ipc.ShiftFirstRpm, slS = ipc.ShiftShiftRpm;

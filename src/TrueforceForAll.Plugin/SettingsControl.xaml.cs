@@ -2983,7 +2983,7 @@ namespace TrueforceForAll.Plugin
             _plugin.PersistSettings();
             // Takes effect on next device (re)start; surface that to the user.
             if (RpmLedStatusText != null)
-                RpmLedStatusText.Text = "MAIRA passthrough "
+                RpmLedStatusText.Text = "MAIRA auto-link "
                     + (_plugin.Settings.MairaFfbPassthrough ? "ON" : "OFF")
                     + " (restart plugin to apply)";
         }
