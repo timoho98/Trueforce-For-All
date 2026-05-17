@@ -176,7 +176,10 @@ namespace TrueforceForAll.Plugin
                 FfbSmoothSlider.Value  = _plugin.Settings?.FfbSmoothTimeConstantMs ?? 0.0;
                 FfbSmoothText.Text     = FfbSmoothSlider.Value.ToString("F1");
                 SpikeTamingEnabledCheck.IsChecked  = _plugin.Settings?.FfbSpikeTamingEnabled  ?? false;
-                SpikeUseSlewLimiterCheck.IsChecked = _plugin.Settings?.FfbSpikeUseSlewLimiter ?? true;
+                bool spikeSlewMode = _plugin.Settings?.FfbSpikeUseSlewLimiter ?? true;
+                SpikeModeSlewRadio.IsChecked      = spikeSlewMode;
+                SpikeModeTransientRadio.IsChecked = !spikeSlewMode;
+                UpdateSpikeModeUi();
                 FfbSpikeLimitSlider.Value = _plugin.Settings?.FfbSpikeMaxLsbPerMs ?? 0.0;
                 FfbSpikeLimitText.Text    = FfbSpikeLimitSlider.Value <= 0
                     ? "off"
@@ -1442,11 +1445,38 @@ namespace TrueforceForAll.Plugin
             _plugin.SetFfbSpikeTamingEnabled(SpikeTamingEnabledCheck.IsChecked == true);
             MarkEffectDirty(EffectKind.SpikeReduction);
         }
-        private void SpikeUseSlewLimiter_Changed(object sender, RoutedEventArgs e)
+        private void SpikeMode_Changed(object sender, RoutedEventArgs e)
         {
+            // The pure-UI swap runs even during a suppressed refresh so the
+            // label / help / description always match the selected method.
+            UpdateSpikeModeUi();
             if (_suppressEvents || _plugin == null) return;
-            _plugin.SetFfbSpikeUseSlewLimiter(SpikeUseSlewLimiterCheck.IsChecked == true);
+            _plugin.SetFfbSpikeUseSlewLimiter(SpikeModeSlewRadio?.IsChecked == true);
             MarkEffectDirty(EffectKind.SpikeReduction);
+        }
+
+        // Swaps the shared limit slider's label + help and the method
+        // description for the selected method, and shows the transient-only
+        // "Cap softness" row only in transient mode. Pure UI, no settings
+        // writes, so it is safe to call during a suppressed refresh.
+        private void UpdateSpikeModeUi()
+        {
+            if (SpikeModeSlewRadio == null) return; // designer / pre-init
+            bool slew = SpikeModeSlewRadio.IsChecked == true;
+            if (SpikeModeDescription != null)
+                SpikeModeDescription.Text = slew
+                    ? "Slew-rate limiter (iRacing-style): caps how fast the force is allowed to change. No amplitude reduction, sustained forces always reach full strength; a sharp spike just gets spread across a few extra milliseconds."
+                    : "Transient detector: soft-caps only the part of a sudden jump that exceeds your threshold. Sustained heavy cornering passes through at full strength; crashes and big curb hits get rounded off.";
+            if (FfbSpikeLimitLabel != null)
+                FfbSpikeLimitLabel.Text = slew ? "Slew rate (LSB/ms):" : "Spike threshold (LSB):";
+            if (FfbSpikeLimitHelp != null)
+                FfbSpikeLimitHelp.Text = slew
+                    ? "Maximum change in force per millisecond. Lower spreads harsh spikes over more time (softer); higher lets force move faster (sharper)."
+                    : "Minimum force magnitude before the cap can engage. Below this, forces pass through untouched. Lower catches more spikes; higher only the biggest hits.";
+            if (SpikeCapSoftnessRow != null)
+                SpikeCapSoftnessRow.Visibility = slew
+                    ? System.Windows.Visibility.Collapsed
+                    : System.Windows.Visibility.Visible;
         }
 
         private void CaptureExeOverride_LostFocus(object sender, RoutedEventArgs e)
