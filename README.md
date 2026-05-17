@@ -21,7 +21,7 @@ For the record on what this project is: Original Windows code built on top of a 
 | Logitech G PRO Racing Wheel (PS/PC) | `046D:C268` | Full: Trueforce haptics + game FFB pass-through |
 | Logitech RS50 | `046D:C276` | Full: Trueforce haptics + game FFB pass-through |
 | Logitech G923 (PS/PC) | `046D:C266` | Full: Trueforce haptics + game FFB pass-through |
-| Logitech G923 (Xbox/PC) | `046D:C26D`, `046D:C26E` | Trueforce haptics confirmed. FFB pass-through fix shipped in 0.1.17, not yet user-confirmed |
+| Logitech G923 (Xbox/PC) | `046D:C26D`, `046D:C26E` | Full: Trueforce haptics + game FFB pass-through |
 
 The G PRO and RS50 use byte-identical Trueforce packets, so the haptic
 layer works on both. The plugin keeps a game's normal force feedback alive
@@ -37,19 +37,12 @@ on a different path than the G PRO and RS50 (a DirectInput-style report
 on a separate USB endpoint), which the plugin taps and mirrors into the
 haptic stream.
 
-PlayStation/PC variant (`046D:C266`): confirmed working by an owner,
-Trueforce effects and in-game force feedback together. If it feels
-light, raise master or Trueforce gain. The G923 is a quieter
-gear-driven wheel than the G PRO and RS50, so the conservative shipped
-defaults can read weak on it.
-
-Xbox/PC variants (`046D:C26D`, `046D:C26E`): Trueforce haptic effects
-confirmed working on hardware. The Xbox variant delivers force feedback
-over a different USB path than the PlayStation variant. As of 0.1.17 the
-plugin reads that path too, decoded from a community-submitted capture,
-but this is not yet confirmed on Xbox G923 hardware. If you have an Xbox
-G923, please report whether in-game force feedback now works alongside
-the Trueforce effects.
+Both G923 variants are confirmed working by owners: Trueforce effects
+and in-game force feedback together. The PlayStation and Xbox variants
+deliver force feedback over different USB paths (the Xbox path was
+decoded from a community-submitted capture and added in 0.1.17); the
+plugin handles both. The G923 is a quieter gear-driven wheel than the
+G PRO and RS50, so if it feels light, raise master or Trueforce gain.
 
 ## What it does
 
