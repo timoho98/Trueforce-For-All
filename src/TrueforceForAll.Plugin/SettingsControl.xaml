@@ -1439,11 +1439,11 @@
                  packets out of the network when the user doesn't run SimHub. -->
             <Border BorderThickness="0,1,0,0" BorderBrush="#22FFFFFF" Margin="0,4,0,8" Padding="0,8,0,0">
                 <StackPanel>
-                    <CheckBox x:Name="ForzaForwardEnabledCheck" Content="Also forward to SimHub (for dashboards)" Click="ForzaForwardEnabled_Changed" Margin="0,0,0,4"
+                    <CheckBox x:Name="ForzaForwardEnabledCheck" Content="Also forward to SimHub (dashboards, ShakeIt / Buttkicker, etc.)" Click="ForzaForwardEnabled_Changed" Margin="0,0,0,4"
                               FontWeight="SemiBold"
-                              ToolTip="Enable when you also use SimHub for Forza dashboards. We receive Forza Data Out on our port and re-broadcast each packet verbatim to SimHub on the port below, so both apps end up with the same data."/>
+                              ToolTip="Enable when you also use SimHub for Forza (dashboards, ShakeIt bass shakers / Buttkicker, anything SimHub drives). Forza can only send telemetry to one place, so this plugin receives it and re-broadcasts every packet verbatim to SimHub."/>
                     <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,6" FontSize="11"
-                               Text="Find SimHub's Forza port in SimHub: Game → Forza Horizon 5 (or FH6) → telemetry settings, in the UDP port field. Type the same number below. Forza will route through us, then we'll relay to SimHub."/>
+                               Text="Forza sends telemetry to only one destination, so to feed both this plugin and SimHub:&#10;1. In SimHub, note its Forza UDP port (Games, Forza, telemetry settings), and turn off SimHub's auto-configure of Forza Data Out if it is on.&#10;2. In Forza's telemetry settings, set Data Out IP to 127.0.0.1 and Data Out Port to this plugin's listen port (the Port field above). Point Forza at this plugin, not at SimHub.&#10;3. Enable this box and set the forward port below to SimHub's Forza port from step 1.&#10;Result: Forza → this plugin → SimHub, so dashboards and bass shakers (Buttkicker) keep working."/>
                     <Grid Margin="0,0,0,4">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="140"/>
@@ -1559,11 +1559,11 @@
                  bytes verbatim to SimHub. Default off. -->
             <Border BorderThickness="0,1,0,0" BorderBrush="#22FFFFFF" Margin="0,4,0,8" Padding="0,8,0,0">
                 <StackPanel>
-                    <CheckBox x:Name="F1ForwardEnabledCheck" Content="Also forward to SimHub (for dashboards)" Click="F1ForwardEnabled_Changed" Margin="0,0,0,4"
+                    <CheckBox x:Name="F1ForwardEnabledCheck" Content="Also forward to SimHub (dashboards, ShakeIt / Buttkicker, etc.)" Click="F1ForwardEnabled_Changed" Margin="0,0,0,4"
                               FontWeight="SemiBold"
-                              ToolTip="Enable when you also use SimHub for F1 dashboards. We receive F1 UDP on our port and re-broadcast each packet verbatim to SimHub on the port below."/>
+                              ToolTip="Enable when you also use SimHub for F1 (dashboards, ShakeIt bass shakers / Buttkicker, anything SimHub drives). F1 can only send telemetry to one place, so this plugin receives it and re-broadcasts every packet verbatim to SimHub."/>
                     <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,6" FontSize="11"
-                               Text="Find SimHub's F1 port in SimHub: Game → F1 25 → telemetry settings, in the UDP port field. Type the same number below."/>
+                               Text="F1 sends telemetry to only one destination, so to feed both this plugin and SimHub:&#10;1. In SimHub, note its F1 UDP port (Games, F1 25, telemetry settings), and turn off SimHub's auto-configure of F1 telemetry if it is on.&#10;2. In F1's telemetry settings, set the UDP IP to 127.0.0.1 and the UDP port to this plugin's listen port (the Port field above). Point F1 at this plugin, not at SimHub.&#10;3. Enable this box and set the forward port below to SimHub's F1 port from step 1.&#10;Result: F1 → this plugin → SimHub, so dashboards and bass shakers (Buttkicker) keep working."/>
                     <Grid Margin="0,0,0,4">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="140"/>

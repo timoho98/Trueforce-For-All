@@ -142,6 +142,26 @@ Some titles read directly from the game's telemetry, bypassing SimHub's limitati
 
 Additional per-title enhancements/bypasses will be added over time.
 
+### Using a UDP game alongside SimHub (dashboards, bass shakers, Buttkicker)
+
+Forza and F1 send their UDP telemetry to only one destination, so if this
+plugin reads it directly, SimHub no longer receives it and anything SimHub
+drives (dashboards, ShakeIt bass shakers, a Buttkicker, arduino devices)
+goes quiet. The plugin can relay the telemetry on so both get it. In the
+Forza (or F1) section of the plugin settings:
+
+1. In SimHub, note its UDP port for the game (Games, the game, telemetry
+   settings), and turn off SimHub's auto-configure of that game's data
+   output if it is on.
+2. In the game's telemetry settings, set the data-out IP to `127.0.0.1`
+   and the data-out port to this plugin's listen port (the Port field in
+   that section). The game points at this plugin, not at SimHub.
+3. Enable "Also forward to SimHub" and set the forward port to SimHub's
+   port from step 1.
+
+The result is `game → this plugin → SimHub`, so haptics from this plugin
+and everything SimHub drives both work at the same time.
+
 ## iRacing + MAIRA
 
 iRacing ships native Trueforce, so this plugin normally stays out of its
