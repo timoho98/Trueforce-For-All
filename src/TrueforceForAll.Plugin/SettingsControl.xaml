@@ -1313,7 +1313,7 @@
                  SimHub's rev-bar telemetry over a separate HID++ channel that
                  can't disturb FFB or the Trueforce stream. Experimental;
                  default off; verify with Test before relying on it. -->
-            <StackPanel x:Name="RpmLedSection">
+            <StackPanel x:Name="RpmLedSection" Visibility="Collapsed">
             <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Rim rev/shift LEDs (iRacing)" Style="{StaticResource SectionHeaderText}"/></Border>
             <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
                 Text="For iRacing + MAIRA: when you disable Trueforce in iRacing, the wheel's RPM lights go dark too (iRacing routes them through its Trueforce hook). This re-drives the 10 rim LEDs from SimHub's rev-bar telemetry over a separate HID++ channel. Experimental. Click Test to verify your wheel lights up before relying on it; if nothing happens, use 'Bundle logs' and check the log for which HID interfaces were probed."/>
@@ -1336,6 +1336,13 @@
                 <TextBlock Grid.Column="0" Text="LED channel:" Style="{StaticResource LabelText}"/>
                 <TextBlock Grid.Column="1" x:Name="RpmLedStatusText" Text="(idle)" FontSize="11" Opacity="0.85"/>
             </Grid>
+            <TextBlock Style="{StaticResource HelpText}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,4"
+                Text="Full features (FFB + rev LEDs) need MAIRA with its 'Pass FFB through TF4ALL' toggle on. Without MAIRA you can instead disable the Trueforce API in iRacing's app.ini and use this for Trueforce FFB only (rev LEDs stay off in that mode so FFB never cuts)."/>
+            <TextBlock Margin="0,0,0,8" FontSize="12">
+                <Hyperlink Foreground="#FF4DA3FF" Click="GetMaira_Click">
+                    <Run Text="Get MAIRA Refactored (recommended for iRacing)"/>
+                </Hyperlink>
+            </TextBlock>
             </StackPanel> <!-- /RpmLedSection -->
 
             <!-- Sidechain ducking + Performance moved into the Advanced

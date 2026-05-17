@@ -1712,6 +1712,12 @@ namespace TrueforceForAll.Plugin
             IsF1GameName(_activeGame)
             || (Settings?.F1?.AlwaysListen == true);
 
+        /// <summary>True when the rim rev-LED + MAIRA section should be
+        /// visible. iRacing-only: that is the sole game where the LEDs
+        /// (and the MAIRA passthrough that makes them safe) apply.</summary>
+        public bool ShouldShowRpmLedSection =>
+            string.Equals(_activeGame, "IRacing", StringComparison.Ordinal);
+
         /// <summary>True when the active game's telemetry includes ABS
         /// pump activity. Forza's Data Out wire format (FH4/FH5/FH6) does
         /// not surface this, and neither does SimHub's universal reader

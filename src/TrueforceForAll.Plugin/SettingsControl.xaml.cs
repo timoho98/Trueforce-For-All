@@ -617,6 +617,13 @@ namespace TrueforceForAll.Plugin
                         : System.Windows.Visibility.Collapsed;
                     if (F1Section.Visibility != want) F1Section.Visibility = want;
                 }
+                if (RpmLedSection != null)
+                {
+                    var want = _plugin.ShouldShowRpmLedSection
+                        ? System.Windows.Visibility.Visible
+                        : System.Windows.Visibility.Collapsed;
+                    if (RpmLedSection.Visibility != want) RpmLedSection.Visibility = want;
+                }
 
                 // Header update controls. When an update is available, the
                 // "Check for updates" link + transient status hide and a
@@ -2007,6 +2014,11 @@ namespace TrueforceForAll.Plugin
         }
 
         private void OpenRepo_Click(object sender, RoutedEventArgs e) => OpenUrl(RepoUrl);
+
+        // Reciprocal funnel: TF4ALL points iRacing users at MAIRA, whose
+        // "Pass FFB through TF4ALL" toggle is the supported full-feature path.
+        private const string MairaRefactoredUrl = "https://github.com/mherbold/MarvinsAIRARefactored";
+        private void GetMaira_Click(object sender, RoutedEventArgs e) => OpenUrl(MairaRefactoredUrl);
 
         private static void OpenUrl(string url)
         {
