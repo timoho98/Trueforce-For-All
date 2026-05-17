@@ -34,8 +34,8 @@ The G923 was decoded from USB captures (Assetto Corsa Competizione and
 Forza Horizon 5). Its Trueforce motor uses the same protocol as the
 G PRO, and the plugin now also taps the separate path the G923 uses for
 force feedback in non-Trueforce games (a DirectInput-style report on a
-different USB endpoint than the G PRO uses), so haptics and game force
-feedback coexist. This is built from confirmed captures but has not been
+different USB endpoint than the G PRO & RS50 uses), so haptics and game force
+feedback should coexist. This is built from confirmed captures but has not been
 verified on physical G923 hardware yet. The PlayStation/PC variant
 (`046D:C266`) is protocol-confirmed and ready for community testing. The
 Xbox/PC variants (`046D:C26D`, `046D:C26E`) are supported by inference
