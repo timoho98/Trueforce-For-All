@@ -2017,7 +2017,7 @@ namespace TrueforceForAll.Plugin
 
         // Reciprocal funnel: TF4ALL points iRacing users at MAIRA, whose
         // "Pass FFB through TF4ALL" toggle is the supported full-feature path.
-        private const string MairaRefactoredUrl = "https://github.com/mherbold/MarvinsAIRARefactored";
+        private const string MairaRefactoredUrl = "https://github.com/mherbold/MarvinsAIRARefactored/releases/latest";
         private void GetMaira_Click(object sender, RoutedEventArgs e) => OpenUrl(MairaRefactoredUrl);
 
         private static void OpenUrl(string url)
