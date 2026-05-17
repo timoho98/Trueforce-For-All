@@ -1337,7 +1337,7 @@
                 <TextBlock Grid.Column="1" x:Name="RpmLedStatusText" Text="(idle)" FontSize="11" Opacity="0.85"/>
             </Grid>
             <TextBlock Style="{StaticResource HelpText}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,4"
-                Text="Full features (FFB + rev LEDs) need MAIRA with its 'Pass FFB through TF4ALL' toggle on. Without MAIRA you can instead disable the Trueforce API in iRacing's app.ini and use this for Trueforce FFB only (rev LEDs stay off in that mode so FFB never cuts)."/>
+                Text="Rev LEDs and Trueforce haptics run together when MAIRA's 'Pass FFB through TF4ALL' toggle is on: MAIRA hands its force to TF4ALL so nothing fights for the wheel. Get MAIRA below."/>
             <TextBlock Margin="0,0,0,8" FontSize="12">
                 <Hyperlink Foreground="#FF4DA3FF" Click="GetMaira_Click">
                     <Run Text="Get MAIRA Refactored (recommended for iRacing)"/>

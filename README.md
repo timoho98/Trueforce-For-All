@@ -139,27 +139,18 @@ Additional per-title enhancements/bypasses will be added over time.
 ## iRacing + MAIRA
 
 iRacing ships native Trueforce, so this plugin normally stays out of its
-way. It comes into play once iRacing's Trueforce is turned off via
-`loadTrueForceAPI=0` in iRacing's `app.ini` (which **Marvin's Awesome
-iRacing App (MAIRA)** requires on a Logitech wheel anyway). There are
-two ways to use it from there:
+way. Where it comes in is with **Marvin's Awesome iRacing App (MAIRA)**:
+running MAIRA on a Logitech wheel requires `loadTrueForceAPI=0` in
+iRacing's `app.ini`, which turns iRacing's own Trueforce off.
 
-**With MAIRA (recommended, full features).** Turn on MAIRA's
-**"Pass FFB through TF4ALL"** toggle. MAIRA then stops sending PID force
-feedback to the wheel and hands its computed force to this plugin
-through shared memory; the plugin renders that force as Trueforce
-haptics and also drives the wheel's rim **rev/shift LEDs**. Because no
-PID traffic is on the wheel's HID++ pipe, the haptics and the LEDs run
-together with no force-feedback conflict. This restores both the
-Trueforce textural haptics and the rev lights MAIRA users otherwise
-lose.
-
-**Without MAIRA (Trueforce haptics only).** Set `loadTrueForceAPI=0` so
-iRacing outputs standard force feedback, and the plugin taps that and
-renders Trueforce haptics as usual. Force feedback and Trueforce work;
-the rim rev LEDs stay off in this mode, because driving them would
-contend with iRacing's force feedback on the shared HID++ pipe and
-cause brief FFB dropouts. Use the MAIRA path if you want the rev lights.
+Turn on MAIRA's **"Pass FFB through TF4ALL"** toggle and the two link up
+automatically. MAIRA stops sending PID force feedback to the wheel and
+hands its computed force to this plugin through shared memory; the
+plugin renders that force as Trueforce haptics and also drives the
+wheel's rim **rev/shift LEDs**. Because no PID traffic is on the wheel's
+HID++ pipe, the haptics and the rev lights run together with no force-
+feedback conflict. MAIRA users get both their Trueforce textural
+haptics and the rev lights back.
 
 Step-by-step setup is in
 [docs/iracing-maira-trueforce.md](docs/iracing-maira-trueforce.md).
