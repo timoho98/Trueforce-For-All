@@ -44,6 +44,14 @@ namespace TrueforceForAll.Plugin
         // and the no-MAIRA iRacing path never see it.
         public bool RpmLedsEnabled { get; set; } = true;
 
+        // Gate for the rim-LED / MAIRA-passthrough settings section. Hidden
+        // from the public UI until a tester types the access code (MAIRA or
+        // TEST) in the box at the bottom of the settings page. The MAIRA
+        // side is still in PR and unvalidated on RS50/G923, so this keeps
+        // the half-feature out of sight for normal users. Once true it
+        // stays unlocked for that install.
+        public bool RpmLedUnlocked { get; set; } = false;
+
         // Per-game auto-remembered enable state. When the active game changes,
         // the plugin looks up this dict and applies the saved value (default
         // true for games never seen before). Independent of preset assignment.

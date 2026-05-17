@@ -222,6 +222,8 @@ namespace TrueforceForAll.Plugin
                 CaptureExeOverrideBox.Text = _plugin.ActiveCaptureExeOverride ?? "";
 
                 // Rim rev/shift LEDs (iRacing)
+                if (AccessCodeStatus != null && _plugin.Settings?.RpmLedUnlocked == true)
+                    AccessCodeStatus.Text = "Rim-LED / MAIRA section unlocked.";
                 if (RpmLedEnabledCheck != null)
                     RpmLedEnabledCheck.IsChecked = _plugin.Settings?.RpmLedsEnabled == true;
                 if (MairaPassthroughCheck != null)
@@ -619,7 +621,11 @@ namespace TrueforceForAll.Plugin
                 }
                 if (RpmLedSection != null)
                 {
-                    var want = _plugin.ShouldShowRpmLedSection
+                    // Hidden until the tester unlocks it with the access code
+                    // (bottom of page). The MAIRA passthrough side is still in
+                    // PR / unvalidated on RS50/G923, so it stays out of the
+                    // public UI until then. Not game/profile gated anymore.
+                    var want = (_plugin.Settings?.RpmLedUnlocked == true)
                         ? System.Windows.Visibility.Visible
                         : System.Windows.Visibility.Collapsed;
                     if (RpmLedSection.Visibility != want) RpmLedSection.Visibility = want;
@@ -2993,6 +2999,33 @@ namespace TrueforceForAll.Plugin
             if (_suppressEvents || _plugin?.Settings?.Forza == null) return;
             _plugin.Settings.Forza.Enabled = ForzaEnabledCheck.IsChecked == true;
             _plugin.ApplyForzaSettings();
+        }
+
+        // ---------- Tester access code (unlocks the rim-LED / MAIRA section) ----------
+
+        private void AccessCode_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Enter) CommitAccessCode();
+        }
+
+        private void AccessCode_Changed(object sender, RoutedEventArgs e) => CommitAccessCode();
+
+        private void CommitAccessCode()
+        {
+            if (_suppressEvents || _plugin?.Settings == null || AccessCodeBox == null) return;
+            string code = (AccessCodeBox.Text ?? string.Empty).Trim();
+            bool ok = code.Equals("MAIRA", StringComparison.OrdinalIgnoreCase)
+                   || code.Equals("TEST", StringComparison.OrdinalIgnoreCase);
+            if (!ok) return;
+
+            if (!_plugin.Settings.RpmLedUnlocked)
+            {
+                _plugin.Settings.RpmLedUnlocked = true;
+                _plugin.PersistSettings();
+            }
+            AccessCodeBox.Text = string.Empty;
+            if (AccessCodeStatus != null) AccessCodeStatus.Text = "Rim-LED / MAIRA section unlocked.";
+            if (RpmLedSection != null) RpmLedSection.Visibility = System.Windows.Visibility.Visible;
         }
 
         // ---------- Rim rev/shift LEDs (iRacing) ----------

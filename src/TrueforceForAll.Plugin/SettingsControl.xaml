@@ -1926,6 +1926,17 @@
                                   ToolTip="Off by default. When on, captures every USB OUT transfer to your wheel (any endpoint, any transfer type) as a pcap file alongside SimHub's logs. Open in Wireshark with USBPcap. Use only when support asks for it: the file grows several KB/sec during active FFB. Capped at 50 MB; toggle off and on to reset."/>
                     </Grid>
                 </Expander>
+
+                <!-- Tester access code. Unhides the rim-LED / MAIRA
+                     passthrough section (MAIRA side still in PR, RS50/G923
+                     unvalidated, so it stays out of the public UI). Type
+                     MAIRA or TEST to unlock; persists for this install. -->
+                <StackPanel Orientation="Horizontal" Margin="0,18,0,2" Opacity="0.45">
+                    <TextBlock Text="Access code:" Style="{StaticResource LabelText}" VerticalAlignment="Center"/>
+                    <TextBox x:Name="AccessCodeBox" Width="120" Margin="8,0,0,0" VerticalAlignment="Center"
+                             LostFocus="AccessCode_Changed" KeyDown="AccessCode_KeyDown"/>
+                    <TextBlock x:Name="AccessCodeStatus" Margin="8,0,0,0" FontSize="11" VerticalAlignment="Center"/>
+                </StackPanel>
             </StackPanel>
         </StackPanel>
     </ScrollViewer>
