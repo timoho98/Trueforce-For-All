@@ -21,7 +21,7 @@ For the record on what this project is: Original Windows code built on top of a 
 | Logitech G PRO Racing Wheel (PS/PC) | `046D:C268` | Full: Trueforce haptics + game FFB pass-through |
 | Logitech RS50 | `046D:C276` | Full: Trueforce haptics + game FFB pass-through |
 | Logitech G923 (PS/PC) | `046D:C266` | Community testing: protocol decoded from captures, not yet hardware-verified |
-| Logitech G923 (Xbox/PC) | `046D:C26D`, `046D:C26E` | Experimental: by inference from the shared protocol family, untested |
+| Logitech G923 (Xbox/PC) | `046D:C26D`, `046D:C26E` | Trueforce haptics confirmed on hardware. Game FFB pass-through not working yet (Xbox FFB report differs from PS; decode in progress) |
 
 The G PRO and RS50 use byte-identical Trueforce packets, so the haptic
 layer works on both. The plugin keeps a game's normal force feedback alive
@@ -31,16 +31,22 @@ so both the G PRO and the RS50 get Trueforce haptics and their native game
 force feedback at the same time.
 
 The G923 was decoded from USB captures (Assetto Corsa Competizione and
-Forza Horizon 5). Its Trueforce motor uses the same protocol as the
-G PRO, and the plugin now also taps the separate path the G923 uses for
-force feedback in non-Trueforce games (a DirectInput-style report on a
-different USB endpoint than the G PRO & RS50 uses), so haptics and game force
-feedback should coexist. This is built from confirmed captures but has not been
-verified on physical G923 hardware yet. The PlayStation/PC variant
-(`046D:C266`) is protocol-confirmed and ready for community testing. The
-Xbox/PC variants (`046D:C26D`, `046D:C26E`) are supported by inference
-from the shared protocol family and are untested; if Trueforce effects
-work but your game's force feedback stays silent, please report it.
+Forza Horizon 5). Its Trueforce haptic motor uses the same protocol as
+the G PRO. For non-Trueforce games the G923 exposes its force feedback
+on a different path than the G PRO and RS50 (a DirectInput-style report
+on a separate USB endpoint), which the plugin taps and mirrors into the
+haptic stream.
+
+PlayStation/PC variant (`046D:C266`): protocol-confirmed from captures,
+awaiting a hardware report. Ready for community testing.
+
+Xbox/PC variants (`046D:C26D`, `046D:C26E`): tested on hardware by a
+user. Trueforce haptic effects work. Game FFB pass-through does not work
+yet: the Xbox variant sends force feedback in a different report format
+than the PlayStation variant, and that format is being decoded from a
+follow-up capture so a fix can be added. If you have an Xbox G923 and
+Trueforce effects work but your game's force feedback stays silent, that
+is this known issue, already being worked on.
 
 ## What it does
 
