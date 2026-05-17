@@ -20,8 +20,8 @@ For the record on what this project is: Original Windows code built on top of a 
 | Logitech G PRO Racing Wheel (Xbox/PC) | `046D:C272` | Full: Trueforce haptics + game FFB pass-through |
 | Logitech G PRO Racing Wheel (PS/PC) | `046D:C268` | Full: Trueforce haptics + game FFB pass-through |
 | Logitech RS50 | `046D:C276` | Full: Trueforce haptics + game FFB pass-through |
-| Logitech G923 (PS/PC) | `046D:C266` | Community testing: protocol decoded from captures, not yet hardware-verified |
-| Logitech G923 (Xbox/PC) | `046D:C26D`, `046D:C26E` | Trueforce haptics confirmed on hardware. Game FFB pass-through not working yet (Xbox FFB report differs from PS; decode in progress) |
+| Logitech G923 (PS/PC) | `046D:C266` | Confirmed working by an owner: Trueforce haptics + game FFB pass-through |
+| Logitech G923 (Xbox/PC) | `046D:C26D`, `046D:C26E` | Trueforce haptics confirmed. FFB pass-through fix shipped in 0.1.17, not yet user-confirmed |
 
 The G PRO and RS50 use byte-identical Trueforce packets, so the haptic
 layer works on both. The plugin keeps a game's normal force feedback alive
@@ -37,16 +37,19 @@ on a different path than the G PRO and RS50 (a DirectInput-style report
 on a separate USB endpoint), which the plugin taps and mirrors into the
 haptic stream.
 
-PlayStation/PC variant (`046D:C266`): protocol-confirmed from captures,
-awaiting a hardware report. Ready for community testing.
+PlayStation/PC variant (`046D:C266`): confirmed working by an owner,
+Trueforce effects and in-game force feedback together. If it feels
+light, raise master or Trueforce gain. The G923 is a quieter
+gear-driven wheel than the G PRO and RS50, so the conservative shipped
+defaults can read weak on it.
 
-Xbox/PC variants (`046D:C26D`, `046D:C26E`): tested on hardware by a
-user. Trueforce haptic effects work. Game FFB pass-through does not work
-yet: the Xbox variant sends force feedback in a different report format
-than the PlayStation variant, and that format is being decoded from a
-follow-up capture so a fix can be added. If you have an Xbox G923 and
-Trueforce effects work but your game's force feedback stays silent, that
-is this known issue, already being worked on.
+Xbox/PC variants (`046D:C26D`, `046D:C26E`): Trueforce haptic effects
+confirmed working on hardware. The Xbox variant delivers force feedback
+over a different USB path than the PlayStation variant. As of 0.1.17 the
+plugin reads that path too, decoded from a community-submitted capture,
+but this is not yet confirmed on Xbox G923 hardware. If you have an Xbox
+G923, please report whether in-game force feedback now works alongside
+the Trueforce effects.
 
 ## What it does
 

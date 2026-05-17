@@ -69,12 +69,16 @@ namespace TrueforceForAll.Plugin
             },
             new ChangelogVersion {
                 Version = new Version(0, 1, 17),
-                Title = "Xbox G923 force feedback fix",
+                Title = "G923 PS confirmed; Xbox G923 FFB fix (needs testing)",
                 Entries = new List<ChangelogEntry>
                 {
                     new ChangelogEntry {
-                        Headline = "Xbox G923: in-game force feedback now passes through",
-                        Description = "The Xbox/PC G923 delivers its force feedback as the same Logitech HID++ message the G PRO uses, but over a different USB transport and at a different feature index, so the plugin's tap missed it entirely. With it missed, the Trueforce stream silenced the wheel's own force feedback instead of carrying it. The plugin now also reads that interrupt-endpoint HID++ path, so Xbox G923 owners get their game force feedback and Trueforce effects together. Decoded from a community-submitted USB capture. Confirmed: Xbox G923 Trueforce effects already worked; this closes the force-feedback gap. Other wheels are unaffected (the new path only fires on traffic shaped this way).",
+                        Headline = "G923 (PS/PC) confirmed working by an owner",
+                        Description = "A PlayStation/PC G923 owner has confirmed the wheel working end to end: Trueforce effects and in-game force feedback together. If it feels light, raise master or Trueforce gain. The G923 is a quieter gear-driven wheel than the G PRO and RS50, so the conservative shipped defaults can read weak on it.",
+                    },
+                    new ChangelogEntry {
+                        Headline = "Xbox G923: force-feedback fix included, not yet confirmed",
+                        Description = "The Xbox/PC G923 delivers its force feedback as the same Logitech HID++ message the G PRO uses, but over a different USB transport and at a different feature index, so the plugin's tap missed it entirely and the Trueforce stream silenced the wheel's own force feedback instead of carrying it. The plugin now also reads that interrupt-endpoint HID++ path and auto-resolves its feature index the same way it does for the RS50. This was decoded from a community-submitted USB capture and is not yet confirmed on Xbox G923 hardware. Xbox G923 owners: please report whether in-game force feedback now works alongside the Trueforce effects. Other wheels are unaffected; the new path only fires on traffic shaped this way.",
                     },
                 },
             },
