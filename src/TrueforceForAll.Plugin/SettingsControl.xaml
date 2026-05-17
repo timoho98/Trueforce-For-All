@@ -553,8 +553,11 @@
             <CheckBox x:Name="SpikeTamingEnabledCheck" Content="FFB spike reduction (recommended for Assetto Corsa)"
                       FontWeight="SemiBold" Margin="0,0,0,4"
                       Checked="SpikeTamingEnabled_Changed" Unchecked="SpikeTamingEnabled_Changed"/>
-            <StackPanel x:Name="SpikeTamingBody" Margin="0,4,0,16"
-                        IsEnabled="{Binding IsChecked, ElementName=SpikeTamingEnabledCheck}">
+            <!-- The description and the slew/transient mode selector stay
+                 readable/interactive even when spike reduction is off (it's a
+                 mode choice the user can set any time). Only the live numeric
+                 tuning below gates on the master toggle. -->
+            <StackPanel x:Name="SpikeTamingBody" Margin="0,4,0,16">
                 <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8"
                            Text="Some games deliver curb and collision FFB spikes well beyond what's safe or comfortable on stronger wheelbases (Assetto Corsa is the worst offender we've seen). Hits can be sharp enough to wrench the wheel against your grip, ruin a racing line, or strain your wrists on a long session."/>
                 <CheckBox x:Name="SpikeUseSlewLimiterCheck" Content="Slew-rate limiter (iRacing-style)"
@@ -562,6 +565,8 @@
                           Checked="SpikeUseSlewLimiter_Changed" Unchecked="SpikeUseSlewLimiter_Changed"/>
                 <TextBlock Style="{StaticResource HelpText}" Margin="20,0,0,8"
                            Text="When ON: caps how fast FFB can change (LSB/ms), no amplitude reduction. Sustained forces always reach full strength; spikes get spread across a few extra ms. When OFF: uses a transient detector that soft-caps sudden jumps above a magnitude threshold while letting sustained heavy cornering through."/>
+              <StackPanel x:Name="SpikeTuningBody"
+                          IsEnabled="{Binding IsChecked, ElementName=SpikeTamingEnabledCheck}">
                 <Grid Margin="0,0,0,2">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0" x:Name="FfbSpikeLimitLabel" Text="Slew rate (LSB/ms):" Style="{StaticResource LabelText}"/>
@@ -589,6 +594,7 @@
                                    Text="Only used in transient mode. Controls how aggressively forces above the spike threshold get compressed. Ceiling asymptotes toward threshold + this value."/>
                     </StackPanel>
                 </Expander>
+              </StackPanel> <!-- /SpikeTuningBody -->
             </StackPanel>
 
             <!-- Effects -->
@@ -1328,7 +1334,7 @@
                  LEDs (iRacing's Trueforce being off takes them with it); these
                  toggles plus MAIRA's matching toggle bring them back. Drives
                  rim or base LEDs depending on the wheel. -->
-            <StackPanel x:Name="RpmLedSection" Visibility="Collapsed">
+            <StackPanel x:Name="RpmLedSection" Visibility="Collapsed" Margin="0,20,0,0">
             <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Rev/shift LEDs (iRacing)" Style="{StaticResource SectionHeaderText}"/></Border>
             <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
                 Text="Running MAIRA turns iRacing's Trueforce off, which also turns your wheel's LEDs off. With these toggles on (and MAIRA's matching toggle), TF4ALL drives the LEDs again from your RPM. Click Test to check they light up. If they do not work, use Feedback then Report an issue and attach your logs so I can take a look."/>
@@ -1376,7 +1382,7 @@
                  This whole section is collapsed unless a Forza title is the
                  active game (ShouldShowForzaSection), so non-Forza users
                  never see it. -->
-            <StackPanel x:Name="ForzaSection" Visibility="Collapsed">
+            <StackPanel x:Name="ForzaSection" Visibility="Collapsed" Margin="0,20,0,0">
             <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Forza telemetry (UDP)" Style="{StaticResource SectionHeaderText}"/></Border>
             <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
                 Text="In Forza Horizon 4/5/6, open Settings → HUD and Gameplay → UDP RACE TELEMETRY. Turn DATA OUT ON, set DATA OUT IP ADDRESS to 127.0.0.1, and set DATA OUT IP PORT to the Port shown below. That is the whole setup. The listener is always on for Forza; per-tire surface rumble, kerbs, and cylinder count flow through automatically."/>

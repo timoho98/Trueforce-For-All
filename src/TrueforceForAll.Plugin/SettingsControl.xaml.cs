@@ -223,7 +223,7 @@ namespace TrueforceForAll.Plugin
 
                 // Rim rev/shift LEDs (iRacing)
                 if (AccessCodeStatus != null && _plugin.Settings?.RpmLedUnlocked == true)
-                    AccessCodeStatus.Text = "Rim-LED / MAIRA section unlocked.";
+                    AccessCodeStatus.Text = "Test features unlocked.";
                 if (RpmLedEnabledCheck != null)
                     RpmLedEnabledCheck.IsChecked = _plugin.Settings?.RpmLedsEnabled == true;
                 if (MairaPassthroughCheck != null)
@@ -3017,7 +3017,7 @@ namespace TrueforceForAll.Plugin
                 _plugin.PersistSettings();
             }
             AccessCodeBox.Text = string.Empty;
-            if (AccessCodeStatus != null) AccessCodeStatus.Text = "Rim-LED / MAIRA section unlocked.";
+            if (AccessCodeStatus != null) AccessCodeStatus.Text = "Test features unlocked.";
             if (RpmLedSection != null) RpmLedSection.Visibility = System.Windows.Visibility.Visible;
         }
 
