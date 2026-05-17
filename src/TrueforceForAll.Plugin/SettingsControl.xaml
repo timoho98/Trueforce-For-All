@@ -1324,37 +1324,35 @@
 
             </StackPanel> <!-- /TelemetryEffectsPanel -->
 
-            <!-- Rim rev/shift LEDs (iRacing). iRacing's native rev lights ride
-                 its Trueforce SDK hook, so MAIRA users who disable in-game
-                 Trueforce lose them. This drives the wheel's 10 RGB LEDs from
-                 SimHub's rev-bar telemetry over a separate HID++ channel that
-                 can't disturb FFB or the Trueforce stream. Experimental;
-                 default off; verify with Test before relying on it. -->
+            <!-- Rev/shift LEDs (iRacing + MAIRA). MAIRA users lose the wheel's
+                 LEDs (iRacing's Trueforce being off takes them with it); these
+                 toggles plus MAIRA's matching toggle bring them back. Drives
+                 rim or base LEDs depending on the wheel. -->
             <StackPanel x:Name="RpmLedSection" Visibility="Collapsed">
-            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Rim rev/shift LEDs (iRacing)" Style="{StaticResource SectionHeaderText}"/></Border>
+            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Rev/shift LEDs (iRacing)" Style="{StaticResource SectionHeaderText}"/></Border>
             <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
-                Text="For iRacing + MAIRA: when you disable Trueforce in iRacing, the wheel's RPM lights go dark too (iRacing routes them through its Trueforce hook). This re-drives the 10 rim LEDs from SimHub's rev-bar telemetry over a separate HID++ channel. Experimental. Click Test to verify your wheel lights up before relying on it; if nothing happens, use 'Bundle logs' and check the log for which HID interfaces were probed."/>
+                Text="Running MAIRA turns iRacing's Trueforce off, which also turns your wheel's LEDs off. With these toggles on (and MAIRA's matching toggle), TF4ALL drives the LEDs again from your RPM. Click Test to check they light up. If they do not work, use Feedback then Report an issue and attach your logs so I can take a look."/>
             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                <CheckBox x:Name="RpmLedEnabledCheck" Content="Drive rim rev LEDs in iRacing"
+                <CheckBox x:Name="RpmLedEnabledCheck" Content="Drive the wheel's LEDs in iRacing"
                           VerticalAlignment="Center"
                           Checked="RpmLedEnabled_Changed" Unchecked="RpmLedEnabled_Changed"
-                          ToolTip="Only active while iRacing is the running game. No effect in other titles."/>
+                          ToolTip="Only active in iRacing with MAIRA. No effect in other games."/>
                 <Button Content="Test" Style="{StaticResource EffectTestButton}" Click="RpmLedTest_Click"/>
             </StackPanel>
             <CheckBox x:Name="MairaPassthroughCheck" Content="Auto-link with MAIRA (recommended)"
                       VerticalAlignment="Center" Margin="0,0,0,6"
                       Checked="MairaPassthrough_Changed" Unchecked="MairaPassthrough_Changed"
-                      ToolTip="Leave on. When you turn on MAIRA's 'Pass FFB signal through TF4ALL' toggle, the two link up automatically: MAIRA stops sending PID FFB to the wheel and hands its force to TF4ALL, which renders it via Trueforce and drives the rim LEDs with no FFB contention. When MAIRA's toggle is off, TF4ALL works exactly as before. Uncheck only to force the legacy USBPcap path and ignore MAIRA."/>
+                      ToolTip="Leave on. When you turn on MAIRA's matching 'Pass FFB through TF4ALL' toggle, the two link up automatically and your LEDs come back. With MAIRA's toggle off, TF4ALL works exactly as before."/>
             <Grid Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="140"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="LED channel:" Style="{StaticResource LabelText}"/>
+                <TextBlock Grid.Column="0" Text="LED status:" Style="{StaticResource LabelText}"/>
                 <TextBlock Grid.Column="1" x:Name="RpmLedStatusText" Text="(idle)" FontSize="11" Opacity="0.85"/>
             </Grid>
             <TextBlock Style="{StaticResource HelpText}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,4"
-                Text="Rev LEDs and Trueforce haptics run together when MAIRA's 'Pass FFB through TF4ALL' toggle is on: MAIRA hands its force to TF4ALL so nothing fights for the wheel. Get MAIRA below."/>
+                Text="Your LEDs and Trueforce haptics work together once MAIRA's 'Pass FFB through TF4ALL' toggle is on. Get MAIRA below."/>
             <TextBlock Margin="0,0,0,8" FontSize="12">
                 <Hyperlink Foreground="#FF4DA3FF" Click="GetMaira_Click">
                     <Run Text="Get MAIRA Refactored (recommended for iRacing)"/>
