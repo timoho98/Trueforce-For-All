@@ -1875,7 +1875,10 @@ namespace TrueforceForAll.Plugin
             }
             else if (IsForzaGameName(game))
             {
-                if (Settings?.Forza?.Enabled == true)
+                // The Forza UDP reader is the only source of Forza's per-tire
+                // surface / kerb / cylinder data, so it is always on for Forza
+                // (no user toggle). It binds only while a Forza title is the
+                // active game; a port conflict falls back to SimHub below.
                 {
                     try
                     {

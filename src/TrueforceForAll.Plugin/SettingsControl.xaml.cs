@@ -235,7 +235,6 @@ namespace TrueforceForAll.Plugin
                 var fz = _plugin.Settings?.Forza;
                 if (fz != null)
                 {
-                    ForzaEnabledCheck.IsChecked        = fz.Enabled;
                     ForzaPortBox.Text                  = fz.Port.ToString();
                     ForzaBindBox.Text                  = fz.BindAddress ?? "0.0.0.0";
                     ForzaForwardEnabledCheck.IsChecked = fz.ForwardEnabled;
@@ -778,9 +777,7 @@ namespace TrueforceForAll.Plugin
                     var fzSrc = _plugin.TelemetrySource as TrueforceForAll.Core.ForzaUdpTelemetrySource;
                     if (fzSrc == null)
                     {
-                        ForzaStatusText.Text = (_plugin.Settings?.Forza?.Enabled ?? true)
-                            ? "(idle, not active for current game)"
-                            : "(disabled)";
+                        ForzaStatusText.Text = "(idle, not active for current game)";
                     }
                     else if (fzSrc.PacketsReceived == 0)
                     {
@@ -2993,13 +2990,9 @@ namespace TrueforceForAll.Plugin
         }
 
         // ---------- Forza UDP listener ----------
-
-        private void ForzaEnabled_Changed(object sender, RoutedEventArgs e)
-        {
-            if (_suppressEvents || _plugin?.Settings?.Forza == null) return;
-            _plugin.Settings.Forza.Enabled = ForzaEnabledCheck.IsChecked == true;
-            _plugin.ApplyForzaSettings();
-        }
+        // No enable/disable toggle: the Forza UDP reader is the only source of
+        // Forza's per-tire data, so it is always on for Forza (see
+        // SwapTelemetrySource). Only the port / bind / forwarding are tunable.
 
         // ---------- Tester access code (unlocks the rim-LED / MAIRA section) ----------
 
