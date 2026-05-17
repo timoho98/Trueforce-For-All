@@ -20,7 +20,8 @@ For the record on what this project is: Original Windows code built on top of a 
 | Logitech G PRO Racing Wheel (Xbox/PC) | `046D:C272` | Full: Trueforce haptics + game FFB pass-through |
 | Logitech G PRO Racing Wheel (PS/PC) | `046D:C268` | Full: Trueforce haptics + game FFB pass-through |
 | Logitech RS50 | `046D:C276` | Full: Trueforce haptics + game FFB pass-through |
-| Logitech G923 (Xbox/PC and PlayStation/PC) | `046D` (PID TBD) | Not yet supported. Investigating, needs a USB capture to confirm. |
+| Logitech G923 (PS/PC) | `046D:C266` | Community testing: protocol decoded from captures, not yet hardware-verified |
+| Logitech G923 (Xbox/PC) | `046D:C26D`, `046D:C26E` | Experimental: by inference from the shared protocol family, untested |
 
 The G PRO and RS50 use byte-identical Trueforce packets, so the haptic
 layer works on both. The plugin keeps a game's normal force feedback alive
@@ -29,12 +30,17 @@ tap resolves the wheel's HID++ force-feedback feature index automatically,
 so both the G PRO and the RS50 get Trueforce haptics and their native game
 force feedback at the same time.
 
-The G923 is belt-driven, so it sits outside the reverse-engineered
-direct-drive Trueforce protocol the plugin relies on. It is not enabled
-yet: a passive USB capture from a G923 is needed to confirm it speaks the
-same Trueforce stream (and to read the exact USB product IDs of the Xbox/PC
-and PlayStation/PC variants) before support can be added safely. If you
-have a G923 and want to help, that capture is the gating step.
+The G923 was decoded from USB captures (Assetto Corsa Competizione and
+Forza Horizon 5). Its Trueforce motor uses the same protocol as the
+G PRO, and the plugin now also taps the separate path the G923 uses for
+force feedback in non-Trueforce games (a DirectInput-style report on a
+different USB endpoint than the G PRO uses), so haptics and game force
+feedback coexist. This is built from confirmed captures but has not been
+verified on physical G923 hardware yet. The PlayStation/PC variant
+(`046D:C266`) is protocol-confirmed and ready for community testing. The
+Xbox/PC variants (`046D:C26D`, `046D:C26E`) are supported by inference
+from the shared protocol family and are untested; if Trueforce effects
+work but your game's force feedback stays silent, please report it.
 
 ## What it does
 
@@ -233,8 +239,8 @@ The wire protocol and init sequence are derived from the
   would have gone unnoticed. He also discovered and confirmed that the
   plugin brings Trueforce back to iRacing when running MAIRA.
 
-Logitech, Trueforce, G PRO, and RS50 are trademarks of Logitech. This
-project is not affiliated with, endorsed by, or sponsored by Logitech.
+Logitech, Trueforce, G PRO, RS50, and G923 are trademarks of Logitech.
+This project is not affiliated with, endorsed by, or sponsored by Logitech.
 
 [mescon]: https://github.com/mescon/logitech-rs50-linux-driver
 [usbpcap]: https://github.com/desowin/usbpcap
