@@ -39,7 +39,7 @@ jobs:
           fi
           gh api --paginate "repos/${REPO}/releases" \
             | jq -r --arg d "$DATE" \
-                '.[] | .tag_name as $t | .assets[] | [$d, $t, .name, .download_count] | @csv' \
+                '.[] | select(.draft == false) | .tag_name as $t | .assets[] | [$d, $t, .name, .download_count] | @csv' \
             >> "$CSV"
 
       - name: Commit snapshot
