@@ -20,7 +20,7 @@ For the record on what this project is: Original Windows code built on top of a 
 | Logitech G PRO Racing Wheel (Xbox/PC) | `046D:C272` | Full: Trueforce haptics + game FFB pass-through |
 | Logitech G PRO Racing Wheel (PS/PC) | `046D:C268` | Full: Trueforce haptics + game FFB pass-through |
 | Logitech RS50 | `046D:C276` | Full: Trueforce haptics + game FFB pass-through |
-| Logitech G923 (PS/PC) | `046D:C266` | Confirmed working by an owner: Trueforce haptics + game FFB pass-through |
+| Logitech G923 (PS/PC) | `046D:C266` | Full: Trueforce haptics + game FFB pass-through |
 | Logitech G923 (Xbox/PC) | `046D:C26D`, `046D:C26E` | Trueforce haptics confirmed. FFB pass-through fix shipped in 0.1.17, not yet user-confirmed |
 
 The G PRO and RS50 use byte-identical Trueforce packets, so the haptic
