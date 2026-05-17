@@ -76,6 +76,7 @@ namespace TrueforceForAll.Plugin
         private AudioCaptureSource _audio;
         private HelperHost _helperHost;
         private UsbPcapFfbTap _ffbTap;
+        private MairaIpcSource _mairaIpc;
 
         // Snapshot of the HID-side wheel match (Vid/Pid/Model) we found in Init.
         // Held so the manual USB-device picker can highlight the row that
@@ -106,6 +107,11 @@ namespace TrueforceForAll.Plugin
         public DrsEffect          Drs          { get; private set; }
         public CollisionEffect    Collision    { get; private set; }
         private TelemetryEffect[] _effects;
+
+        // Rim rev/shift LEDs over HID++ (iRacing-scoped, separate from the
+        // Trueforce stream). Lazily opens its own HID handle on first gated
+        // frame; never touches the ep3 audio-haptic device.
+        private RpmLedController _rpmLeds;
 
         // Active telemetry source. The plugin currently always uses
         // SimHubTelemetrySource (universal, ~60 Hz from the SimHub data
@@ -802,6 +808,24 @@ namespace TrueforceForAll.Plugin
                 // The persisted picker exists because USBPcap's descriptor-cache
                 // can go stale for hot-plugged wheels, leaving auto-discovery
                 // unable to find a wheel that HID enumeration sees fine.
+                // MAIRA auto-link: TF4ALL always watches for MAIRA's shared
+                // memory. When the user flips MAIRA's "Pass FFB signal through
+                // TF4ALL" toggle, MAIRA starts publishing and stops sending PID
+                // to the wheel; we detect that and prefer the shared-memory FFB
+                // (and drive the LEDs), no separate TF4ALL toggle needed. When
+                // MAIRA isn't passing through, the map is absent and we fall
+                // back to the USBPcap FFB tap exactly as before. The legacy
+                // USBPcap path is always set up as that fallback.
+                bool mairaAutoLink = Settings == null || Settings.MairaFfbPassthrough;
+                if (mairaAutoLink)
+                {
+                    // MAIRA passes FFB only. LEDs are driven by TF4ALL's
+                    // normal SimHub telemetry path (DispatchFrame ->
+                    // RpmLedController), the accurate per-car implementation;
+                    // no PID on the HID++ pipe in this mode so it's safe.
+                    _mairaIpc = new MairaIpcSource(msg => SimHub.Logging.Current.Info($"[Trueforce] {msg}"));
+                }
+
                 var (ifaceOverride, devOverride) = ResolveUsbPcapOverride();
                 _ffbTap = new UsbPcapFfbTap(ifaceOverride, devOverride, Settings?.UsbPcapCmdPathOverride)
                 {
@@ -811,6 +835,17 @@ namespace TrueforceForAll.Plugin
                 ApplyUsbBytesLoggingSetting();
                 _device.FfbTargetProvider = () =>
                 {
+                    // Prefer MAIRA shared-memory FFB when it's live (its toggle
+                    // is on and it's publishing). Scoped to the iRacing profile
+                    // only , MAIRA is an iRacing app, and we don't want a stale
+                    // map to hijack FFB in other games. No PID is on the HID++
+                    // pipe in this mode, so LEDs + FFB coexist.
+                    if (string.Equals(_activeGame, "IRacing", StringComparison.Ordinal))
+                    {
+                        var fromMaira = _mairaIpc?.TryGetFreshFfbTarget(_device.FfbTargetMaxAgeMs);
+                        if (fromMaira.HasValue) return fromMaira;
+                    }
+
                     // SkipFfbPassthrough: return Some(0) so the device sends
                     // active packets (audio plays) with cur = 0x8000. The
                     // wheel uses cur as motor torque and IGNORES ep0 once
@@ -839,7 +874,7 @@ namespace TrueforceForAll.Plugin
                     TrueforceDevice.MinRingSize, TrueforceDevice.MaxRingSize, TrueforceDevice.DefaultRingSize);
                 _device.SetRingCapacity(Settings.Performance.TfRingSize);
 
-                _ffbTap.Start();
+                _ffbTap?.Start();
 
                 _device.StartStream();
 
@@ -907,6 +942,8 @@ namespace TrueforceForAll.Plugin
             Collision    = new CollisionEffect();
             _effects = new TelemetryEffect[] { EnginePulse, RoadBumps, TractionLoss, GearShift, AbsClick, PitLimiter, Drs, Collision };
             foreach (var fx in _effects) _mixer.Add(fx);
+
+            _rpmLeds = new RpmLedController(msg => SimHub.Logging.Current.Info(msg));
             // Pull initial values from globals (no car detected yet).
             ApplyActiveCarOverride();
 
@@ -1074,6 +1111,9 @@ namespace TrueforceForAll.Plugin
 
             // UI changes are written through to Settings on the fly, so just save.
             if (Settings != null) this.SaveCommonSettings("GeneralSettings", Settings);
+
+            try { _rpmLeds?.Dispose(); } catch { }
+            _rpmLeds = null;
 
             try { _audio?.Dispose(); } catch { }
             _audio = null;
@@ -1410,7 +1450,52 @@ namespace TrueforceForAll.Plugin
                     }
                 }
             }
+
+            // Rim rev/shift LEDs. Gated to iRacing (where MAIRA users lose
+            // native rev lights after disabling in-game Trueforce) and the
+            // opt-in setting. Independent HID++ channel; can't disturb FFB or
+            // the ep3 stream even when it shares the wheel with native FFB.
+            if (_rpmLeds != null)
+            {
+                // LEDs are only SAFE when there is no PID on the wheel's HID++
+                // pipe, i.e. MAIRA passthrough is live (MAIRA publishing to
+                // shared memory, PID suppressed). In the no-MAIRA iRacing path
+                // (Trueforce disabled in app.ini) iRacing sends PID and an LED
+                // write stalls FFB ~1.5 s, so auto-suppress LEDs there. The
+                // setting can be on; it just can't fight FFB.
+                bool mairaLive = _mairaIpc != null && _mairaIpc.IsOpen;
+                bool gate = (Settings?.RpmLedsEnabled ?? false)
+                            && string.Equals(_activeGame, "IRacing", StringComparison.Ordinal)
+                            && mairaLive;
+                try
+                {
+                    _rpmLeds.OnFrame(frame.RpmPercent, frame.Rpms, frame.MaxRpm,
+                                     frame.RedlineReached, gate);
+                }
+                catch (Exception ex)
+                {
+                    SimHub.Logging.Current.Error("[Trueforce] RPM-LED telemetry error", ex);
+                }
+            }
         }
+
+        /// <summary>Run the simulated rev/shift sweep on the rim LEDs (settings
+        /// "Test" button). Opens the HID++ channel on demand so it works with
+        /// nothing running; safe regardless of active game.</summary>
+        public void TestRpmLeds()
+        {
+            if (_rpmLeds == null) { SimHub.Logging.Current.Info("[RPM-LED] controller not initialized"); return; }
+            int ms = _rpmLeds.RunTest();
+            SimHub.Logging.Current.Info($"[RPM-LED] Test started, duration={ms} ms ({_rpmLeds.Status})");
+        }
+
+        /// <summary>Force the rim LEDs off (feature unchecked / plugin
+        /// disabled). No telemetry frames arrive after that to drive the
+        /// gate-off path, so callers must invoke this explicitly.</summary>
+        public void TurnOffRpmLeds() => _rpmLeds?.ForceOff();
+
+        public string RpmLedStatus => _rpmLeds?.Status ?? "(n/a)";
+        public bool RpmLedIsTesting => _rpmLeds?.IsTesting ?? false;
 
         // ---------- Performance auto-ratchet ----------
 
@@ -1652,6 +1737,12 @@ namespace TrueforceForAll.Plugin
         public bool ShouldShowF1Section =>
             IsF1GameName(_activeGame)
             || (Settings?.F1?.AlwaysListen == true);
+
+        /// <summary>True when the rim rev-LED + MAIRA section should be
+        /// visible. iRacing-only: that is the sole game where the LEDs
+        /// (and the MAIRA passthrough that makes them safe) apply.</summary>
+        public bool ShouldShowRpmLedSection =>
+            string.Equals(_activeGame, "IRacing", StringComparison.Ordinal);
 
         /// <summary>True when the active game's telemetry includes ABS
         /// pump activity. Forza's Data Out wire format (FH4/FH5/FH6) does
@@ -5137,6 +5228,8 @@ namespace TrueforceForAll.Plugin
 
         private void CleanupDevice()
         {
+            try { _mairaIpc?.Dispose(); } catch { }
+            _mairaIpc = null;
             try { _ffbTap?.Dispose(); } catch { }
             _ffbTap = null;
             try { _device?.Dispose(); } catch { }

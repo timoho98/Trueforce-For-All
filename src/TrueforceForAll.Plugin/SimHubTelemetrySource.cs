@@ -31,6 +31,40 @@ namespace TrueforceForAll.Plugin
             var d = data?.NewData;
             if (d == null) return;
 
+            // Rev-bar fill for the rim LEDs. iRacing's own rev lights use the
+            // car's SHIFT-LIGHT band (first-light RPM -> shift RPM), a narrow
+            // window near the top, NOT CurrentDisplayedRPMPercent (which spans
+            // MinimumShownRPM..redline and reads high through normal driving,
+            // so our bar lit ~8 while iRacing's was still 0). Prefer the
+            // shift-light band so the fill matches the sim; fall back to the
+            // displayed percent, then raw Rpms/MaxRpm, for games/cars that
+            // don't publish shift points.
+            // iRacing telemetry reality (from the diag capture): SL1/SL2 are
+            // BOOLEAN rev-light-stage flags that FLICKER 0/1 every sample near
+            // their thresholds (SL2 is the blink stage), and
+            // CurrentDisplayedRPMPercent is just rpm/maxRpm (lights far too
+            // early). Driving off the booleans caused the bar to loop
+            // (10->5->10...). RedLineRPM is the one stable signal. So derive
+            // a smooth, monotonic curve purely from rpm vs redline: first LED
+            // at RevBandStart*red (~ where the car's first shift light came
+            // on in the diag, ~0.86*red), all 10 at redline. No booleans.
+            const double RevBandStart = 0.87;
+            double red = d.CarSettings_RedLineRPM > 0 ? d.CarSettings_RedLineRPM
+                       : d.CarSettings_CurrentGearRedLineRPM > 0 ? d.CarSettings_CurrentGearRedLineRPM
+                       : d.MaxRpm;
+            double revPct;
+            if (red > 0)
+            {
+                double lo = red * RevBandStart;
+                revPct = red > lo ? (d.Rpms - lo) / (red - lo) : 0;
+            }
+            else if (d.CarSettings_CurrentDisplayedRPMPercent > 0)
+                revPct = d.CarSettings_CurrentDisplayedRPMPercent / 100.0;
+            else if (d.MaxRpm > 0)
+                revPct = d.Rpms / d.MaxRpm;
+            else
+                revPct = 0;
+
             var frame = new TelemetryFrame
             {
                 Rpms      = d.Rpms,
@@ -62,6 +96,12 @@ namespace TrueforceForAll.Plugin
                 // overlay that derives it from the ERS-percent derivative.
                 PitLimiterActive = d.PitLimiterOn,
                 DrsActive        = d.DRSEnabled,
+
+                // See revPct computation above (redline-band, sim-matched).
+                // RPMRedLineReached flickers like the SL flags; derive redline
+                // from rpm vs the (stable) redline RPM instead.
+                RpmPercent     = Clamp01(revPct),
+                RedlineReached = red > 0 && d.Rpms >= red,
             };
             EmitFrame(frame);
         }

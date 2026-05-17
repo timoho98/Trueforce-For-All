@@ -221,6 +221,14 @@ namespace TrueforceForAll.Plugin
 
                 CaptureExeOverrideBox.Text = _plugin.ActiveCaptureExeOverride ?? "";
 
+                // Rim rev/shift LEDs (iRacing)
+                if (RpmLedEnabledCheck != null)
+                    RpmLedEnabledCheck.IsChecked = _plugin.Settings?.RpmLedsEnabled == true;
+                if (MairaPassthroughCheck != null)
+                    MairaPassthroughCheck.IsChecked = _plugin.Settings?.MairaFfbPassthrough == true;
+                if (RpmLedStatusText != null)
+                    RpmLedStatusText.Text = _plugin.RpmLedStatus;
+
                 // Forza section
                 var fz = _plugin.Settings?.Forza;
                 if (fz != null)
@@ -608,6 +616,13 @@ namespace TrueforceForAll.Plugin
                         ? System.Windows.Visibility.Visible
                         : System.Windows.Visibility.Collapsed;
                     if (F1Section.Visibility != want) F1Section.Visibility = want;
+                }
+                if (RpmLedSection != null)
+                {
+                    var want = _plugin.ShouldShowRpmLedSection
+                        ? System.Windows.Visibility.Visible
+                        : System.Windows.Visibility.Collapsed;
+                    if (RpmLedSection.Visibility != want) RpmLedSection.Visibility = want;
                 }
 
                 // Header update controls. When an update is available, the
@@ -2017,6 +2032,11 @@ namespace TrueforceForAll.Plugin
 
         private void OpenRepo_Click(object sender, RoutedEventArgs e) => OpenUrl(RepoUrl);
 
+        // Reciprocal funnel: TF4ALL points iRacing users at MAIRA, whose
+        // "Pass FFB through TF4ALL" toggle is the supported full-feature path.
+        private const string MairaRefactoredUrl = "https://github.com/mherbold/MarvinsAIRARefactored/releases/latest";
+        private void GetMaira_Click(object sender, RoutedEventArgs e) => OpenUrl(MairaRefactoredUrl);
+
         private static void OpenUrl(string url)
         {
             try
@@ -2973,6 +2993,48 @@ namespace TrueforceForAll.Plugin
             if (_suppressEvents || _plugin?.Settings?.Forza == null) return;
             _plugin.Settings.Forza.Enabled = ForzaEnabledCheck.IsChecked == true;
             _plugin.ApplyForzaSettings();
+        }
+
+        // ---------- Rim rev/shift LEDs (iRacing) ----------
+
+        private void RpmLedEnabled_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_suppressEvents || _plugin?.Settings == null) return;
+            _plugin.Settings.RpmLedsEnabled = RpmLedEnabledCheck.IsChecked == true;
+            _plugin.PersistSettings();
+            if (!_plugin.Settings.RpmLedsEnabled) _plugin.TurnOffRpmLeds();
+        }
+
+        private void MairaPassthrough_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_suppressEvents || _plugin?.Settings == null) return;
+            _plugin.Settings.MairaFfbPassthrough = MairaPassthroughCheck.IsChecked == true;
+            _plugin.PersistSettings();
+            // Takes effect on next device (re)start; surface that to the user.
+            if (RpmLedStatusText != null)
+                RpmLedStatusText.Text = "MAIRA auto-link "
+                    + (_plugin.Settings.MairaFfbPassthrough ? "ON" : "OFF")
+                    + " (restart plugin to apply)";
+        }
+
+        private void RpmLedTest_Click(object sender, RoutedEventArgs e)
+        {
+            if (_plugin == null) return;
+            _plugin.TestRpmLeds();
+            // Live-poll the controller's status so the current effect mode is
+            // visible in the panel while the sweep runs (the log timing is
+            // hard to eyeball against the wheel). Stop a moment after the
+            // test ends so the final "LEDs off" line shows.
+            var t = new System.Windows.Threading.DispatcherTimer
+            { Interval = TimeSpan.FromMilliseconds(250) };
+            int idleTicks = 0;
+            t.Tick += (s2, e2) =>
+            {
+                if (RpmLedStatusText != null) RpmLedStatusText.Text = _plugin.RpmLedStatus;
+                if (_plugin.RpmLedIsTesting) idleTicks = 0;
+                else if (++idleTicks > 4) t.Stop();   // ~1s after test ends
+            };
+            t.Start();
         }
 
         private void ForzaPort_LostFocus(object sender, RoutedEventArgs e) => CommitForzaPort();

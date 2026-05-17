@@ -139,12 +139,21 @@ Additional per-title enhancements/bypasses will be added over time.
 ## iRacing + MAIRA
 
 iRacing ships native Trueforce, so this plugin normally stays out of its
-way. The exception is **Marvin's Awesome iRacing App (MAIRA)**: running
-MAIRA on a Logitech wheel requires setting `loadTrueForceAPI=0` in
-iRacing's `app.ini`, which turns iRacing's Trueforce fully off. This
-plugin can restore the Trueforce textural haptics for MAIRA users,
-running alongside MAIRA's force feedback without conflict. Step-by-step
-setup is in [docs/iracing-maira-trueforce.md](docs/iracing-maira-trueforce.md).
+way. Where it comes in is with **Marvin's Awesome iRacing App (MAIRA)**:
+running MAIRA on a Logitech wheel requires `loadTrueForceAPI=0` in
+iRacing's `app.ini`, which turns iRacing's own Trueforce off.
+
+Turn on MAIRA's **"Pass FFB through TF4ALL"** toggle and the two link up
+automatically. MAIRA stops sending PID force feedback to the wheel and
+hands its computed force to this plugin through shared memory; the
+plugin renders that force as Trueforce haptics and also drives the
+wheel's rim **rev/shift LEDs**. Because no PID traffic is on the wheel's
+HID++ pipe, the haptics and the rev lights run together with no force-
+feedback conflict. MAIRA users get both their Trueforce textural
+haptics and the rev lights back.
+
+Step-by-step setup is in
+[docs/iracing-maira-trueforce.md](docs/iracing-maira-trueforce.md).
 
 ## Auto-discovery
 
@@ -175,6 +184,10 @@ gracefully
 - **Validated on G PRO and RS50 + AC + Wreckfest 2 + FH5 + FH6 +
   iRacing with MAIRA** so far. Other SimHub-supported games should work
   but haven't been tested by us yet. Feedback welcome.
+
+## Community coverage
+
+- **Armando Ramirez**, [Does Logitech TRUEFORCE Actually Matter in Forza Horizon 6?](https://www.youtube.com/watch?v=p5P_Ww14CNg): The first video walkthrough of the plugin in Forza Horizon 6, including custom presets the creator tuned.
 
 ## How it works
 
@@ -212,6 +225,8 @@ The wire protocol and init sequence are derived from the
   detection plus auto-named per-car presets) is built from this data.
 - **[SimHub][simhub]**: the host application. This plugin is unofficial
   and not affiliated with the SimHub project.
+- **Armando Ramirez**: produced a [video walkthrough][armando] of the
+  plugin in Forza Horizon 6 and tuned his own presets for it.
 - **Caleb Pearson**: reported that the plugin was not working on the
   RS50, exported the TF4ALL logs that helped pinpoint the cause, and
   validated the fix on his hardware. Without his report the RS50 issue
@@ -229,3 +244,4 @@ project is not affiliated with, endorsed by, or sponsored by Logitech.
 [manteomax]: https://www.manteomax.com/
 [simhub]: https://www.simhubdash.com/
 [releases]: https://github.com/Mhytee/Trueforce-For-All/releases
+[armando]: https://www.youtube.com/watch?v=p5P_Ww14CNg

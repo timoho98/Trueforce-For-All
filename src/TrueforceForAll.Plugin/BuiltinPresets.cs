@@ -34,6 +34,11 @@ namespace TrueforceForAll.Plugin
                 { "FH4",             "Forza Horizon (default)"     },
                 { "FH5",             "Forza Horizon (default)"     },
                 { "FH6",             "Forza Horizon (default)"     },
+                // iRacing is in scope only via MAIRA passthrough. Its
+                // baseline is the Assetto Corsa values with FFB spike
+                // reduction OFF (iRacing's own softener and MAIRA already
+                // handle spikes, so a second pass just dulls the signal).
+                { "IRacing",         "iRacing (default)"           },
             };
 
         /// <summary>Built-in preset name → serialized GameSettingsSnapshot
@@ -46,6 +51,7 @@ namespace TrueforceForAll.Plugin
                 ["Assetto Corsa (default)"]    = AssettoCorsaJson,
                 ["Wreckfest 2 (default)"]      = Wreckfest2Json,
                 ["Forza Horizon (default)"]    = ForzaHorizonJson,
+                ["iRacing (default)"]          = IRacingJson,
             };
 
         public static bool IsBuiltin(string presetName)
@@ -66,6 +72,35 @@ namespace TrueforceForAll.Plugin
             ""FfbInvertSign"":true,
             ""FfbSmoothTimeConstantMs"":0.0,
             ""FfbSpikeTamingEnabled"":true,
+            ""FfbSpikeMaxLsbPerMs"":2508.35864,
+            ""FfbPeakSoftLimitLsb"":2061.90381,
+            ""SkipFfbPassthrough"":false,
+            ""DuckDepth"":0.5953513,
+            ""DuckAttackMs"":5.0,
+            ""DuckReleaseMs"":80.0,
+            ""AudioCapture"":{""Enabled"":true,""Gain"":0.05952296,""LowpassCutoffHz"":567.0934,""HighpassCutoffHz"":35.20595},
+            ""EnginePulse"":{""Enabled"":true,""Gain"":0.06518083,""Pitch"":1.00160933,""LowpassHz"":510.1833,""Waveform"":""Sine"",""ElectricMode"":""MutedHum"",""Layout"":""Auto"",""CustomEngineId"":"""",""CustomFiringPattern"":"""",""CustomFiringPatternName"":"""",""LoadLayerEnabled"":true,""LoadLayerGain"":0.8,""HighRpmBoostEnabled"":true,""HighRpmBoostAmount"":0.7,""Cylinders"":0,""EngineConfig"":""Auto"",""FiringOrderEnabled"":true},
+            ""RoadBumps"":{""Enabled"":true,""Gain"":0.448169053,""Freq"":61.45767,""Waveform"":""Triangle"",""SurfaceEnabled"":true,""SurfaceGain"":0.69514066,""SurfaceFreq"":120.0,""SurfaceRumbleScale"":1.0,""SurfaceLowpassHz"":800.0,""SurfaceHighpassHz"":60.0,""SurfaceWaveform"":""Noise"",""RumbleStripPulseAmp"":0.0172855314,""RumbleStripPulseMs"":120},
+            ""TractionLoss"":{""Enabled"":true,""Gain"":0.0387813151,""Sensitivity"":0.178701326,""Freq"":133.901657,""NoiseLowpassHz"":250.0,""NoiseHighpassHz"":40.9325,""Waveform"":""Noise""},
+            ""GearShift"":{""Enabled"":true,""Gain"":0.396566778,""Freq"":34.6132431,""Waveform"":""Square""},
+            ""AbsClick"":{""Enabled"":true,""Gain"":0.140768245,""Freq"":150.0,""PulseFreq"":9.821309,""DutyCycle"":0.331281453,""TickDurationMs"":35.0,""Mode"":""Pulse"",""Waveform"":""Square""},
+            ""PitLimiter"":{""Enabled"":true,""Gain"":0.0832266361,""Freq"":50.49936,""PulseFreq"":4.340589,""DutyCycle"":0.483226657,""ActiveAmp"":0.3,""Waveform"":""Square""},
+            ""Drs"":{""Enabled"":true,""Gain"":0.280409724,""ActivationFreq"":60.3841171,""ActivationMs"":80,""ActivationAmp"":0.5016645,""SustainedFreq"":120.371323,""SustainedAmp"":0.0481434,""Waveform"":""Square"",""SustainedWaveform"":""Sine""},
+            ""Collision"":{""Enabled"":true,""Gain"":0.208867252,""Freq"":50.0,""EnvelopeMs"":120,""MinThreshold"":0.139180541,""MinAmp"":0.2,""MaxAmp"":0.85,""NormalizationScale"":2.0,""RefractoryMs"":250,""Waveform"":""Square""}
+        }";
+
+        // iRacing default: the Assetto Corsa baseline verbatim, with FFB
+        // spike reduction turned OFF. iRacing only runs through MAIRA
+        // passthrough here; iRacing's own FFB softener and MAIRA already
+        // tame spikes, so a second taming pass our side just dulls the
+        // signal. Mirrors the AC preset otherwise until a dedicated iRacing
+        // tuning pass replaces it.
+        private const string IRacingJson = @"{
+            ""MasterGain"":0.9995428,
+            ""FfbScale"":0.8008723,
+            ""FfbInvertSign"":true,
+            ""FfbSmoothTimeConstantMs"":0.0,
+            ""FfbSpikeTamingEnabled"":false,
             ""FfbSpikeMaxLsbPerMs"":2508.35864,
             ""FfbPeakSoftLimitLsb"":2061.90381,
             ""SkipFfbPassthrough"":false,
