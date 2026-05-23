@@ -49,6 +49,39 @@ namespace TrueforceForAll.Core
         // that a replug or re-elevation feels responsive.
         private const int RediscoveryRetryMs = 15000;
 
+        // After this many consecutive capture sessions that exit without
+        // yielding a single packet, we discard the cached interface/address
+        // and re-run full discovery (the wheel was likely replugged and got a
+        // new device address). Below the threshold we restart the capture on
+        // the SAME cached interface/address. This is the crux of fix 1:
+        // re-running the full-bus `-A` discovery scan on every transient drop
+        // pegs a CPU core when a separate high-traffic device (e.g. the wheel
+        // rim's own DD base) sits on its own USBPcap interface, because that
+        // interface gets re-scanned every cycle. We only ever need the
+        // wheelbase's interface, and only when it actually changes.
+        private const int MaxCaptureFailuresBeforeRediscovery = 3;
+
+        // Capture-restart backoff. A capture that keeps failing fast must not
+        // respawn USBPcapCMD every couple of seconds (that also re-prompts UAC
+        // in a loop when USBPcap needs elevation). Backoff grows from this
+        // floor toward the ceiling and resets to the floor on a healthy
+        // session. Doubling: 2s, 4s, 8s, 16s, 30s(cap).
+        private const int CaptureBackoffFloorMs = 2000;
+        private const int CaptureBackoffCeilMs  = 30000;
+
+        // Backoff applied when USBPcapCMD can't launch without elevation, or
+        // the user dismisses the UAC prompt. Long, because retrying sooner
+        // only re-prompts; the user has to grant admin (or run SimHub
+        // elevated) for the tap to work at all.
+        private const int ElevationBackoffMs = 60000;
+
+        // Win32 launch errors that mean "elevation is the blocker, stop
+        // hammering the spawn": ERROR_ELEVATION_REQUIRED (manifest needs admin,
+        // UseShellExecute=false) and ERROR_CANCELLED (user dismissed the UAC
+        // prompt under a runas/AppCompat shim).
+        private const int ErrorElevationRequired = 740;
+        private const int ErrorCancelled         = 1223;
+
         // Resolved interface + device address. Either supplied via the manual
         // override constructor args, or filled in by discovery inside the
         // reader loop. Reset to null/0 by ClearDiscovered() when the user
@@ -151,6 +184,16 @@ namespace TrueforceForAll.Core
         private const long FfbIndexMinSamples = 200;   // min count before switching
         private volatile byte _ffbFeatureIndex = FfbFeatureIndexSeed;
         private bool _ffbIndexResolved;                 // parser-thread only
+        // Set true the first time real FFB is actually extracted on the
+        // currently-selected index (i.e. force flowed, not just "an index hit
+        // the sample threshold"). This is the *only* state that stops the
+        // resolver: a confirmed index can't be a wrong-latch, because wrong
+        // indices never produce extracted samples. Until confirmed, the
+        // resolver keeps running and may re-switch, so an early commit to a
+        // non-FFB func-0x20 tuple (e.g. a menu/settings burst that reaches 200
+        // before driving FFB ramps) self-heals to the real FFB index within ~1
+        // s of gameplay instead of sticking dead until a SimHub restart.
+        private volatile bool _ffbIndexConfirmed;       // any thread reads; parser writes
         public byte ResolvedFfbFeatureIndex => _ffbFeatureIndex;
         public bool IsFfbFeatureIndexResolved => _ffbIndexResolved;
 
@@ -204,8 +247,11 @@ namespace TrueforceForAll.Core
         // The FFB feature-index resolver is gated on its own fast cadence,
         // separate from the 5 s diagnostics emit, so first FFB on a non-0x0e
         // wheel (RS50 -> 0x10) latches sub-second instead of waiting up to one
-        // diagnostics interval. Only runs until _ffbIndexResolved; after that
-        // the gate stops calling it entirely (zero steady-state cost).
+        // diagnostics interval. Runs until _ffbIndexConfirmed (real FFB
+        // actually extracted), not merely until a tentative resolve; after
+        // confirmation the gate stops calling it entirely (zero steady-state
+        // cost). Before confirmation it may re-switch indices, which is what
+        // lets a wrong early commit self-heal.
         private long _nextFfbResolveTicks;
         private const int FfbResolveIntervalMs = 250;
 
@@ -329,8 +375,17 @@ namespace TrueforceForAll.Core
             // and capture. Splitting them here means a stale-cache failure on
             // first try can be recovered by replugging the wheel mid-session
             // without restarting SimHub.
+            //
+            // Consecutive capture sessions that exited without producing a
+            // single packet. Reset to 0 by a healthy session. Drives both the
+            // restart backoff (fix 2) and the decision to re-run full
+            // discovery (fix 1) instead of re-scanning the whole bus every
+            // cycle.
+            int consecutiveFailures = 0;
+
             while (!_stopping)
             {
+                bool producedPackets = false;
                 try
                 {
                     if (!_manualOverride && (string.IsNullOrEmpty(_usbPcapInterface) || _deviceAddress <= 0))
@@ -350,8 +405,25 @@ namespace TrueforceForAll.Core
                         Log($"Auto-discovered: {hit}");
                     }
 
+                    long packetsBefore = PacketsParsed;
                     StartUsbPcapCmd();
                     ParseStream();
+                    producedPackets = PacketsParsed > packetsBefore;
+                }
+                catch (System.ComponentModel.Win32Exception w32)
+                    when (w32.NativeErrorCode == ErrorElevationRequired || w32.NativeErrorCode == ErrorCancelled)
+                {
+                    // USBPcapCMD requires admin and SimHub isn't elevated, or
+                    // the user dismissed the UAC prompt. Retrying right away
+                    // only re-prompts, so back off hard and say why rather than
+                    // spinning a UAC loop. This does not touch the cached
+                    // interface/address: re-discovery wouldn't fix elevation.
+                    Status = "USBPcap needs administrator rights. Run SimHub as administrator to enable FFB pass-through.";
+                    Log($"UsbPcapFfbTap: USBPcapCMD requires elevation (Win32 {w32.NativeErrorCode}); backing off {ElevationBackoffMs / 1000}s.");
+                    try { _proc?.Kill(); } catch { }
+                    _proc = null;
+                    if (SleepInterruptible(ElevationBackoffMs)) break;
+                    continue;
                 }
                 catch (Exception ex)
                 {
@@ -365,15 +437,32 @@ namespace TrueforceForAll.Core
                 }
 
                 if (_stopping) break;
-                // Brief cooldown so we don't spin if the install is broken.
-                // After a process exit we also clear the discovered interface
-                // so the next iteration re-runs discovery (catches replugs).
-                if (!_manualOverride)
+
+                // Fix 1: reuse the discovered interface/address across restarts.
+                // A session that produced packets is healthy. Only after a run
+                // of empty/failed sessions do we assume the wheel moved (replug
+                // -> new device address) and clear the cache so the next
+                // iteration re-runs discovery. This keeps the expensive
+                // full-bus `-A` scan off the hot path, which is what pegged a
+                // CPU core when the wheel rim's separate DD base sat on its own
+                // high-traffic USBPcap interface (re-scanned every cycle).
+                if (producedPackets) consecutiveFailures = 0;
+                else consecutiveFailures++;
+
+                if (!_manualOverride && consecutiveFailures >= MaxCaptureFailuresBeforeRediscovery)
                 {
                     _usbPcapInterface = null;
                     _deviceAddress = 0;
+                    consecutiveFailures = 0;
                 }
-                Thread.Sleep(2000);
+
+                // Fix 2: backoff so a fast-failing capture can't respawn
+                // USBPcapCMD in a tight loop. Healthy session -> floor; each
+                // consecutive failure doubles up to the ceiling.
+                int backoff = producedPackets
+                    ? CaptureBackoffFloorMs
+                    : Math.Min(CaptureBackoffCeilMs, CaptureBackoffFloorMs << Math.Min(consecutiveFailures, 8));
+                if (SleepInterruptible(backoff)) break;
             }
         }
 
@@ -518,11 +607,12 @@ namespace TrueforceForAll.Core
                         System.Threading.Interlocked.Exchange(ref _packed, pk);
                         System.Threading.Interlocked.Exchange(ref _lastSampleTicks, ts);
                         FfbSamplesCaptured++;
+                        _ffbIndexConfirmed = true;   // real FFB flowed on this index; lock the resolver
                     }
                 }
 
                 MaybeEmitDiagnostics();
-                if (!_ffbIndexResolved)
+                if (!_ffbIndexConfirmed)
                 {
                     long nowMs = Environment.TickCount;
                     if (nowMs >= _nextFfbResolveTicks)
@@ -567,6 +657,7 @@ namespace TrueforceForAll.Core
                     System.Threading.Interlocked.Exchange(ref _packed, packed);
                     System.Threading.Interlocked.Exchange(ref _lastSampleTicks, timestamp);
                     FfbSamplesCaptured++;
+                    _ffbIndexConfirmed = true;   // real FFB flowed on this index; lock the resolver
                 }
             }
             CloseRawLog();
@@ -586,14 +677,26 @@ namespace TrueforceForAll.Core
         // firmware places page 0x8123 at an index other than the 0x0e seed
         // (RS50 -> 0x10, G PRO stays 0x0e). The FFB feature streams at
         // ~250-500 Hz during play; HID++ settings features are occasional, so
-        // the dominant (reportId 0x11, func&0xf0==0x20) tuple by count is
-        // unambiguously the FFB feature. Switch once, then latch; parser-thread
-        // only. Called from the parse loop on the FfbResolveIntervalMs cadence
-        // until resolved, so first FFB on a non-0x0e wheel latches within a
-        // few hundred ms of gameplay (the seed means G PRO is never delayed).
+        // the dominant (reportId 0x11, func&0xf0==0x20) tuple by count is the
+        // FFB feature. Parser-thread only; called from the parse loop on the
+        // FfbResolveIntervalMs cadence until _ffbIndexConfirmed, so first FFB
+        // on a non-0x0e wheel latches within a few hundred ms of gameplay (the
+        // seed means G PRO is never delayed).
+        //
+        // This is re-entrant and self-correcting, NOT a one-shot latch. The
+        // old one-shot version had a hole: with a single func-0x20 tuple seen
+        // so far, secondCount==0 makes the "4x runner-up" dominance test
+        // trivially true (bestCount>=0), so the FIRST index to reach the sample
+        // floor won permanently. If a non-FFB func-0x20 burst (a menu/settings
+        // write before driving) reached the floor first, the wrong index
+        // latched for the whole session and FFB never flowed until a SimHub
+        // restart. Now we keep re-evaluating until real FFB is actually
+        // extracted (_ffbIndexConfirmed): cumulative counts mean the true,
+        // high-rate FFB index overtakes a stale wrong winner within ~1 s of
+        // driving, we switch to it, force flows, and only then do we lock.
         private void MaybeResolveFfbFeatureIndex()
         {
-            if (_ffbIndexResolved) return;
+            if (_ffbIndexConfirmed) return;
             // No per-wheel gate: RS50 (C276) resolves to feat 0x10 by the same
             // dominant-tuple rule that resolves G PRO to 0x0e (issue #5 woTF
             // Windows capture confirmed RS50 native FFB is HID++ 0x8123 fn2).
@@ -612,18 +715,35 @@ namespace TrueforceForAll.Core
                     else if (kv.Value > secondCount) { secondCount = kv.Value; }
                 }
             }
-            // Require a well-sampled, clearly dominant winner (>=4x runner-up)
-            // so a stray HID++ settings write can't hijack the FFB index.
-            if (bestCount >= FfbIndexMinSamples && bestCount >= secondCount * 4)
+
+            if (bestCount < FfbIndexMinSamples) return;   // not enough data yet
+
+            // Winner already matches the index we extract on: nothing to switch.
+            // Mark resolved for the UI; real confirmation happens when force is
+            // actually extracted (sets _ffbIndexConfirmed, which stops us).
+            if (bestIdx == _ffbFeatureIndex)
             {
                 _ffbIndexResolved = true;
-                if (bestIdx != _ffbFeatureIndex)
-                {
-                    byte old = _ffbFeatureIndex;
-                    _ffbFeatureIndex = bestIdx;
-                    Log($"FFB tap: resolved HID++ 0x8123 feature index 0x{bestIdx:X2} " +
-                        $"(was seed 0x{old:X2}); {bestCount} samples, runner-up {secondCount}.");
-                }
+                return;
+            }
+
+            // Winner differs from the current index. Only switch when it's
+            // clearly dominant (>=4x the runner-up) so a stray settings write
+            // can't pull us off a good index. With a stale wrong winner sitting
+            // in second place, the real FFB index has to out-count it 4:1,
+            // which a high-rate FFB stream does within ~1 s of driving; that is
+            // the self-heal. (When the winner is the only func-0x20 tuple,
+            // secondCount==0 and this still admits the seed->real first switch,
+            // exactly as the clean RS50 path needs; the re-entrancy is what
+            // makes a subsequent wrong-first-winner recoverable.)
+            if (bestCount >= secondCount * 4)
+            {
+                byte old = _ffbFeatureIndex;
+                _ffbFeatureIndex = bestIdx;
+                _ffbIndexResolved = true;
+                Log($"FFB tap: selected HID++ 0x8123 feature index 0x{bestIdx:X2} " +
+                    $"(was 0x{old:X2}); {bestCount} samples, runner-up {secondCount}. " +
+                    "Will confirm once force is extracted.");
             }
         }
 
@@ -664,7 +784,7 @@ namespace TrueforceForAll.Core
                 $"out_bulk={BulkOutOnOurDevice} out_iso={IsoOutOnOurDevice} " +
                 $"out_by_ep=[{string.Join(" ", epOut)}] " +
                 $"ep0ctrl={Ep0ControlTransfersOnOurDevice} setrep={SetReportsOnOurDevice} " +
-                $"ffbIdx=0x{_ffbFeatureIndex:X2}{(_ffbIndexResolved ? "*" : "")} " +
+                $"ffbIdx=0x{_ffbFeatureIndex:X2}{(_ffbIndexConfirmed ? "**" : _ffbIndexResolved ? "*" : "")} " +
                 $"matched={FfbSamplesCaptured} tuples=[{tuples}]" +
                 (_rawLogStream != null ? $" trace={RawLogBytesWritten}b" : ""));
         }
