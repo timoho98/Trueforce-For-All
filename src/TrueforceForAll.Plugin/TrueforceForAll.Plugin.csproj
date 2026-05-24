@@ -73,7 +73,21 @@
     <Reference Include="System.IO.Compression.FileSystem" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="NAudio" Version="2.2.1" />
+    <!-- Compile-time only. SimHub bundles the full NAudio 2.2.1 set in its
+         install root and loads it process-wide; this plugin binds to that at
+         runtime, so we ride SimHub's NAudio updates and never overwrite them.
+         We must NOT copy/ship our own NAudio: doing so (with the installer's
+         ignoreversion flag) would force-overwrite SimHub's copy, the same
+         class of bug that broke the Simagic pedal driver with HidSharp
+         (issue #11). The net8 LoopbackHelper.exe is a separate process and
+         keeps its own NAudio in its publish folder, unaffected by this.
+         NOTE: NAudio is strong-named (unlike HidSharp), so runtime binding
+         needs an exact version or a host binding redirect. SimHub references
+         exactly 2.2.1.0 today (matches us), and its config auto-generates
+         redirects, so a future SimHub NAudio bump is covered. -->
+    <PackageReference Include="NAudio" Version="2.2.1">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
   </ItemGroup>
 
 </Project>

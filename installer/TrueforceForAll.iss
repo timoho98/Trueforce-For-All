@@ -99,15 +99,13 @@ Source: "{#HelperPublish}\TrueforceForAll.LoopbackHelper.exe"; DestDir: "{app}";
 Source: "repair\HidSharp.dll"; DestDir: "{app}"; Flags: ignoreversion uninsneveruninstall; Check: HidSharpNeedsRepair
 Source: "HidSharp-LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion uninsneveruninstall; Check: HidSharpNeedsRepair
 
-; Shared deps — install if missing, but never remove on uninstall (SimHub
-; or other plugins may be using them).
-Source: "{#PluginBin}\NAudio.dll";            DestDir: "{app}"; Flags: ignoreversion uninsneveruninstall
-Source: "{#PluginBin}\NAudio.Core.dll";       DestDir: "{app}"; Flags: ignoreversion uninsneveruninstall
-Source: "{#PluginBin}\NAudio.Wasapi.dll";     DestDir: "{app}"; Flags: ignoreversion uninsneveruninstall
-Source: "{#PluginBin}\NAudio.WinMM.dll";      DestDir: "{app}"; Flags: ignoreversion uninsneveruninstall
-Source: "{#PluginBin}\NAudio.Asio.dll";       DestDir: "{app}"; Flags: ignoreversion uninsneveruninstall
-Source: "{#PluginBin}\NAudio.Midi.dll";       DestDir: "{app}"; Flags: ignoreversion uninsneveruninstall
-Source: "{#PluginBin}\NAudio.WinForms.dll";   DestDir: "{app}"; Flags: ignoreversion uninsneveruninstall
+; NOTE: We also deliberately do NOT ship NAudio. SimHub bundles the full
+; NAudio 2.2.1 set in its install root and loads it process-wide; our plugin
+; binds to it at runtime (compile-only reference, see the plugin .csproj).
+; That way we ride SimHub's NAudio updates and never overwrite SimHub's copy
+; with our own (same downgrade risk as HidSharp / issue #11). The net8
+; LoopbackHelper.exe carries its own NAudio in its publish folder, so audio
+; capture in that separate process is unaffected.
 
 ; Bundled USBPcap installer. Kept on disk under {app}\vendor so the plugin
 ; can re-run it from its settings panel if USBPcap goes missing later (user
