@@ -6056,14 +6056,19 @@ namespace TrueforceForAll.Plugin
                 {
                     string text = trimmed.Substring(hashCount + 1).Trim();
                     double size = hashCount == 1 ? 16 : hashCount == 2 ? 14 : 13;
-                    panel.Children.Add(new TextBlock
+                    var hdr = new TextBlock
                     {
                         Text = text,
                         FontSize = size,
                         FontWeight = FontWeights.SemiBold,
-                        Margin = new Thickness(0, panel.Children.Count == 0 ? 0 : 8, 0, 4),
+                        Margin = new Thickness(0, panel.Children.Count == 0 ? 0 : 10, 0, 2),
                         TextWrapping = TextWrapping.Wrap,
-                    });
+                    };
+                    // Gold the section (###) headers to match the bundled
+                    // changelog's grouped look; keep the title (#/##) default.
+                    if (hashCount >= 3)
+                        hdr.Foreground = new SolidColorBrush(Color.FromRgb(0xC8, 0x86, 0x0B));
+                    panel.Children.Add(hdr);
                     continue;
                 }
 
@@ -6075,6 +6080,42 @@ namespace TrueforceForAll.Plugin
                     && (trimmed[0] == '-' || trimmed[0] == '*')
                     && trimmed[1] == ' ')
                 {
+                    string content = trimmed.Substring(2);
+                    // Two-tier: when the bullet opens with a **bold** lead-in
+                    // (our "- **Headline:** description" shape), render the
+                    // headline as a bulleted bold line and the rest as a dimmed,
+                    // indented description line, echoing the bundled changelog.
+                    if (content.StartsWith("**", StringComparison.Ordinal))
+                    {
+                        int close = content.IndexOf("**", 2, StringComparison.Ordinal);
+                        if (close > 2)
+                        {
+                            string headline = content.Substring(2, close - 2);
+                            string desc = content.Substring(close + 2).TrimStart();
+                            var hl = new TextBlock
+                            {
+                                FontSize = 12,
+                                Margin = new Thickness(8, 4, 0, 0),
+                                TextWrapping = TextWrapping.Wrap,
+                            };
+                            hl.Inlines.Add(new Run("• "));
+                            hl.Inlines.Add(new Run(headline) { FontWeight = FontWeights.Bold });
+                            panel.Children.Add(hl);
+                            if (desc.Length > 0)
+                            {
+                                var db = new TextBlock
+                                {
+                                    FontSize = 11,
+                                    Opacity = 0.7,
+                                    Margin = new Thickness(22, 2, 0, 0),
+                                    TextWrapping = TextWrapping.Wrap,
+                                };
+                                AppendInlineMarkdown(db, desc);
+                                panel.Children.Add(db);
+                            }
+                            continue;
+                        }
+                    }
                     var tb = new TextBlock
                     {
                         FontSize = 12,
@@ -6082,7 +6123,7 @@ namespace TrueforceForAll.Plugin
                         TextWrapping = TextWrapping.Wrap,
                     };
                     tb.Inlines.Add(new Run("• "));
-                    AppendInlineMarkdown(tb, trimmed.Substring(2));
+                    AppendInlineMarkdown(tb, content);
                     panel.Children.Add(tb);
                     continue;
                 }
@@ -6339,17 +6380,15 @@ namespace TrueforceForAll.Plugin
         {
             if (_plugin == null) return;
 
-            // Prefer the bundled EffectChangelog: its richer rendering (gold
-            // section headers + dimmed two-tier entries) reads better than the
-            // flat GitHub-markdown render, so that's what users see. GitHub is
-            // only a fallback for when the local changelog has nothing pending
-            // (e.g. entries trimmed in some future build). Tradeoff: post-release
-            // edits to the GitHub release-page notes no longer change the in-app
-            // What's new; the bundled copy is canonical for this modal.
-            var pending    = _plugin.GetPendingChangelog();
+            // GitHub release notes are the canonical source for this modal (so
+            // notes can be fixed post-release without a plugin update); the
+            // bundled EffectChangelog is the offline fallback. RenderReleaseNotes
+            // styles the markdown to echo the bundled changelog's look (gold
+            // section headers, dimmed two-tier entries).
             var ghReleases = _plugin.GetGitHubReleasesForBanner();
-            bool useLocal  = pending != null && pending.Count > 0;
-            bool useGitHub = !useLocal && ghReleases != null && ghReleases.Count > 0;
+            var pending    = _plugin.GetPendingChangelog();
+            bool useGitHub = ghReleases != null && ghReleases.Count > 0;
+            bool useLocal  = !useGitHub && pending != null && pending.Count > 0;
             if (!useGitHub && !useLocal) return;
 
             var win = new Window
