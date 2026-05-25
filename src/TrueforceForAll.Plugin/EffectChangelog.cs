@@ -136,7 +136,7 @@ namespace TrueforceForAll.Plugin
                     },
                     new ChangelogEntry {
                         Group = "Bug fixes",
-                        Headline = "Forza: per-car settings work without forwarding telemetry to SimHub",
+                        Headline = "Forza cars not detected without forwarding telemetry to SimHub",
                         Description = "In the Forza Horizon games, the plugin could only tell which car you were in (to apply per-car tuning) when telemetry was also forwarded to SimHub or a Forza profile was selected there; otherwise no car was detected. It now reads the car directly from Forza's own telemetry, so per-car settings apply on their own.",
                     },
                     new ChangelogEntry {
