@@ -58,6 +58,10 @@ in real time, mixing several signal sources:
   - **ABS click**: configurable haptic when ABS engages.
   - **Pit limiter**: configurable pulsing buzz while the limiter is
     engaged.
+  - **Rev limiter**: a hard buzz at the shift point and on the limiter,
+    independent of the engine pulse. Fires at the car's real redline
+    where the game reports one (with an optional early/late offset),
+    otherwise at a percentage of the rev limit you set. On by default.
   - **DRS**: short chirp on the rising edge when the wing opens, plus an
     optional sustained flutter while DRS stays active. Silent on games
     that don't expose the flag.
@@ -73,6 +77,13 @@ in real time, mixing several signal sources:
   - **Collision**: amplitude-scaled thud on impact, with a soft-knee
     curve so harder hits feel stronger without becoming unsafe, plus a
     refractory window so multi-frame crashes don't stutter.
+  - **Airborne ducking**: when the car leaves the ground, the chosen
+    effects cut out so jumps feel weightless, then return on landing.
+    Detected from wheel load / suspension (AC and the Forza Horizon
+    games). On by default.
+  - **Stationary spring**: optional centering force so a parked or
+    crawling car has some weight at the wheel instead of going limp,
+    fading out as speed builds (AC and Forza Horizon; off by default).
 
 - **Audio-derived effects**: WASAPI loopback captures the game's
   audio output (engine, tire, impact sounds) and feeds it into the
@@ -140,7 +151,7 @@ Some titles read directly from the game's telemetry, bypassing SimHub's limitati
 
 **Assetto Corsa** has a dedicated path: shared memory is read directly at AC's native 333 Hz physics rate (polled at 1 kHz so events are seen within 1 ms of being written). The higher rate makes curb collisions, road-bumps, traction-loss and other haptic effects noticeably sharper and more responsive than SimHub's 60 Hz feed can deliver.
 
-**Forza Horizon 4, 5 and 6** also have a direct UDP Data Out reader that picks up per-tire fields for the surface-texture, rumble strips, and curb collision effects. This additional surface information is updated at 60 Hz but allows for more depth in surface detail effects than some other titles may offer. All three are auto-detected from SimHub's game profile, so the only setup is pointing Forza's DATA OUT at the listener's IP and port.
+**Forza Horizon 4, 5 and 6** also have a direct UDP Data Out reader that picks up per-tire fields for the surface-texture, rumble strips, and curb collision effects. These games send this telemetry once per rendered frame, so it tracks your frame rate (often well above 60 Hz), giving more depth in surface detail effects than some other titles offer. All three are auto-detected from SimHub's game profile, so the only setup is pointing Forza's DATA OUT at the listener's IP and port.
 
 Additional per-title enhancements/bypasses will be added over time.
 

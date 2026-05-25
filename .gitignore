@@ -30,3 +30,6 @@ __*
 # not user-facing product docs.
 /RELEASING.md
 /CHANGELOG_UNRELEASED.md
+
+# Claude Code personal settings (do not commit)
+.claude/settings.local.json
