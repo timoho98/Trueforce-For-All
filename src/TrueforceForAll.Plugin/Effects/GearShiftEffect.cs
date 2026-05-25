@@ -64,7 +64,10 @@ namespace TrueforceForAll.Plugin.Effects
             if (remaining <= 0) return;
 
             double phaseStep = Freq / SampleRateHz;
-            float scale = PeakAmp * Gain * _envelopeAmpScale;
+            // DuckMultiplier is 1.0 unless the airborne ducker pulls it down
+            // (gear shift sits above the sidechain tiers, so nothing else
+            // touches it).
+            float scale = PeakAmp * Gain * _envelopeAmpScale * DuckMultiplier;
             int total = _envelopeTotal;
             Waveform w = Waveform;
 

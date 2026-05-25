@@ -156,6 +156,48 @@ namespace TrueforceForAll.Core
             return null;
         }
 
+        // Find every device on the bus matching a SPECIFIC identity (the VID/PID
+        // the HID stack already enumerated for the wheel). Used by the FFB tap's
+        // self-heal to re-locate the SAME wheel after a replug/re-enumeration
+        // without ever switching to a different device:
+        //   null         -> the scan could not run (USBPcapCMD missing / no
+        //                    interfaces); caller should leave its target as-is.
+        //   empty list    -> scan ran but that identity isn't on the bus right
+        //                    now (stale descriptor cache, or wheel unplugged).
+        //   one match     -> unambiguous; safe to retarget the tap to it.
+        //   multiple      -> two devices share the identity (e.g. two identical
+        //                    wheels); caller must NOT guess.
+        // De-duped by (interface, address).
+        public static List<WheelDiscoveryResult> FindAllMatching(
+            string usbPcapCmdPath,
+            ushort vid,
+            ushort pid,
+            Action<string> log = null,
+            int perInterfaceTimeoutMs = DefaultPerInterfaceTimeoutMs)
+        {
+            var scans = ScanAllInterfaces(usbPcapCmdPath, log, perInterfaceTimeoutMs);
+            if (scans == null) return null;
+
+            var result = new List<WheelDiscoveryResult>();
+            var seen = new HashSet<string>();
+            foreach (var stat in scans)
+                foreach (var c in stat.Candidates)
+                {
+                    if (c.Vid != vid || c.Pid != pid) continue;
+                    string key = c.Interface + "/" + c.DeviceAddress;
+                    if (!seen.Add(key)) continue;
+                    result.Add(new WheelDiscoveryResult
+                    {
+                        Interface     = c.Interface,
+                        DeviceAddress = c.DeviceAddress,
+                        Vid           = c.Vid,
+                        Pid           = c.Pid,
+                        Model         = c.Model,
+                    });
+                }
+            return result;
+        }
+
         // Full scan of all USBPcap interfaces, returning every device descriptor
         // seen. Used by the manual-picker UI and by Find() above. Returns null
         // when USBPcapCMD.exe isn't locatable, or an empty list when no

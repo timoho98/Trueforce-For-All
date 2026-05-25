@@ -32,7 +32,54 @@ namespace TrueforceForAll.Plugin
                 ["ks_nissan_skyline_r34"]               = KsNissanSkylineR34,
                 ["ks_toyota_ae86_tuned"]                = KsToyotaAe86Tuned,
                 ["nohesi_realistic_nissan_gtr_r35_vlct"] = NohesiGtrR35Vlct,
+                // Forza Horizon rev-limiter engage-point tunes (owner-tuned per
+                // car). Each ships only a RevLimiter override (engage Threshold
+                // + the shared buzz shape); all other sections fall through to
+                // the game/global defaults. CarId is Forza's car ordinal, which
+                // is stable across installs, so these match the same car for
+                // every user.
+                ["fh6:Car_2267"]   = Fh6_Car_2267,
+                ["fh6:Car_378"]    = Fh6_Car_378,
+                ["fh6:Car_4222"]   = Fh6_Car_4222,
+                ["fh6:Forza_4268"] = Fh6_Forza_4268,
+                ["fh6:Forza_455"]  = Fh6_Forza_455,
+                ["fh6:Forza_513"]  = Fh6_Forza_513,
             };
+
+        // ---- Forza Horizon rev-limiter engage tunes ----
+        // Shared buzz shape; only Threshold (engage %) differs per car. Full
+        // const JSON (not a builder) so they're available when PresetJsons'
+        // static initializer runs, regardless of field order.
+        private const string Fh6_Car_2267 = @"{
+  ""Type"": ""trueforce-car-preset"", ""Version"": 2, ""GameName"": ""FH6"",
+  ""CarId"": ""Car_2267"", ""PresetName"": ""Car_2267 (default)"", ""IsBuiltin"": true,
+  ""Override"": { ""RevLimiter"": { ""Enabled"": true, ""Gain"": 0.07189044, ""Freq"": 53.79011, ""PulseFreq"": 18.1786652, ""DutyCycle"": 0.5, ""ActiveAmp"": 0.35, ""Threshold"": 0.930675447, ""Waveform"": ""Square"" } }
+}";
+        private const string Fh6_Car_378 = @"{
+  ""Type"": ""trueforce-car-preset"", ""Version"": 2, ""GameName"": ""FH6"",
+  ""CarId"": ""Car_378"", ""PresetName"": ""Car_378 (default)"", ""IsBuiltin"": true,
+  ""Override"": { ""RevLimiter"": { ""Enabled"": true, ""Gain"": 0.07189044, ""Freq"": 53.79011, ""PulseFreq"": 18.1786652, ""DutyCycle"": 0.5, ""ActiveAmp"": 0.35, ""Threshold"": 0.8634156, ""Waveform"": ""Square"" } }
+}";
+        private const string Fh6_Car_4222 = @"{
+  ""Type"": ""trueforce-car-preset"", ""Version"": 2, ""GameName"": ""FH6"",
+  ""CarId"": ""Car_4222"", ""PresetName"": ""Car_4222 (default)"", ""IsBuiltin"": true,
+  ""Override"": { ""RevLimiter"": { ""Enabled"": true, ""Gain"": 0.07189044, ""Freq"": 53.79011, ""PulseFreq"": 18.1786652, ""DutyCycle"": 0.5, ""ActiveAmp"": 0.35, ""Threshold"": 0.868041933, ""Waveform"": ""Square"" } }
+}";
+        private const string Fh6_Forza_4268 = @"{
+  ""Type"": ""trueforce-car-preset"", ""Version"": 2, ""GameName"": ""FH6"",
+  ""CarId"": ""Forza_4268"", ""PresetName"": ""Forza_4268 (default)"", ""IsBuiltin"": true,
+  ""Override"": { ""RevLimiter"": { ""Enabled"": true, ""Gain"": 0.07189044, ""Freq"": 53.79011, ""PulseFreq"": 18.1786652, ""DutyCycle"": 0.5, ""ActiveAmp"": 0.35, ""Threshold"": 0.670533061, ""Waveform"": ""Square"" } }
+}";
+        private const string Fh6_Forza_455 = @"{
+  ""Type"": ""trueforce-car-preset"", ""Version"": 2, ""GameName"": ""FH6"",
+  ""CarId"": ""Forza_455"", ""PresetName"": ""Forza_455 (default)"", ""IsBuiltin"": true,
+  ""Override"": { ""RevLimiter"": { ""Enabled"": true, ""Gain"": 0.07189044, ""Freq"": 53.79011, ""PulseFreq"": 18.1786652, ""DutyCycle"": 0.5, ""ActiveAmp"": 0.35, ""Threshold"": 0.927935839, ""Waveform"": ""Square"" } }
+}";
+        private const string Fh6_Forza_513 = @"{
+  ""Type"": ""trueforce-car-preset"", ""Version"": 2, ""GameName"": ""FH6"",
+  ""CarId"": ""Forza_513"", ""PresetName"": ""Forza_513 (default)"", ""IsBuiltin"": true,
+  ""Override"": { ""RevLimiter"": { ""Enabled"": true, ""Gain"": 0.07189044, ""Freq"": 53.79011, ""PulseFreq"": 18.1786652, ""DutyCycle"": 0.5, ""ActiveAmp"": 0.35, ""Threshold"": 0.7462359, ""Waveform"": ""Square"" } }
+}";
 
         // ---- Snapshots ----
 

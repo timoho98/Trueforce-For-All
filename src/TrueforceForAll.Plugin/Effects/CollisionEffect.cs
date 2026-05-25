@@ -87,7 +87,11 @@ namespace TrueforceForAll.Plugin.Effects
             if (remaining <= 0) return;
 
             double phaseStep = Freq / SampleRateHz;
-            float scale = Gain * _envelopeAmpScale;
+            // DuckMultiplier is 1.0 except when the airborne ducker pulls it
+            // down (collision sits above the sidechain tiers, so nothing else
+            // touches it). Lets a tumbling-in-the-air accel spike be suppressed
+            // when the user opts collision into airborne ducking.
+            float scale = Gain * _envelopeAmpScale * DuckMultiplier;
             int total = _envelopeTotal;
             Waveform w = Waveform;
 
@@ -107,6 +111,13 @@ namespace TrueforceForAll.Plugin.Effects
         {
             if (IsTesting) return;
             double magNullable = f.CollisionMagnitude ?? 0;
+            // A non-finite magnitude (source restart / garbage frame) must
+            // not reach the gate: an Infinity fires a full MaxAmp thud, and
+            // a NaN poisons _lastMagnitude permanently (NaN fails every
+            // comparison, so the rising-edge test can never be true again
+            // and the effect goes silent for the rest of the session).
+            if (double.IsNaN(magNullable) || double.IsInfinity(magNullable))
+                magNullable = 0;
             // Rising-edge gate: only fire when magnitude crosses MinThreshold
             // AND wasn't above threshold last frame. Held-high state doesn't
             // refire (avoids stuttering on multi-frame crashes).

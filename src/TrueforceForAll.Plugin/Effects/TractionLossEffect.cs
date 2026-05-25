@@ -158,7 +158,11 @@ namespace TrueforceForAll.Plugin.Effects
             if (IsTesting) return;
 
             // Pitch scales with vehicle speed (tonal waveforms only).
+            // Sanitize a non-finite speed up front: a NaN slips through the
+            // MinSpeedKmh gate below (every NaN comparison is false) and then
+            // NaNs the oscillator frequency; an Infinity pins pitch at max.
             double speedKmh = f.SpeedKmh;
+            if (double.IsNaN(speedKmh) || double.IsInfinity(speedKmh)) speedKmh = 0.0;
             double speedNormForPitch = Math.Min(1.0, Math.Max(0.0, speedKmh / Math.Max(1.0, PitchMaxKmh)));
             _noise.Freq = PitchBaseHz + speedNormForPitch * (PitchMaxHz - PitchBaseHz);
 
@@ -182,6 +186,13 @@ namespace TrueforceForAll.Plugin.Effects
             double rawTraction = f.WheelSlip is double directSlip
                 ? NormalizeDirectSlip(directSlip)
                 : ComputeHeuristic(f, speedKmh);
+
+            // Final firewall before the EMA: a non-finite rawTraction (bad
+            // slip sample, or a heuristic divide on a garbage frame) would
+            // get latched into _slipEma and, for NaN, never clear, the buzz
+            // would be stuck on (or off) for the rest of the session.
+            if (double.IsNaN(rawTraction) || double.IsInfinity(rawTraction))
+                rawTraction = 0.0;
 
             // Tighter decay: when rawTraction is near zero, snap _slipEma down
             // quickly so the buzz ends within ~100 ms of grip recovery instead

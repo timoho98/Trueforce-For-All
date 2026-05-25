@@ -406,7 +406,7 @@ namespace TrueforceForAll.Plugin
                 if (result != MessageBoxResult.OK) return;
             }
 
-            bool ok = _plugin.ApplyManualUsbPcapDevice(row.Interface, row.Address);
+            bool ok = _plugin.ApplyManualUsbPcapDevice(row.Interface, row.Address, row.Candidate.Vid, row.Candidate.Pid);
             if (ok)
             {
                 _statusText.Text = $"Applied: {row.Interface} dev {row.Address}. FFB tap restarting.";

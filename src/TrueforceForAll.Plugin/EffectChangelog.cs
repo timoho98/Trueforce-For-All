@@ -29,6 +29,10 @@ namespace TrueforceForAll.Plugin
         // surfaced in the banner modal (e.g. behavior change, default
         // tweak) with no badge.
         public string EffectId { get; set; }
+        // Optional group label ("New effects", "Improvements", "Bug fixes").
+        // The What's-new modal prints a subheader whenever the group changes,
+        // so author entries grouped (all of one group consecutively).
+        public string Group { get; set; }
         public string Headline { get; set; }
         public string Description { get; set; }
     }
@@ -50,7 +54,8 @@ namespace TrueforceForAll.Plugin
         public static readonly IReadOnlyList<string> KnownEffectIds = new[]
         {
             "Audio", "Engine", "Bumps", "Traction", "Shift",
-            "Abs", "PitLimiter", "Drs", "Collision",
+            "Abs", "PitLimiter", "Drs", "Collision", "RevLimiter",
+            "Airborne",
         };
 
         // Ordered oldest -> newest. Append-only.
@@ -64,6 +69,80 @@ namespace TrueforceForAll.Plugin
                     new ChangelogEntry {
                         Headline = "Effects added after you upgrade will be flagged with a NEW badge",
                         Description = "The badge stays on each effect's section header until you expand it or change a value, so you'll always know which voices are new without having to read release notes.",
+                    },
+                },
+            },
+            new ChangelogVersion {
+                Version = new Version(0, 1, 19),
+                Title = "Two new effects, smoother tuning, and FFB fixes",
+                Entries = new List<ChangelogEntry>
+                {
+                    new ChangelogEntry {
+                        Group = "New effects",
+                        EffectId = "RevLimiter",
+                        Headline = "Rev limiter buzz",
+                        Description = "A sharp buzz at the shift point, separate from the engine pulse, for an unmistakable shift cue in any game that reports RPM. Fires at the real redline where the game reports one (Assetto Corsa, iRacing, with an optional early or late offset), otherwise at a percentage of the rev limit you set (Forza). If it won't fire, switch its Engage mode to Percentage. On by default.",
+                    },
+                    new ChangelogEntry {
+                        Group = "New effects",
+                        EffectId = "Airborne",
+                        Headline = "Airborne ducking",
+                        Description = "Cuts vibrations while the car is in the air so jumps feel weightless, then brings them back on landing. The engine keeps pulsing (it's still revving); a slider sets how much to cut and a checkbox per effect picks what. On by default. Works in Assetto Corsa and the Forza Horizon games.",
+                    },
+                    new ChangelogEntry {
+                        Group = "New features",
+                        Headline = "Stationary spring (parked-car centering)",
+                        Description = "A gentle centering force so a stopped or crawling car has weight instead of going limp, fading out with speed and never fighting the game's own force feedback. Best in Assetto Corsa, also works in Forza Horizon; a universal version is planned. Off by default, ignored in iRacing.",
+                    },
+                    new ChangelogEntry {
+                        Group = "New features",
+                        Headline = "Wider in-game force feedback capture (experimental, opt-in)",
+                        Description = "A new 'Enable experimental FFB detection' toggle on the main page. Turn it on if your force feedback goes limp while the plugin is running. The plugin has to find the signal the game sends to your wheel and tunnel it into the Trueforce channel; if it can't, the wheel goes limp. This makes it also check the less common paths some wheels use to receive that signal. Off by default and still being validated, so turn it on only if your in-game force feedback is missing.",
+                    },
+                    new ChangelogEntry {
+                        Group = "New features",
+                        Headline = "One-click self-test",
+                        Description = "'Run self-test' in Diagnostics checks the whole chain (USBPcap, G HUB, wheel, stream, FFB pass-through, telemetry) and buzzes the wheel to confirm it responds. The fastest way to find where a setup is stuck.",
+                    },
+                    new ChangelogEntry {
+                        Group = "Improvements",
+                        Headline = "Tuning one car no longer changes your other settings",
+                        Description = "With a car loaded, editing an effect now saves to that car alone instead of changing your global tuning. Save from each effect's own Save button; the separate Active car box is gone and deleting a car preset moved to Manage Presets.",
+                    },
+                    new ChangelogEntry {
+                        Group = "Improvements",
+                        Headline = "Reworked preset layout",
+                        Description = "Two pickers now sit at the top of the panel, one for the game preset and one for the current car's, so switching is one click and it's clear which layer you're changing. Saving, defaults, and the full library live in the Presets section below.",
+                    },
+                    new ChangelogEntry {
+                        Group = "Improvements",
+                        Headline = "The latency notice no longer interrupts you",
+                        Description = "The notice shown when the plugin raises its buffer sizes to keep audio clean (which adds a little latency) used to be an annoying pop-up that stole focus and returned on every bump. It's now a quiet, dismissible banner with a Revert option.",
+                    },
+                    new ChangelogEntry {
+                        Group = "Bug fixes",
+                        Headline = "Some hardware breaking after installing the plugin",
+                        Description = "The plugin shipped its own older HidSharp library and overwrote SimHub's newer copy, breaking some hardware (Simagic pedals, for one). It no longer ships or overwrites any of SimHub's .dll files, and the updater repairs installs an earlier version had overwritten.",
+                    },
+                    new ChangelogEntry {
+                        Group = "Bug fixes",
+                        Headline = "Wheel yanked to one side when paused",
+                        Description = "When a game was paused or in a menu, the wheel could get pulled hard to one side and stay locked there until you unpaused. It now releases the wheel when the game is paused.",
+                    },
+                    new ChangelogEntry {
+                        Group = "Bug fixes",
+                        Headline = "In-game force feedback dropping out",
+                        Description = "If the force-feedback capture loses track of your wheel (a USB re-enumeration, say), it now re-finds it and restarts on its own, so 'effects work but no in-game force feedback' recovers without a plugin reload.",
+                    },
+                    new ChangelogEntry {
+                        Group = "Bug fixes",
+                        Headline = "Repeated admin prompts when SimHub isn't admin",
+                        Description = "Force-feedback pass-through needs administrator rights. When SimHub wasn't running as admin, the plugin kept retrying and spamming the user to grant admin permissions. It now detects this up front, skips the attempt entirely, and clearly tells you to turn on SimHub's own Run as administrator setting and restart the program.",
+                    },
+                    new ChangelogEntry {
+                        Group = "Thanks",
+                        Headline = "Thank you",
+                        Description = "Thank you to everyone who has donated, shared the project, and reported issues. I read every report, and your feedback genuinely helps decide what comes next. This project is shaped by the people who use it and I am committed to keeping it growing for a long time to come. I am grateful to have you all along for the ride!",
                     },
                 },
             },

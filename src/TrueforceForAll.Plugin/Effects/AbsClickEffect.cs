@@ -94,7 +94,10 @@ namespace TrueforceForAll.Plugin.Effects
             {
                 if (_tickEnvelopeRemaining <= 0) return;
                 int total = _tickEnvelopeTotal;
-                float baseAmp = ActiveAmp * Gain;
+                // DuckMultiplier is 1.0 unless the airborne ducker pulls it
+                // down (ABS sits above the sidechain tiers, so nothing else
+                // touches it).
+                float baseAmp = ActiveAmp * Gain * DuckMultiplier;
                 for (int i = 0; i < count && _tickEnvelopeRemaining > 0; i++)
                 {
                     float env = (float)_tickEnvelopeRemaining / total;
@@ -109,7 +112,7 @@ namespace TrueforceForAll.Plugin.Effects
             // Pulse mode
             if (_amp <= 0) return;
             double pStep = Math.Max(0.0, PulseFreq) / SampleRate;
-            float amp = _amp;
+            float amp = _amp * DuckMultiplier;
             double duty = Math.Min(1.0, Math.Max(0.0, (double)DutyCycle));
 
             for (int i = 0; i < count; i++)

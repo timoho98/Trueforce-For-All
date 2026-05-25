@@ -86,6 +86,16 @@ namespace TrueforceForAll.Plugin
             }
         }
 
+        /// <summary>Test hook (UPDATE access code): pretend a newer release is
+        /// available so the "update available" banner + modal can be verified
+        /// locally, without an actual newer GitHub release. Sets the latest
+        /// tag to one minor version above the running build.</summary>
+        public void DebugSimulateUpdateAvailable()
+        {
+            var c = CurrentVersion ?? new Version(0, 0, 0);
+            LatestVersionTag = "v" + new Version(c.Major, c.Minor + 1, 0).ToString(3);
+        }
+
         /// <summary>Display string for the latest tag, with the leading "v"
         /// stripped if present so the UI can render "0.1.1" not "v0.1.1".</summary>
         public string LatestVersionDisplay

@@ -82,6 +82,16 @@ namespace TrueforceForAll.Core
         private const int ErrorElevationRequired = 740;
         private const int ErrorCancelled         = 1223;
 
+        /// <summary>Whether the host (SimHub) process is running elevated. USBPcap
+        /// capture needs administrator rights, and elevation can't be gained
+        /// without restarting SimHub, so when this is false the tap doesn't even
+        /// attempt the capture (no failed launch / UAC loop) and just reports
+        /// that SimHub must be restarted as admin. The plugin sets this from its
+        /// own elevation check; defaults true so the tap behaves normally if a
+        /// caller never sets it.</summary>
+        public bool HostElevated { get; set; } = true;
+        private bool _loggedNotElevated;
+
         // Resolved interface + device address. Either supplied via the manual
         // override constructor args, or filled in by discovery inside the
         // reader loop. Reset to null/0 by ClearDiscovered() when the user
@@ -171,7 +181,8 @@ namespace TrueforceForAll.Core
         // *index* varies per model/firmware. G PRO places it at 0x0e, so we
         // seed with that and behaviour on G PRO is unchanged from the first
         // packet. For any other index, MaybeResolveFfbFeatureIndex() promotes
-        // the dominant high-rate (reportId 0x11, func 0x20) tuple's index.
+        // the dominant high-rate func-0x20 index, counting BOTH HID++ long
+        // (reportId 0x11) and very-long (reportId 0x12) reports toward it.
         //
         // The RS50 (C276) IS in scope here. Windows USBPcap evidence (issue #5
         // woTF capture, BeamNG + G Hub) proves RS50 native FFB on Windows is
@@ -180,8 +191,37 @@ namespace TrueforceForAll.Core
         // index. mescon's "raw report-0x01 on ep3" is its Linux *driver's* own
         // transport choice, NOT how the Windows runtime drives the wheel.
         // So the resolver auto-promotes 0x10 on RS50 with no special-casing.
+        //
+        // Issue #8 (Infinitum9, FH6 + RS50, 2026-05-24 capture): this wheel
+        // delivers Forza's FFB predominantly on the very-long report 0x12
+        // (18 of 26 func-2 SET_REPORTs; the real high-amplitude force, incl.
+        // full-scale 32767, was 0x12-only, while 0x11 carried only +/-3). The
+        // old 0x11-only extractor dropped every 0x12 packet, so cur was never
+        // populated and the device never entered active mode.
+        //
+        // The 0x12 extraction, the 0x11+0x12 resolver summing, and the lowered
+        // sample floor are all gated behind ExperimentalCapture (off by
+        // default). With it off, behaviour is byte-identical to the shipped
+        // 0.1.18 path (0x11-only, floor 200), so existing users are untouched;
+        // testers opt in via the FFBX access code. See ExperimentalCapture.
         private const byte FfbFeatureIndexSeed = 0x0e;
-        private const long FfbIndexMinSamples = 200;   // min count before switching
+        // Min cumulative func-0x20 samples at a candidate index before the
+        // resolver switches off the seed. Default 200 (the shipped value).
+        // Experimental lowers it to 32 so short / menu-heavy sessions still
+        // latch the real index (Infinitum9's whole capture had only 26 func-2
+        // packets); the 4x-dominance rule + re-entrant re-evaluation +
+        // confirm-lock are the real guard against a stray settings-write burst.
+        private const long FfbIndexMinSamplesDefault      = 200;
+        private const long FfbIndexMinSamplesExperimental = 32;
+        private long FfbIndexMinSamples =>
+            ExperimentalCapture ? FfbIndexMinSamplesExperimental : FfbIndexMinSamplesDefault;
+
+        // Experimental FFB-capture path (opt-in via the FFBX access code,
+        // persisted as Settings.ExperimentalFfbCapture, applied by the plugin
+        // on every tap (re)start). Gates the issue-#8 work and any future
+        // self-learning capture heuristics. Off = shipped 0.1.18 behaviour.
+        // volatile: UI thread writes, parser thread reads each packet.
+        public volatile bool ExperimentalCapture;
         private volatile byte _ffbFeatureIndex = FfbFeatureIndexSeed;
         private bool _ffbIndexResolved;                 // parser-thread only
         // Set true the first time real FFB is actually extracted on the
@@ -196,6 +236,136 @@ namespace TrueforceForAll.Core
         private volatile bool _ffbIndexConfirmed;       // any thread reads; parser writes
         public byte ResolvedFfbFeatureIndex => _ffbFeatureIndex;
         public bool IsFfbFeatureIndexResolved => _ffbIndexResolved;
+
+        // Capture fingerprint: recorded once, the first time real FFB is
+        // extracted on any path. A compact, human-readable description of the
+        // wire shape that worked (transport, report ID, feature index,
+        // encoding) plus which experimental sub-mechanism, if any, was
+        // load-bearing (needed=[...]). Surfaced in the Export-logs manifest and
+        // the "experimental fixed your wheel" report so a single line tells us
+        // what to graduate out of experimental. Null until first extraction.
+        // volatile: parser writes, UI/plugin threads read.
+        private volatile string _captureFingerprint;
+        public string CaptureFingerprint => _captureFingerprint;
+        // bestCount at which the resolver last switched off the seed index
+        // (0 = never switched, i.e. ran on the seed). Read at confirmation to
+        // decide whether the lowered experimental floor was load-bearing.
+        private long _resolveSwitchedAtCount;
+        // Per-report-ID "real force flowed here" flags, used to attribute the
+        // capture accurately. report0x12 is only credited as load-bearing if
+        // force flowed on 0x12 but NEVER on 0x11 (if 0x11 also carried force,
+        // the default path would have worked, so experimental wasn't needed).
+        private volatile bool _forceSeenOn0x11;
+        private volatile bool _forceSeenOn0x12;
+        // 0x11-vs-0x12 arbitration. 0x12 is a FALLBACK, used only while 0x11
+        // isn't the live force channel. Last-write-wins merging let near-zero /
+        // management 0x12 traffic clobber a wheel whose real FFB is on 0x11
+        // (G PRO: notchy feel + a hard pull from a 0x12 management message when
+        // a game opened / paused). We remember when 0x11 last carried
+        // NON-TRIVIAL force; while that's recent, 0x12 is ignored. On a wheel
+        // whose 0x11 is only idle noise (RS50: +/-3), this never latches, so
+        // 0x12 is used and the RS50 still works.
+        private int _lastReal0x11Tms;             // Environment.TickCount of last real 0x11 force
+        private const int Real0x11FloorLsb = 64;  // |force| over this counts as "real" (RS50's 0x11 is +/-3)
+        private const int Real0x11HoldMs   = 1000;
+        // Sustained-0x12 gate. Real driving force on 0x12 streams continuously
+        // (hundreds/sec), but at game open / pause the wheel sends occasional
+        // lone HID++ management messages on 0x12 (effect setup, autocenter)
+        // whose offset 10-11 we'd misread as a large force, yanking the wheel.
+        // Require a short consecutive run of 0x12 before it drives cur: a real
+        // burst clears it in ~10 ms, a lone message never does.
+        private int _consec0x12;
+        private int _last0x12Tms;
+        private const int Min0x12RunToTrust = 4;
+        private const int Max0x12GapMs      = 200;   // a longer gap restarts the run
+        // Shape of the first extraction, stashed for the fingerprint string.
+        private bool   _firstShapeSet;
+        private string _firstTransport;
+        private int    _firstReportId = -1;
+        private int    _firstFeatIdx  = -1;
+        private string _firstEncoding;
+        // Don't declare a capture confirmed off one stray matching packet:
+        // require a sustained run of extracted samples first. ~50 samples is a
+        // fraction of a second of real FFB at 250-500 Hz, but far more than a
+        // lone misparsed report. The human Yes/No prompt is the final arbiter;
+        // this just keeps us from asking off noise.
+        private const long CaptureConfirmSamples = 50;
+
+        /// <summary>Re-arm the feature-index resolver: drop back to the seed
+        /// index and clear the resolved/confirmed latches so the next pass
+        /// re-evaluates under the current <see cref="ExperimentalCapture"/>
+        /// rules. Called when the FFBX toggle flips, so a live change takes
+        /// effect without a SimHub restart. Keeps the accumulated tuple
+        /// history, so if 0x12 traffic was already seen the re-resolve to the
+        /// real index is immediate.</summary>
+        public void ResetFeatureIndexResolution()
+        {
+            _ffbFeatureIndex       = FfbFeatureIndexSeed;
+            _ffbIndexResolved      = false;
+            _ffbIndexConfirmed     = false;
+            _nextFfbResolveTicks   = 0;
+            _captureFingerprint     = null;   // let the new rules re-record what worked
+            _resolveSwitchedAtCount = 0;
+            _forceSeenOn0x11        = false;
+            _forceSeenOn0x12        = false;
+            _firstShapeSet          = false;
+            _firstReportId          = -1;
+            _firstFeatIdx           = -1;
+            _lastReal0x11Tms        = 0;
+            _consec0x12             = 0;
+            _last0x12Tms            = 0;
+        }
+
+        // Note one extracted FFB sample's wire shape. Records which report ID
+        // carried real force (for accurate attribution) and stashes the first
+        // shape seen for the fingerprint string. transport: "ep0-ctrl" /
+        // "interrupt-out". reportId/featIdx: -1 to omit (the DirectInput PID
+        // path has no HID++ index). Does NOT confirm yet, see
+        // MaybeConfirmCaptureFingerprint.
+        private void NoteExtraction(string transport, int reportId, int featIdx, string encoding)
+        {
+            if (reportId == 0x11) _forceSeenOn0x11 = true;
+            else if (reportId == 0x12) _forceSeenOn0x12 = true;
+            if (!_firstShapeSet)
+            {
+                _firstTransport = transport;
+                _firstReportId  = reportId;
+                _firstFeatIdx   = featIdx;
+                _firstEncoding  = encoding;
+                _firstShapeSet  = true;
+            }
+        }
+
+        // Once a sustained run of samples has been extracted, record the
+        // capture fingerprint a single time, with an accurate needed=[...]
+        // verdict (computed now that we know whether force ever flowed on 0x11
+        // vs only 0x12). Cheap to call every parse iteration: a null check and
+        // a counter compare until it fires.
+        private void MaybeConfirmCaptureFingerprint()
+        {
+            if (_captureFingerprint != null || !_firstShapeSet) return;
+            if (FfbSamplesCaptured < CaptureConfirmSamples) return;
+
+            var needed = new List<string>();
+            // 0x12 is load-bearing only if force flowed on 0x12 and never on
+            // 0x11; otherwise the default (0x11-only) path would have worked.
+            if (ExperimentalCapture && _forceSeenOn0x12 && !_forceSeenOn0x11)
+                needed.Add("report0x12");
+            if (ExperimentalCapture && _resolveSwitchedAtCount > 0
+                && _resolveSwitchedAtCount < FfbIndexMinSamplesDefault)
+                needed.Add("loweredFloor");
+            // "signatureDetector" will be added by the fallback detector path.
+
+            string ridStr  = _firstReportId >= 0 ? $"reportId=0x{_firstReportId:X2} " : "";
+            string featStr = _firstFeatIdx  >= 0 ? $"featIdx=0x{_firstFeatIdx:X2} " : "";
+            string neededStr = needed.Count > 0 ? string.Join(", ", needed) : "none";
+
+            _captureFingerprint =
+                $"transport={_firstTransport} {ridStr}{featStr}encoding={_firstEncoding} " +
+                $"experimental={(ExperimentalCapture ? "ON" : "OFF")} needed=[{neededStr}]";
+
+            Log($"FFB capture confirmed (sustained, {FfbSamplesCaptured} samples): {_captureFingerprint}");
+        }
 
         // Returns a snapshot of the tuple histogram. Safe to call from any
         // thread; the parser thread updates under _tupleLock and this also
@@ -281,6 +451,84 @@ namespace TrueforceForAll.Core
         // dependency on log4net from this library.
         public Action<string> Logger { get; set; }
 
+        // Invoked when the tap heals a drifted device address: the wheel's
+        // identity (same VID/PID) was found at a new USBPcap interface/address
+        // than the one we were tapping. Args: (newInterface, newAddress). The
+        // plugin uses this to update a saved manual override so the corrected
+        // location persists across restarts. We never switch to a *different*
+        // wheel here, so this only ever reports the same device at a new spot.
+        public Action<string, int> OnDeviceRelocated { get; set; }
+
+        // Set by the reader loop after repeated empty capture sessions to force
+        // a fresh identity-based device re-resolution on the next iteration,
+        // so a replug (same wheel, new address) heals even under a manual
+        // override instead of looping forever on a dead address.
+        private bool _forceRevalidate;
+
+        // Fired once per driving session when we're tapping the right device,
+        // the game is actively driving, yet no force feedback reaches our
+        // capture even after trying whole-bus mode. The plugin surfaces it as a
+        // user-facing notice (the genuine "USBPcap can't see the wheel on this
+        // port" case). Arg: the human-readable message.
+        public Action<string> OnNoFfbWarning { get; set; }
+
+        // "Force feedback should be flowing right now" hint, set by the plugin
+        // from telemetry (car moving / race-on). The self-heal escalation
+        // (whole-bus retry, no-FFB warning) only fires while this is true, so
+        // menus / loading / parked states never trip it. The rising edge
+        // timestamps when active driving began and re-arms the one-shot warning.
+        private volatile bool _gameFfbExpected;
+        private int _gameFfbExpectedSinceMs;
+        public bool GameFfbExpected
+        {
+            get => _gameFfbExpected;
+            set
+            {
+                if (value && !_gameFfbExpected)
+                {
+                    _gameFfbExpectedSinceMs = Environment.TickCount;
+                    _noFfbWarned = false;   // re-arm the warning for a new drive
+                }
+                _gameFfbExpected = value;
+            }
+        }
+
+        // Self-heal escalation state (parser thread). When we're driving with no
+        // FFB captured, first retry capture in whole-bus (-A) mode in case the
+        // per-device USBPcap filter is dropping the wheel's FFB endpoint; if
+        // that still yields nothing, warn the user once.
+        private volatile bool _useBroadCapture;   // -A instead of --devices N
+        private volatile bool _noFfbWarned;
+        private long _ffbAtCaptureStart;          // FfbSamplesCaptured at capture start
+        private int  _nextWatchdogMs;
+        private const int WatchdogIntervalMs = 2000;
+        private const int BroadCaptureSwitchMs = 8000;   // driving-with-no-FFB before -A retry
+        private const int NoFfbWarnMs          = 15000;  // driving-with-no-FFB before warning
+
+        // Dev/test: when true, the matcher still records FFB tuples (FFB looks
+        // present on the wire) but never extracts a value or confirms the index,
+        // simulating "we can see the wheel and the game's FFB reports but can't
+        // get the force out of them." Lets the no-FFB self-heal escalation
+        // (-A retry, then the warning) be exercised on a working wheel. Toggled
+        // by the NOFFB access code.
+        public volatile bool SimulateNoFfbCapture;
+
+        // Liveness watchdog: while we're streaming to the wheel (heartbeat from
+        // the send-activity probe climbing), a healthy capture parses packets
+        // briskly. If the capture parses NOTHING for LivenessTimeoutMs while the
+        // heartbeat clearly advanced, the capture has gone silent and the reader
+        // thread is blocked in a read with no way to notice. We kill the child
+        // (unblocking it) so ReaderLoop re-validates by identity and restarts.
+        // This is a binary alive/dead check, not rate-matching, so dropped
+        // packets never trip it; only total silence does.
+        private Thread _livenessThread;
+        private const int LivenessCheckMs   = 1000;
+        private const int LivenessTimeoutMs = 5000;
+        private const long LivenessMinSends = 100;   // heartbeat must clearly advance to arm
+        private long _liveLastParsed;
+        private long _liveLastSends;
+        private long _liveLastProgressTicks;
+
         // Pass null/0 (the defaults) to auto-discover via WheelUsbDiscovery on
         // Start(). Pass explicit values only when overriding (env vars,
         // manual picker, tests).
@@ -304,6 +552,28 @@ namespace TrueforceForAll.Core
             _hidFoundVid = vid;
             _hidFoundPid = pid;
         }
+
+        // Identity (VID/PID) of the device the user manually pinned. When set on
+        // a manual override, the self-heal re-locates THIS device after a USB
+        // re-enumeration (same identity, new address) and never switches to a
+        // different device. 0 = unknown: the tap then leaves a manual pin
+        // untouched rather than guessing.
+        private ushort _overrideVid;
+        private ushort _overridePid;
+        public void SetOverrideIdentity(ushort vid, ushort pid)
+        {
+            _overrideVid = vid;
+            _overridePid = pid;
+        }
+
+        // Probe returning our device's monotonic "packets sent to the wheel"
+        // count (TrueforceDevice.PacketsSent). The liveness watchdog uses it as
+        // a heartbeat: while we're actively streaming this climbs at ~1 kHz, so
+        // if it advances meaningfully while our capture parses nothing, the
+        // capture has gone silent (stale address / USBPcap stall) and we kick
+        // it. Null when not wired (then the watchdog is inert).
+        private Func<long> _sendActivityProbe;
+        public void SetSendActivityProbe(Func<long> probe) => _sendActivityProbe = probe;
 
         // Public so the settings UI can validate a user-picked path with the
         // same probe order the constructor uses.
@@ -335,6 +605,12 @@ namespace TrueforceForAll.Core
                 Priority = ThreadPriority.AboveNormal,
             };
             _readerThread.Start();
+            _livenessThread = new Thread(LivenessLoop)
+            {
+                IsBackground = true,
+                Name = "UsbPcapFfbTap-liveness",
+            };
+            _livenessThread.Start();
             return true;
         }
 
@@ -343,7 +619,9 @@ namespace TrueforceForAll.Core
             _stopping = true;
             try { _proc?.Kill(); } catch { }
             try { _readerThread?.Join(2000); } catch { }
+            try { _livenessThread?.Join(1500); } catch { }
             _readerThread = null;
+            _livenessThread = null;
             _proc = null;
             Status = "Stopped";
         }
@@ -369,6 +647,187 @@ namespace TrueforceForAll.Core
 
         // ---------- reader thread ----------
 
+        // Resolve and validate which device the tap should capture. Returns
+        // false only when there is no usable target and the caller should back
+        // off and retry. The key behavior: when we know the wheel's identity
+        // (VID/PID from HID enumeration) and FFB has not yet been confirmed, we
+        // re-locate that SAME identity on the bus and heal the address if it
+        // drifted (replug / re-enumeration). This validates a manual override
+        // instead of blindly trusting a pinned address, and never switches to a
+        // different wheel: if the identity is missing or ambiguous, we leave an
+        // existing target untouched. Once FFB is confirmed, we skip the scan and
+        // reuse the working target (no churn, no extra USBPcap spawns).
+        private bool EnsureDeviceTarget(bool forceRevalidate)
+        {
+            bool haveTarget = !string.IsNullOrEmpty(_usbPcapInterface) && _deviceAddress > 0;
+
+            // Which identity do we re-locate by? A manual override follows the
+            // device the USER pinned (so we never switch them to a different
+            // wheel); auto mode follows the HID-detected wheel. A manual pin
+            // with an unknown identity (saved before we tracked it) is left
+            // untouched, never guessed at.
+            ushort? healVid = null, healPid = null;
+            if (_manualOverride)
+            {
+                if (_overrideVid != 0) { healVid = _overrideVid; healPid = _overridePid; }
+            }
+            else
+            {
+                healVid = _hidFoundVid; healPid = _hidFoundPid;
+            }
+
+            if (healVid.HasValue && healPid.HasValue
+                && (forceRevalidate || !haveTarget || !_ffbIndexConfirmed))
+            {
+                var matches = WheelUsbDiscovery.FindAllMatching(
+                    _usbPcapCmdPath, healVid.Value, healPid.Value, Logger);
+
+                if (matches != null && matches.Count == 1)
+                {
+                    var m = matches[0];
+                    if (!haveTarget)
+                    {
+                        _usbPcapInterface = m.Interface;
+                        _deviceAddress = m.DeviceAddress;
+                        Log($"Auto-discovered: {m}");
+                        return true;
+                    }
+                    if (m.Interface != _usbPcapInterface || m.DeviceAddress != _deviceAddress)
+                    {
+                        Log($"FFB tap: device {healVid.Value:X4}:{healPid.Value:X4} is now on " +
+                            $"{m.Interface} dev {m.DeviceAddress} (was {_usbPcapInterface} dev {_deviceAddress}); " +
+                            "retargeting" + (_manualOverride ? " and updating the saved device override." : "."));
+                        _usbPcapInterface = m.Interface;
+                        _deviceAddress = m.DeviceAddress;
+                        try { OnDeviceRelocated?.Invoke(m.Interface, m.DeviceAddress); } catch { }
+                    }
+                    return true;
+                }
+
+                // Scan failed (null), identity not on the bus (0), or ambiguous
+                // (>1 identical wheels): never guess. Keep an existing target;
+                // only when we have none do we fall through to find-anything.
+                if (haveTarget) return true;
+            }
+
+            if (haveTarget) return true;
+
+            // No identity, or identity scan inconclusive, and no target yet:
+            // fall back to the original "first supported wheel" discovery. Auto
+            // mode only; a manual override always carries a target.
+            if (!_manualOverride)
+            {
+                var hit = WheelUsbDiscovery.Find(_usbPcapCmdPath, Logger, hidFoundVid: _hidFoundVid, hidFoundPid: _hidFoundPid);
+                if (hit != null)
+                {
+                    _usbPcapInterface = hit.Interface;
+                    _deviceAddress = hit.DeviceAddress;
+                    Log($"Auto-discovered: {hit}");
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Periodic self-heal escalation, called from the parse loop (tick-gated
+        // so it costs ~nothing). Returns true when the capture must be torn down
+        // and restarted (to switch into whole-bus mode). Only ever acts while
+        // the game is actively driving (GameFfbExpected) and FFB still hasn't
+        // been captured, so it cannot misfire in menus or while parked. Disarms
+        // permanently once real FFB is confirmed.
+        private bool MaybeWatchdog()
+        {
+            int now = Environment.TickCount;
+            if (now < _nextWatchdogMs) return false;
+            _nextWatchdogMs = now + WatchdogIntervalMs;
+
+            if (_ffbIndexConfirmed) return false;                 // working; never thrash
+            if (FfbSamplesCaptured > _ffbAtCaptureStart) return false; // FFB flowing this capture
+            if (!_gameFfbExpected) return false;                  // not driving -> no FFB expected
+
+            // If the user pinned a device that isn't a Logitech wheel, there's
+            // no FFB to find and "try another USB port" would be wrong advice.
+            // Don't escalate here; the plugin surfaces a targeted "that's not a
+            // wheel, clear the override" notice instead.
+            if (_manualOverride && _overrideVid != 0
+                && !WheelDiscovery.IsSupportedWheel(_overrideVid, _overridePid))
+                return false;
+
+            int drivingMs = now - _gameFfbExpectedSinceMs;
+
+            // Tier 2: driving a while with nothing -> retry once in whole-bus
+            // mode (the per-device filter may be dropping the FFB endpoint).
+            if (!_useBroadCapture && drivingMs >= BroadCaptureSwitchMs)
+            {
+                _useBroadCapture = true;
+                Log($"FFB tap: {drivingMs} ms of active driving with no force feedback captured on " +
+                    $"{_usbPcapInterface} dev {_deviceAddress}; retrying with whole-bus capture in case the " +
+                    "per-device filter is dropping the wheel's FFB endpoint.");
+                return true;   // ReaderLoop restarts the capture in -A mode
+            }
+
+            // Tier 3: whole-bus already on and still nothing -> warn once.
+            if (_useBroadCapture && !_noFfbWarned && drivingMs >= NoFfbWarnMs)
+            {
+                _noFfbWarned = true;
+                string msg = "Driving, but no game force feedback is reaching the plugin, so it has nothing " +
+                    "to pass through. Most likely fixes, in order: (1) fully close G HUB, including its " +
+                    "background agent (right-click its tray icon and Quit, then end any lghub processes in " +
+                    "Task Manager) - it can intercept the wheel's force feedback; (2) make sure force " +
+                    "feedback is enabled and this wheel is selected in the game's own settings; (3) run " +
+                    "SimHub as administrator; (4) as a last resort try a different USB port, ideally a USB " +
+                    "2.0 port on the back of the motherboard (not a hub or front-panel port), in case the " +
+                    "capture driver can't see the wheel's traffic there.";
+                Log("FFB tap: " + msg);
+                try { OnNoFfbWarning?.Invoke(msg); } catch { }
+            }
+            return false;
+        }
+
+        // Runs on its own thread because the reader thread is the one that gets
+        // stuck (a blocked, timeout-less read). See LivenessMinSends/Timeout.
+        private void LivenessLoop()
+        {
+            while (!_stopping)
+            {
+                if (SleepInterruptible(LivenessCheckMs)) return;
+
+                var proc = _proc;
+                if (proc == null || proc.HasExited) continue;   // no active capture
+                var probe = _sendActivityProbe;
+                if (probe == null) continue;                    // not wired -> inert
+
+                long parsed = PacketsParsed;
+                long sends;
+                try { sends = probe(); } catch { continue; }
+                long nowTicks = _sw.ElapsedTicks;
+
+                // Capture is making progress -> healthy, re-baseline.
+                if (parsed != Interlocked.Read(ref _liveLastParsed))
+                {
+                    Interlocked.Exchange(ref _liveLastParsed, parsed);
+                    Interlocked.Exchange(ref _liveLastSends, sends);
+                    Interlocked.Exchange(ref _liveLastProgressTicks, nowTicks);
+                    continue;
+                }
+
+                // Capture parsed nothing since last check. Only act if we were
+                // clearly streaming to the wheel in the meantime (heartbeat
+                // advanced past the floor) and the stall has lasted long enough.
+                long stalledMs = (nowTicks - Interlocked.Read(ref _liveLastProgressTicks)) * 1000L / Stopwatch.Frequency;
+                long sentSinceProgress = sends - Interlocked.Read(ref _liveLastSends);
+                if (stalledMs >= LivenessTimeoutMs && sentSinceProgress >= LivenessMinSends)
+                {
+                    Log($"FFB tap: capture parsed 0 packets in {stalledMs} ms while {sentSinceProgress} were sent to the wheel; " +
+                        "the capture has stalled (wheel may have re-enumerated). Restarting it.");
+                    _forceRevalidate = true;                    // re-locate by identity on restart
+                    Interlocked.Exchange(ref _liveLastProgressTicks, nowTicks);  // avoid re-firing before restart settles
+                    Interlocked.Exchange(ref _liveLastSends, sends);
+                    try { proc.Kill(); } catch { }              // unblocks the reader -> ReaderLoop restarts
+                }
+            }
+        }
+
         private void ReaderLoop()
         {
             // Outer loop owns BOTH discovery (when there's no manual override)
@@ -385,25 +844,36 @@ namespace TrueforceForAll.Core
 
             while (!_stopping)
             {
+                // Pre-flight: USBPcap capture needs administrator rights. If
+                // SimHub isn't elevated, attempting the launch only fails (and a
+                // retry loop just keeps failing / re-prompting), and elevation
+                // can't be gained without restarting SimHub. So skip the attempt
+                // entirely, show a clear "run as admin and restart" message, and
+                // stay dormant. Restarting SimHub as admin reinitializes the tap.
+                if (!HostElevated)
+                {
+                    Status = "SimHub is not running as administrator. Force-feedback pass-through needs it: turn on Run as administrator in SimHub's settings, then restart SimHub.";
+                    if (!_loggedNotElevated)
+                    {
+                        Log("UsbPcapFfbTap: SimHub is not elevated; FFB pass-through is off until SimHub is restarted as administrator (not launching USBPcapCMD).");
+                        _loggedNotElevated = true;
+                    }
+                    if (SleepInterruptible(ElevationBackoffMs)) break;
+                    continue;
+                }
+
                 bool producedPackets = false;
                 try
                 {
-                    if (!_manualOverride && (string.IsNullOrEmpty(_usbPcapInterface) || _deviceAddress <= 0))
+                    if (!EnsureDeviceTarget(_forceRevalidate))
                     {
-                        Status = "Discovering wheel on USB bus...";
+                        _forceRevalidate = false;
+                        Status = "No supported wheel found on any USBPcap interface (FFB pass-through disabled). Retrying in 15s...";
                         Log(Status);
-                        var hit = WheelUsbDiscovery.Find(_usbPcapCmdPath, Logger, hidFoundVid: _hidFoundVid, hidFoundPid: _hidFoundPid);
-                        if (hit == null)
-                        {
-                            Status = "No supported wheel found on any USBPcap interface (FFB pass-through disabled). Retrying in 15s...";
-                            Log(Status);
-                            if (SleepInterruptible(RediscoveryRetryMs)) break;
-                            continue;
-                        }
-                        _usbPcapInterface = hit.Interface;
-                        _deviceAddress = hit.DeviceAddress;
-                        Log($"Auto-discovered: {hit}");
+                        if (SleepInterruptible(RediscoveryRetryMs)) break;
+                        continue;
                     }
+                    _forceRevalidate = false;
 
                     long packetsBefore = PacketsParsed;
                     StartUsbPcapCmd();
@@ -449,10 +919,14 @@ namespace TrueforceForAll.Core
                 if (producedPackets) consecutiveFailures = 0;
                 else consecutiveFailures++;
 
-                if (!_manualOverride && consecutiveFailures >= MaxCaptureFailuresBeforeRediscovery)
+                if (consecutiveFailures >= MaxCaptureFailuresBeforeRediscovery)
                 {
-                    _usbPcapInterface = null;
-                    _deviceAddress = 0;
+                    // Auto mode: drop the cached target so discovery re-runs.
+                    // Manual override: keep the pin but force an identity-based
+                    // re-validate next iteration, so a replug (same wheel, new
+                    // address) heals instead of looping on a dead address.
+                    if (!_manualOverride) { _usbPcapInterface = null; _deviceAddress = 0; }
+                    _forceRevalidate = true;
                     consecutiveFailures = 0;
                 }
 
@@ -482,10 +956,19 @@ namespace TrueforceForAll.Core
 
         private void StartUsbPcapCmd()
         {
+            // Normally we filter to the wheel's device at the driver level
+            // (--devices) to keep CPU low. After a no-FFB-while-driving escalation
+            // we fall back to whole-bus capture (-A) and filter to the wheel in
+            // our parser (see the `dev != _deviceAddress` guard below), because
+            // on some composite devices --devices appears to drop the FFB
+            // endpoint that -A captures fine.
+            string args = _useBroadCapture
+                ? $"-d {_usbPcapInterface} -A -o -"
+                : $"-d {_usbPcapInterface} -o - --devices {_deviceAddress}";
             var psi = new ProcessStartInfo
             {
                 FileName = _usbPcapCmdPath,
-                Arguments = $"-d {_usbPcapInterface} -o - --devices {_deviceAddress}",
+                Arguments = args,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -493,8 +976,17 @@ namespace TrueforceForAll.Core
             };
             _proc = Process.Start(psi);
             if (_proc == null) throw new InvalidOperationException("Process.Start returned null");
-            Status = $"Tapping {_usbPcapInterface} dev {_deviceAddress}";
-            Log($"UsbPcapFfbTap started: {_usbPcapInterface} dev {_deviceAddress}");
+            // Baselines for the watchdog: FFB count at the start of this capture
+            // session, and the next watchdog tick.
+            _ffbAtCaptureStart = FfbSamplesCaptured;
+            _nextWatchdogMs = Environment.TickCount + WatchdogIntervalMs;
+            // Liveness baseline: fresh capture gets a full grace window before
+            // a stall can be declared.
+            Interlocked.Exchange(ref _liveLastParsed, PacketsParsed);
+            try { Interlocked.Exchange(ref _liveLastSends, _sendActivityProbe?.Invoke() ?? 0); } catch { }
+            Interlocked.Exchange(ref _liveLastProgressTicks, _sw.ElapsedTicks);
+            Status = $"Tapping {_usbPcapInterface} dev {_deviceAddress}{(_useBroadCapture ? " (whole-bus)" : "")}";
+            Log($"UsbPcapFfbTap started: {_usbPcapInterface} dev {_deviceAddress}{(_useBroadCapture ? " (whole-bus capture)" : "")}");
 
             // Drain stderr so it doesn't fill its pipe buffer and stall the child.
             new Thread(() =>
@@ -578,6 +1070,7 @@ namespace TrueforceForAll.Core
                     System.Threading.Interlocked.Exchange(ref _packed, pk);
                     System.Threading.Interlocked.Exchange(ref _lastSampleTicks, ts);
                     FfbSamplesCaptured++;
+                    NoteExtraction("interrupt-out", -1, -1, "dinput-int8@2 (report 0x11/0x08)");
                 }
 
                 // Interrupt-OUT HID++ FFB path. Some wheels deliver the SAME
@@ -599,7 +1092,7 @@ namespace TrueforceForAll.Core
                     byte iFeat = payload[headerLen + 2];
                     byte iFunc = payload[headerLen + 3];
                     RecordTupleSeen(0x11, iFeat, iFunc);
-                    if (iFeat == _ffbFeatureIndex && (iFunc & 0xf0) == 0x20)
+                    if (iFeat == _ffbFeatureIndex && (iFunc & 0xf0) == 0x20 && !SimulateNoFfbCapture)
                     {
                         short ffbTarget = (short)((payload[headerLen + 10] << 8) | payload[headerLen + 11]);
                         long ts = _sw.ElapsedTicks & TimestampMask;
@@ -608,10 +1101,15 @@ namespace TrueforceForAll.Core
                         System.Threading.Interlocked.Exchange(ref _lastSampleTicks, ts);
                         FfbSamplesCaptured++;
                         _ffbIndexConfirmed = true;   // real FFB flowed on this index; lock the resolver
+                        if (Math.Abs((int)ffbTarget) > Real0x11FloorLsb)
+                            _lastReal0x11Tms = Environment.TickCount;   // interrupt 0x11 carrying real force
+                        NoteExtraction("interrupt-out", 0x11, iFeat, "hidpp-int16be@10");
                     }
                 }
 
+                MaybeConfirmCaptureFingerprint();
                 MaybeEmitDiagnostics();
+                if (MaybeWatchdog()) return;   // restart capture (whole-bus retry)
                 if (!_ffbIndexConfirmed)
                 {
                     long nowMs = Environment.TickCount;
@@ -646,18 +1144,59 @@ namespace TrueforceForAll.Core
                 byte funcByte = payload[dataOffset + 3];
                 RecordTupleSeen(reportId, featIdx, funcByte);
 
-                // G-series FFB: HID++ page 0x8123 long form, function 2 (high
-                // nibble of funcByte), at the per-wheel-resolved feature index.
-                // FFB target = signed int16, big-endian, at offset 10-11 of the HID++ payload.
-                if (reportId == 0x11 && featIdx == _ffbFeatureIndex && (funcByte & 0xf0) == 0x20)
+                // G-series FFB: HID++ page 0x8123 long (0x11) or very-long
+                // (0x12) form, function 2 (high nibble of funcByte), at the
+                // per-wheel-resolved feature index. Both report IDs share the
+                // same header+payload layout (force = signed int16, big-endian,
+                // at offset 10-11). Some wheels (RS50 on FH6, issue #8) send the
+                // bulk of FFB as 0x12; accepting it is gated behind
+                // ExperimentalCapture so the default path stays 0x11-only.
+                bool is0x11 = reportId == 0x11;
+                bool is0x12 = ExperimentalCapture && reportId == 0x12;
+                if ((is0x11 || is0x12) && featIdx == _ffbFeatureIndex && (funcByte & 0xf0) == 0x20 && !SimulateNoFfbCapture)
                 {
                     short ffbTarget = (short)((payload[dataOffset + 10] << 8) | payload[dataOffset + 11]);
-                    long timestamp = _sw.ElapsedTicks & TimestampMask;
-                    long packed = (timestamp << 16) | (uint)(ushort)ffbTarget;
-                    System.Threading.Interlocked.Exchange(ref _packed, packed);
-                    System.Threading.Interlocked.Exchange(ref _lastSampleTicks, timestamp);
-                    FfbSamplesCaptured++;
-                    _ffbIndexConfirmed = true;   // real FFB flowed on this index; lock the resolver
+
+                    bool accept = true;
+                    if (is0x12)
+                    {
+                        // 0x12 is a fallback: drop it while 0x11 is the live
+                        // force channel, so 0x11-real wheels (G PRO) aren't
+                        // clobbered by 0x12 traffic.
+                        bool real0x11Recent = _lastReal0x11Tms != 0
+                            && unchecked(Environment.TickCount - _lastReal0x11Tms) < Real0x11HoldMs;
+                        if (real0x11Recent)
+                        {
+                            accept = false;
+                        }
+                        else
+                        {
+                            // Require a sustained run before trusting 0x12, so a
+                            // lone open/pause management message can't be misread
+                            // as a hard-left force.
+                            int now = Environment.TickCount;
+                            if (_last0x12Tms == 0 || unchecked(now - _last0x12Tms) > Max0x12GapMs)
+                                _consec0x12 = 0;
+                            _consec0x12++;
+                            _last0x12Tms = now;
+                            if (_consec0x12 < Min0x12RunToTrust) accept = false;
+                        }
+                    }
+                    else if (Math.Abs((int)ffbTarget) > Real0x11FloorLsb)
+                    {
+                        _lastReal0x11Tms = Environment.TickCount;   // 0x11 is carrying real force
+                    }
+
+                    if (accept)
+                    {
+                        long timestamp = _sw.ElapsedTicks & TimestampMask;
+                        long packed = (timestamp << 16) | (uint)(ushort)ffbTarget;
+                        System.Threading.Interlocked.Exchange(ref _packed, packed);
+                        System.Threading.Interlocked.Exchange(ref _lastSampleTicks, timestamp);
+                        FfbSamplesCaptured++;
+                        _ffbIndexConfirmed = true;   // real FFB flowed on this index; lock the resolver
+                        NoteExtraction("ep0-ctrl", reportId, featIdx, "hidpp-int16be@10");
+                    }
                 }
             }
             CloseRawLog();
@@ -677,8 +1216,8 @@ namespace TrueforceForAll.Core
         // firmware places page 0x8123 at an index other than the 0x0e seed
         // (RS50 -> 0x10, G PRO stays 0x0e). The FFB feature streams at
         // ~250-500 Hz during play; HID++ settings features are occasional, so
-        // the dominant (reportId 0x11, func&0xf0==0x20) tuple by count is the
-        // FFB feature. Parser-thread only; called from the parse loop on the
+        // the dominant func&0xf0==0x20 index by count (summing reportId 0x11
+        // and 0x12) is the FFB feature. Parser-thread only; called from the parse loop on the
         // FfbResolveIntervalMs cadence until _ffbIndexConfirmed, so first FFB
         // on a non-0x0e wheel latches within a few hundred ms of gameplay (the
         // seed means G PRO is never delayed).
@@ -701,19 +1240,36 @@ namespace TrueforceForAll.Core
             // dominant-tuple rule that resolves G PRO to 0x0e (issue #5 woTF
             // Windows capture confirmed RS50 native FFB is HID++ 0x8123 fn2).
 
-            byte bestIdx = 0;
-            long bestCount = 0, secondCount = 0;
+            // Sum func-0x20 counts per feature index across BOTH HID++ long
+            // (0x11) and very-long (0x12) reports. A wheel that splits its FFB
+            // across both report IDs (RS50: 18 on 0x12, 8 on 0x11, same index
+            // 0x10) must have those reinforce one index, not compete as two
+            // separate keys, or the 4x-dominance test below sees 18 vs 8 for
+            // the SAME index and never switches.
+            var perIndex = new Dictionary<byte, long>();
             lock (_tupleLock)
             {
                 foreach (var kv in _tupleCounts)
                 {
                     // Key = (reportId<<16)|(featIdx<<8)|(funcByte&0xf0).
-                    if ((byte)(kv.Key >> 16) != 0x11) continue;   // long form
+                    byte rid = (byte)(kv.Key >> 16);
+                    // Default: 0x11 only (shipped behaviour). Experimental also
+                    // counts very-long 0x12 toward the same feature index.
+                    bool ridOk = rid == 0x11 || (ExperimentalCapture && rid == 0x12);
+                    if (!ridOk) continue;                          // long / very-long form
                     if ((byte)kv.Key != 0x20) continue;            // function 2
                     byte f = (byte)(kv.Key >> 8);
-                    if (kv.Value > bestCount) { secondCount = bestCount; bestCount = kv.Value; bestIdx = f; }
-                    else if (kv.Value > secondCount) { secondCount = kv.Value; }
+                    perIndex.TryGetValue(f, out long acc);
+                    perIndex[f] = acc + kv.Value;
                 }
+            }
+
+            byte bestIdx = 0;
+            long bestCount = 0, secondCount = 0;
+            foreach (var kv in perIndex)
+            {
+                if (kv.Value > bestCount) { secondCount = bestCount; bestCount = kv.Value; bestIdx = kv.Key; }
+                else if (kv.Value > secondCount) { secondCount = kv.Value; }
             }
 
             if (bestCount < FfbIndexMinSamples) return;   // not enough data yet
@@ -741,6 +1297,7 @@ namespace TrueforceForAll.Core
                 byte old = _ffbFeatureIndex;
                 _ffbFeatureIndex = bestIdx;
                 _ffbIndexResolved = true;
+                _resolveSwitchedAtCount = bestCount;   // for the capture-fingerprint "loweredFloor" verdict
                 Log($"FFB tap: selected HID++ 0x8123 feature index 0x{bestIdx:X2} " +
                     $"(was 0x{old:X2}); {bestCount} samples, runner-up {secondCount}. " +
                     "Will confirm once force is extracted.");

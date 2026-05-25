@@ -146,11 +146,27 @@ namespace TrueforceForAll.Plugin.Effects
             }
         }
 
+        private float[] _duckScratch;
+
         public override void RenderAdd(float[] buffer, int count)
         {
             if (!Enabled && !IsTesting) return;
-            _heave.RenderAdd(buffer, count);
-            if (SurfaceEnabled || IsTesting) _surface.RenderAdd(buffer, count);
+            float dm = DuckMultiplier;
+            // Fast path: not ducked, render straight into the buffer.
+            if (dm >= 0.999f)
+            {
+                _heave.RenderAdd(buffer, count);
+                if (SurfaceEnabled || IsTesting) _surface.RenderAdd(buffer, count);
+                return;
+            }
+            // Ducked (a higher-tier momentary effect is active): render the two
+            // oscillators into scratch, then add scaled so road feel drops out
+            // of the way. Scratch is tiny (one batch) and reused.
+            if (_duckScratch == null || _duckScratch.Length < count) _duckScratch = new float[count];
+            Array.Clear(_duckScratch, 0, count);
+            _heave.RenderAdd(_duckScratch, count);
+            if (SurfaceEnabled || IsTesting) _surface.RenderAdd(_duckScratch, count);
+            for (int i = 0; i < count; i++) buffer[i] += _duckScratch[i] * dm;
         }
 
         public override int TestPlay()
@@ -204,7 +220,13 @@ namespace TrueforceForAll.Plugin.Effects
             }
 
             // ---- Heave channel ----
+            // Guard against a non-finite telemetry frame (source restart,
+            // shared-memory garbage, alt-tab). An Infinity here would sail
+            // past the Math.Min clamp below as full-scale and slam the wheel;
+            // a NaN would silently poison the oscillator. Treat either as
+            // "no bump this frame".
             double heave = f.AccelerationHeave.GetValueOrDefault();
+            if (double.IsNaN(heave) || double.IsInfinity(heave)) heave = 0.0;
             double mag   = Math.Abs(heave);
             double heaveRange = Math.Max(0.01, FullScale - Threshold);
             double heaveNorm = (mag > Threshold) ? Math.Min(1.0, (mag - Threshold) / heaveRange) : 0;
@@ -218,7 +240,8 @@ namespace TrueforceForAll.Plugin.Effects
             else
             {
                 double surfaceNorm = 0;
-                if (f.SurfaceRumble is double sr)
+                if (f.SurfaceRumble is double sr
+                    && !double.IsNaN(sr) && !double.IsInfinity(sr))
                     surfaceNorm = Math.Min(1.0, Math.Abs(sr) * SurfaceRumbleScale);
 
                 bool onStrip = f.OnRumbleStrip ?? false;

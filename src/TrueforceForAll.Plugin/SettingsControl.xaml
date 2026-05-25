@@ -242,6 +242,38 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <!-- Compact amber "Save all" buttons that live in the header next to
+             the game / car preset pickers. Shown only when that target has
+             unsaved tuning; each saves every changed section at once to its
+             own target (game default vs this car). -->
+        <Style x:Key="HeaderSaveAllButton" TargetType="Button">
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+            <Setter Property="Padding" Value="10,0"/>
+            <Setter Property="Visibility" Value="Collapsed"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="#C8860B" CornerRadius="8" SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#E09B0E"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#A8720A"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="20">
@@ -296,6 +328,111 @@
                 </Grid>
             </Border>
 
+            <!-- "Spread the word" banner. One-and-done. Surfaces only after
+                 the user has banked real working seat time
+                 (Settings.ActiveStreamingSeconds past the threshold) so it
+                 never lands mid-setup. Clicking copies a short blurb and
+                 opens the project page; the x declines. Either path latches
+                 ShareCtaDismissed so it never shows again. -->
+            <Border x:Name="ShareCtaBanner" Visibility="Collapsed"
+                    Background="#5B4B9E" CornerRadius="4" Padding="10,8,10,8" Margin="0,0,0,10"
+                    Cursor="Hand" MouseLeftButtonUp="ShareCtaBanner_Click">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Foreground="White"
+                               FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"
+                               TextWrapping="Wrap"
+                               Text="Wheel feeling alive in a game that never had Trueforce? Help another sim racer find TF4ALL."/>
+                    <TextBlock Grid.Column="1" Foreground="White" Opacity="0.85"
+                               FontSize="12" VerticalAlignment="Center" Margin="10,0,0,0"
+                               Text="Share →"/>
+                    <Button Grid.Column="2" x:Name="ShareCtaDismiss"
+                            Content="✕" Width="22" Height="22" Margin="10,0,0,0"
+                            Click="ShareCtaDismiss_Click"
+                            Background="Transparent" Foreground="White"
+                            BorderBrush="Transparent" BorderThickness="0"
+                            Cursor="Hand" ToolTip="Don't show this again"/>
+                </Grid>
+            </Border>
+
+            <!-- Experimental FFB success prompt. Shows once when experimental
+                 FFB detection was load-bearing in getting capture working
+                 (ShouldShowExperimentalSuccessReport). Clicking opens a
+                 prefilled GitHub Discussions post in the "FFB compatibility
+                 reports" category (wheel VID/PID + capture fingerprint already
+                 filled in) so we learn which wheels to graduate out of
+                 experimental; the x declines. Either path latches
+                 ExperimentalSuccessReportDismissed. -->
+            <Border x:Name="ExperimentalSuccessBanner" Visibility="Collapsed"
+                    Background="#2E7D52" CornerRadius="4" Padding="10,8,10,8" Margin="0,0,0,10">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Foreground="White"
+                                   FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   Text="Experimental FFB detection started capturing your wheel. Is your force feedback working now?"/>
+                        <Button Grid.Column="1" x:Name="ExperimentalSuccessDismiss"
+                                Content="✕" Width="22" Height="22" Margin="10,0,0,0" VerticalAlignment="Top"
+                                Click="ExperimentalSuccessDismiss_Click"
+                                Background="Transparent" Foreground="White"
+                                BorderBrush="Transparent" BorderThickness="0"
+                                Cursor="Hand" ToolTip="Don't show this again"/>
+                    </Grid>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <Button x:Name="ExperimentalSuccessYes" Content="Yes, it's working"
+                                Padding="12,3" Cursor="Hand" Click="ExperimentalSuccessYes_Click"
+                                ToolTip="Opens a prefilled compatibility report (wheel ID + details already filled in)."/>
+                        <Button x:Name="ExperimentalSuccessNo" Content="No, still no FFB"
+                                Padding="12,3" Margin="8,0,0,0" Cursor="Hand" Click="ExperimentalSuccessNo_Click"
+                                ToolTip="Opens the diagnostics / troubleshooter."/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Auto-tuned ring buffer notice. Surfaces when the auto-
+                 ratchet bumps a ring size to recover from sustained
+                 dropouts. One banner consolidates every bump in the
+                 current session: the "from" caps stay pinned to the
+                 sizes that were active when the banner first appeared,
+                 the "to" caps update to the latest after each bump.
+                 Inline and non-modal (never grabs foreground) per user
+                 feedback that the old centered Window was disruptive. -->
+            <Border x:Name="RatchetNoticeBanner" Visibility="Collapsed"
+                    Background="#3A6BBE" CornerRadius="4" Padding="12,8,12,8" Margin="0,0,0,10">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Foreground="White" FontWeight="SemiBold" FontSize="13"
+                                   Text="Auto-tuned ring buffer"/>
+                        <TextBlock x:Name="RatchetNoticeDetail" Foreground="White" FontSize="11"
+                                   Opacity="0.9" Margin="0,2,0,0" TextWrapping="Wrap" Text=""/>
+                    </StackPanel>
+                    <Button Grid.Column="1" x:Name="RatchetNoticeRevert"
+                            Content="Revert" Padding="10,3" Margin="10,0,0,0"
+                            VerticalAlignment="Center" Cursor="Hand"
+                            Click="RatchetNoticeRevert_Click"
+                            ToolTip="Drop the ring(s) back to the size(s) they were at before this session's auto-bumps. Trades dropout resilience for tighter latency."/>
+                    <Button Grid.Column="2" x:Name="RatchetNoticeDismiss"
+                            Content="✕" Width="22" Height="22" Margin="6,0,0,0"
+                            Click="RatchetNoticeDismiss_Click"
+                            Background="Transparent" Foreground="White"
+                            BorderBrush="Transparent" BorderThickness="0"
+                            Cursor="Hand" ToolTip="Dismiss"/>
+                </Grid>
+            </Border>
+
             <!-- Offline-edit mode banner. Visible when the user clicked Edit
                  on a preset row in the Manage Presets dialog. While shown,
                  the plugin holds back the auto-apply-game-default path so a
@@ -339,10 +476,11 @@
                                Text="Auto-remembered per game. Disable for games with native Trueforce (e.g. iRacing) so this plugin yields the wheel."/>
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="64"/>
+                            <ColumnDefinition Width="84"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
@@ -351,8 +489,27 @@
                         <TextBlock Grid.Row="0" Grid.Column="1" x:Name="HeaderGameText"   Text="(none)" FontSize="12" TextTrimming="CharacterEllipsis"/>
                         <TextBlock Grid.Row="1" Grid.Column="0" Text="Car"    FontSize="12" Opacity="0.6" Margin="0,2,0,0"/>
                         <TextBlock Grid.Row="1" Grid.Column="1" x:Name="HeaderCarText"    Text="(none)" FontSize="12" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Preset" FontSize="12" Opacity="0.6" Margin="0,2,0,0"/>
-                        <TextBlock Grid.Row="2" Grid.Column="1" x:Name="HeaderPresetText" Text="(none)" FontSize="12" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Game preset" FontSize="12" Opacity="0.6" Margin="0,3,0,0" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Margin="0,3,0,0">
+                            <ComboBox x:Name="HeaderPresetCombo" SelectionChanged="HeaderPresetCombo_Changed"
+                                      MinWidth="220" MaxWidth="340" VerticalAlignment="Center"
+                                      MaxDropDownHeight="420" IsTextSearchEnabled="True"
+                                      ToolTip="The active game preset. Start typing to jump to a name. Confirms first if you have unsaved tuning."/>
+                            <Button x:Name="HeaderGameSaveAllBtn" Content="★ Save all"
+                                    Style="{StaticResource HeaderSaveAllButton}" Click="HeaderGameSaveAll_Click"
+                                    ToolTip="You have unsaved tuning. Save every changed section at once. Opens a chooser to save to the game default, this car, or both."/>
+                        </StackPanel>
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Car preset" FontSize="12" Opacity="0.6" Margin="0,3,0,0" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Margin="0,3,0,0">
+                            <ComboBox x:Name="HeaderCarPresetCombo" SelectionChanged="HeaderCarPresetCombo_Changed"
+                                      MinWidth="220" MaxWidth="340"
+                                      VerticalAlignment="Center"
+                                      MaxDropDownHeight="420" IsTextSearchEnabled="True"
+                                      ToolTip="The preset for the current car. Pick this car's preset, or another car's to load its tuning onto the current car. Save in the Active car section saves it to this car. Confirms first if you have unsaved tuning."/>
+                            <Button x:Name="HeaderCarSaveAllBtn" Content="★ Save all"
+                                    Style="{StaticResource HeaderSaveAllButton}" Click="HeaderCarSaveAll_Click"
+                                    ToolTip="You have unsaved tuning for this car. Save every changed section at once. Opens a chooser that leads with this car (or the game default, or both)."/>
+                        </StackPanel>
                     </Grid>
 
                     <!-- Status pill: single colored badge that says "is it
@@ -384,6 +541,21 @@
                             <TextBlock Text="⚠" FontSize="14" Foreground="White" VerticalAlignment="Center" Margin="0,0,8,0"/>
                             <TextBlock Foreground="White" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"
                                        Text="Logitech G HUB is running. Close it, then reload the Trueforce plugin from SimHub's Plugins page (G HUB claims the wheel and blocks Trueforce)."/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Admin/elevation warning. SimHub needs to run as
+                         administrator for reliable force feedback: USBPcap's
+                         bus capture (which mirrors the game's FFB) can fail
+                         silently without it, and some games only pass FFB
+                         through when elevated. Shown whenever SimHub isn't
+                         elevated; treated as effectively required. -->
+                    <Border x:Name="AdminWarningBox" Visibility="Collapsed"
+                            Background="#D32F2F" CornerRadius="4" Padding="10,6" Margin="0,8,0,0">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="⚠" FontSize="14" Foreground="White" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock Foreground="White" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"
+                                       Text="SimHub is not running as administrator. This is required for reliable force feedback (the USB capture that mirrors the game's FFB can fail without it). Easiest fix: turn on 'Run as administrator' in SimHub's own Settings, then restart SimHub."/>
                         </StackPanel>
                     </Border>
 
@@ -432,11 +604,12 @@
                     </Border>
 
                     <!-- Unverified-wheel notice. Detected PID is supported by
-                         inference (Xbox G923) but not hardware-tested. Asks
-                         the user to report the one failure mode we can't rule
-                         out: Trueforce effects play but game FFB is silent
+                         inference (shared HID++ family) but not hardware-tested.
+                         Asks the user to report the one failure mode we can't
+                         rule out: Trueforce effects play but game FFB is silent
                          (init/handshake divergence). Blue = informational,
-                         not an error. Hidden for confirmed wheels. -->
+                         not an error. Hidden for confirmed wheels (all supported
+                         PIDs today, so this banner is currently never shown). -->
                     <Border x:Name="UnverifiedWheelBanner" Visibility="Collapsed"
                             Background="#1565C0" CornerRadius="4" Padding="10,8" Margin="0,8,0,0">
                         <StackPanel Orientation="Horizontal">
@@ -482,6 +655,17 @@
                            Text="This game ships native Trueforce. Enable to let the game drive the wheel directly while our effects play on top. Disable only if you prefer to mirror the game's FFB through our capture (rarely needed)."/>
             </StackPanel>
 
+            <!-- Experimental FFB detection, surfaced on the main page so a user
+                 with no force feedback sees it immediately. Synced with the
+                 copy in Advanced > FFB pass-through and the FFBX access code.
+                 Outside FfbPassthroughControls so it stays enabled regardless
+                 of the skip-pass-through state. -->
+            <CheckBox x:Name="ExperimentalFfbMainCheck" Content="Enable experimental FFB detection"
+                      Margin="0,0,0,2" Checked="ExperimentalFfbDetectionMain_Changed" Unchecked="ExperimentalFfbDetectionMain_Changed"
+                      ToolTip="Off by default. Turn this on if a game that should have force feedback is giving you none. It widens how the plugin finds your wheel's force feedback on the USB bus (helps some wheels, such as the RS50 in Forza). After enabling, load the game and drive for a few seconds. Turn it back off if it causes any trouble."/>
+            <TextBlock Style="{StaticResource HelpText}" Margin="22,0,0,12"
+                       Text="Try this if you are not getting force feedback in a game that should have it."/>
+
             <!-- FFB pass-through controls. Greyed when SkipFfbPassthrough is on. -->
             <StackPanel x:Name="FfbPassthroughControls">
                 <Grid Margin="0,0,0,4">
@@ -502,37 +686,59 @@
                                 ToolTip="Low-pass on AC's incoming FFB target. AC sends FFB updates every ~7 ms; smoothing converts the staircase into a ramp. Higher = smoother feel but more lag. Lower = tighter response but possible faint mechanical tick. 0 = pure passthrough (tightest response)."/>
                     <TextBlock Grid.Column="2" x:Name="FfbSmoothText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0.0"/>
                 </Grid>
+                <!-- Invert FFB sign. Default on (correct for the common games
+                     on the wheels we've tested), but NOT universal: RaceRoom
+                     and some wheels report the opposite convention, so this
+                     stays a user toggle. Uncheck if forces feel reversed. -->
                 <Grid Margin="0,0,0,4">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                     <CheckBox Grid.Column="1" x:Name="FfbInvertCheck" Content="Invert FFB sign (uncheck if forces feel reversed)"
-                              VerticalAlignment="Center" Checked="FfbInvert_Changed" Unchecked="FfbInvert_Changed"/>
+                              VerticalAlignment="Center" Checked="FfbInvert_Changed" Unchecked="FfbInvert_Changed"
+                              ToolTip="Flips the direction of the game's force feedback sent to the wheel. On by default. If your wheel pushes the wrong way (e.g. forces feel reversed in RaceRoom), uncheck this."/>
                 </Grid>
+                <!-- Stationary spring: synthesizes a parked-car centering
+                     force the game itself doesn't send (a stationary tire has
+                     ~0 self-aligning torque). Deficit-fill + speed-fade, so it
+                     can't fight the game's FFB. Works in games that report
+                     steering position (Assetto Corsa, Forza Horizon); a no-op
+                     where steering isn't available, and always off for iRacing
+                     (MAIRA already weights it). Forza's steering is coarse so
+                     the consumer smooths it. -->
+                <Grid Margin="0,8,0,4">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <CheckBox Grid.Column="1" x:Name="StationarySpringCheck"
+                              Content="Stationary spring (adds parked-car wheel weight)"
+                              VerticalAlignment="Center"
+                              Checked="StationarySpring_Changed" Unchecked="StationarySpring_Changed"
+                              ToolTip="A parked car sends almost no force feedback, so the wheel feels limp. This adds a centering force that fades out as you start moving and never fights the game's own FFB. Works in games that report steering (Assetto Corsa, Forza Horizon); ignored for iRacing (MAIRA already weights the wheel)."/>
+                </Grid>
+                <Grid Margin="0,0,0,4">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Spring strength:" Style="{StaticResource LabelText}"
+                               ToolTip="How much centering weight to add when fully parked, as a fraction of full FFB. Start low; a strong spring snaps a direct-drive rim to center hard."/>
+                    <Slider     Grid.Column="1" x:Name="StationarySpringStrengthSlider"
+                                Minimum="0" Maximum="2.0" SmallChange="0.05" LargeChange="0.25"
+                                TickFrequency="0.25" ValueChanged="StationarySpringStrengthSlider_ValueChanged" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="2" x:Name="StationarySpringStrengthText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="1.00"/>
+                </Grid>
+                <Grid Margin="0,0,0,4">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Fade-out (km/h):" Style="{StaticResource LabelText}"
+                               ToolTip="The spring is at full strength when stopped and fades to nothing by this speed. Keep it low so it's gone before real cornering forces build."/>
+                    <Slider     Grid.Column="1" x:Name="StationarySpringCutoffSlider"
+                                Minimum="2" Maximum="30" SmallChange="1" LargeChange="5"
+                                TickFrequency="2" ValueChanged="StationarySpringCutoffSlider_ValueChanged" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="2" x:Name="StationarySpringCutoffText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="12"/>
+                </Grid>
+                <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,4"
+                           Text="Works in games that report steering position (Assetto Corsa, Forza Horizon). Silently does nothing where steering isn't available, and is always disabled for iRacing."/>
 
             </StackPanel>
 
-            <!-- Active car -->
-            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Active car" Style="{StaticResource SectionHeaderText}"/></Border>
-            <Grid Margin="0,0,0,4">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="120"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Active preset:" Style="{StaticResource LabelText}" VerticalAlignment="Center"/>
-                <ComboBox  Grid.Column="1" x:Name="CarPresetCombo"
-                           VerticalAlignment="Center"
-                           SelectionChanged="CarPresetCombo_Changed"
-                           ToolTip="Switch which preset is active for this car. Selecting a preset reloads its tuning into the live effects. (built-in) presets ship with the plugin and can't be deleted; saving changes while on one forks a new user preset."/>
-                <Button    Grid.Column="2" x:Name="SaveCarPresetButton" Content="Save…" Width="80" Height="26" Margin="6,0,0,0"
-                           Click="SaveCarPreset_Click"
-                           ToolTip="Save the current per-car tuning. On a built-in default this prompts for a new preset name and forks; on a user preset it updates in place."/>
-                <Button    Grid.Column="3" x:Name="DeleteCarPresetButton" Content="Delete" Width="70" Height="26" Margin="6,0,0,0"
-                           Click="DeleteCarPreset_Click"
-                           ToolTip="Delete the active user preset. Built-in presets can't be deleted."/>
-            </Grid>
-            <TextBlock x:Name="ActiveCarHint" Style="{StaticResource HelpText}" Margin="0,0,0,20" FontSize="12"
-                       Text="Per-car tuning lives in named presets under PluginsData/Common/TrueforceCars. Each car can have multiple presets: built-in defaults shipped with the plugin plus any user-saved or imported ones. Sharing a preset is sharing the file."/>
+            <!-- (The old "Active car" Save/Delete box was removed: per-car
+                 tuning now saves via each effect's ★/Save popover ("For this
+                 car"), and deleting a car preset lives in Manage Presets. The
+                 header car-preset picker still switches the active car preset.) -->
 
             <!-- FFB spike taming: comfort filter for over-the-top curb /
                  collision FFB. Pulled out into its own top-level section
@@ -1330,6 +1536,150 @@
                     </StackPanel>
                 </Expander>
 
+                <!-- Rev limiter (modal RPM-threshold effect). Hard buzz when
+                     RPM reaches the shift point / limiter, held while bouncing
+                     off it. Independent of engine pulse; an unmistakable
+                     "shift now / on the limiter" cue. Works wherever RPM is
+                     reported (the universal SimHub fallback included). -->
+                <Expander x:Name="RevLimiterExpander" IsExpanded="False" Margin="0,0,0,4" Expanded="EffectExpander_Expanded">
+                    <Expander.Header>
+                        <StackPanel Orientation="Horizontal">
+                            <CheckBox x:Name="RevLimiterEnabledCheck" Content="Rev limiter"
+                                      FontWeight="SemiBold" VerticalAlignment="Center"
+                                      Checked="RevLimiterEnabled_Changed" Unchecked="RevLimiterEnabled_Changed"/>
+                            <Border x:Name="RevLimiterNewBadge" Style="{StaticResource NewEffectBadge}">
+                                <TextBlock Text="NEW" Foreground="White" FontSize="10" FontWeight="Bold"/>
+                            </Border>
+                            <TextBlock x:Name="RevLimiterOverrideBadge" Style="{StaticResource OverrideBadge}"/>
+                            <Button Content="Test" Style="{StaticResource EffectTestButton}" Click="RevLimiterTest_Click"/>
+                            <Button x:Name="RevLimiterRevertBtn" Content="↶" Tag="RevLimiter" Style="{StaticResource EffectRevertButton}" Click="EffectRevert_Click"/>
+                            <Button x:Name="RevLimiterSaveBtn"   Content="Save…" Tag="RevLimiter" Style="{StaticResource EffectSaveButton}" Click="EffectSave_Click"/>
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel Margin="0,8,0,0">
+                        <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" TextWrapping="Wrap"
+                                   Text="A hard buzz that engages when RPM reaches the shift point and holds while you sit on (or bounce off) the limiter. A clearer shift cue than the engine-pulse change near redline, for when you run engine pulse low or just want an unmistakable signal. Triggers off RPM, so it works in any game that reports it."/>
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Gain:" Style="{StaticResource LabelText}"/>
+                            <Slider     Grid.Column="1" x:Name="RevLimiterGainSlider" Minimum="0" Maximum="2.0" SmallChange="0.05" LargeChange="0.1"
+                                        TickFrequency="0.25" ValueChanged="RevLimiterGainSlider_ValueChanged" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" x:Name="RevLimiterGainText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0.10"/>
+                        </Grid>
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Engage mode:" Style="{StaticResource LabelText}"
+                                       ToolTip="Auto trusts the game: it fires at the redline when the game reports a real one, otherwise at a percentage of the rev limit. If you get no rev-limiter buzz (some games report a wrong redline), switch to 'Percentage of rev limit' and set the engage % below."/>
+                            <ComboBox  Grid.Column="1" x:Name="RevLimiterEngageModeCombo" SelectionChanged="RevLimiterEngageMode_Changed">
+                                <ComboBoxItem Content="Auto (trust the game)"/><ComboBoxItem Content="Percentage of rev limit"/><ComboBoxItem Content="At reported redline"/>
+                            </ComboBox>
+                        </Grid>
+                        <Grid x:Name="RevLimiterThresholdRow" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Engage at (% rev limit):" Style="{StaticResource LabelText}"
+                                       ToolTip="Fraction of the car's hard rev limit at which the buzz starts. Used for games without a separate redline (e.g. Forza). Games that report a real redline (Assetto Corsa, iRacing) fire right at the redline instead, so this is hidden for them."/>
+                            <Slider     Grid.Column="1" x:Name="RevLimiterThresholdSlider" Minimum="0.50" Maximum="1.00" SmallChange="0.01" LargeChange="0.05"
+                                        TickFrequency="0.05" ValueChanged="RevLimiterThresholdSlider_ValueChanged" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" x:Name="RevLimiterThresholdText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="85%"/>
+                        </Grid>
+                        <TextBlock x:Name="RevLimiterRedlineNote" Style="{StaticResource HelpText}" Visibility="Collapsed" Margin="0,0,0,8"
+                                   Text="This game reports the car's redline, so the buzz fires at the redline. Use the offset below to fire a little before it (early shift cue) or after. (The engage % only applies to games without a redline, like Forza.)"/>
+                        <Grid x:Name="RevLimiterOffsetRow" Margin="0,0,0,8" Visibility="Collapsed">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Redline offset:" Style="{StaticResource LabelText}"
+                                       ToolTip="Shift the engage point relative to the car's redline. Negative fires the buzz before the redline (an early shift cue); positive fires it after. 0 = right at the redline. Only used when firing at a real redline; the percentage path ignores it."/>
+                            <Slider     Grid.Column="1" x:Name="RevLimiterOffsetSlider" Minimum="-3000" Maximum="1000" SmallChange="50" LargeChange="250"
+                                        TickFrequency="250" ValueChanged="RevLimiterOffsetSlider_ValueChanged" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" x:Name="RevLimiterOffsetText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0"/>
+                        </Grid>
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Waveform:" Style="{StaticResource LabelText}"/>
+                            <ComboBox  Grid.Column="1" x:Name="RevLimiterWaveformCombo" SelectionChanged="RevLimiterWaveform_Changed">
+                                <ComboBoxItem Content="Sine"/><ComboBoxItem Content="Square"/><ComboBoxItem Content="Saw"/><ComboBoxItem Content="Triangle"/><ComboBoxItem Content="Noise"/>
+                            </ComboBox>
+                        </Grid>
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Carrier (Hz):" Style="{StaticResource LabelText}"
+                                       ToolTip="Tone within each pulse. Higher reads as a more urgent buzz."/>
+                            <Slider     Grid.Column="1" x:Name="RevLimiterFreqSlider" Minimum="30" Maximum="200" SmallChange="1" LargeChange="5"
+                                        TickFrequency="10" ValueChanged="RevLimiterFreqSlider_ValueChanged" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" x:Name="RevLimiterFreqText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="90"/>
+                        </Grid>
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Pulse rate (Hz):" Style="{StaticResource LabelText}"
+                                       ToolTip="How fast the buzz stutters. Faster feels like an aggressive soft-cut limiter."/>
+                            <Slider     Grid.Column="1" x:Name="RevLimiterPulseFreqSlider" Minimum="5" Maximum="40" SmallChange="0.5" LargeChange="2"
+                                        TickFrequency="5" ValueChanged="RevLimiterPulseFreqSlider_ValueChanged" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" x:Name="RevLimiterPulseFreqText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="20.0"/>
+                        </Grid>
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Pulse duty:" Style="{StaticResource LabelText}"
+                                       ToolTip="Fraction of each pulse during which the carrier is audible. Higher = more sustained; lower = more punctuated."/>
+                            <Slider     Grid.Column="1" x:Name="RevLimiterDutyCycleSlider" Minimum="0.1" Maximum="0.9" SmallChange="0.05" LargeChange="0.1"
+                                        TickFrequency="0.1" ValueChanged="RevLimiterDutyCycleSlider_ValueChanged" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" x:Name="RevLimiterDutyCycleText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0.50"/>
+                        </Grid>
+                        <Grid Margin="0,0,0,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Active amp:" Style="{StaticResource LabelText}"
+                                       ToolTip="Peak amplitude while engaged."/>
+                            <Slider     Grid.Column="1" x:Name="RevLimiterActiveAmpSlider" Minimum="0" Maximum="0.6" SmallChange="0.02" LargeChange="0.05"
+                                        TickFrequency="0.1" ValueChanged="RevLimiterActiveAmpSlider_ValueChanged" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" x:Name="RevLimiterActiveAmpText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0.35"/>
+                        </Grid>
+                    </StackPanel>
+                </Expander>
+
+                <!-- Airborne ducking. A coordinator, not a voice: it produces
+                     no haptic of its own, it pulls down the OTHER effects while
+                     the car is off the ground so jumps / crest pops don't fire
+                     phantom slide, engine, or road feedback. Detection comes
+                     from the enhanced sources (AC wheel load, Forza suspension
+                     droop); the universal SimHub path can't tell, so it's a
+                     no-op there. Global (no per-car override / Save button):
+                     edits persist immediately. -->
+                <Expander x:Name="AirborneExpander" IsExpanded="False" Margin="0,0,0,4" Expanded="EffectExpander_Expanded">
+                    <Expander.Header>
+                        <StackPanel Orientation="Horizontal">
+                            <CheckBox x:Name="AirborneEnabledCheck" Content="Airborne ducking"
+                                      FontWeight="SemiBold" VerticalAlignment="Center"
+                                      Checked="AirborneEnabled_Changed" Unchecked="AirborneEnabled_Changed"/>
+                            <Border x:Name="AirborneNewBadge" Style="{StaticResource NewEffectBadge}">
+                                <TextBlock Text="NEW" Foreground="White" FontSize="10" FontWeight="Bold"/>
+                            </Border>
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel Margin="0,8,0,0">
+                        <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" TextWrapping="Wrap"
+                                   Text="Cuts vibrations while the car is in the air, so a jump feels weightless instead of buzzing as if the tyres were still on the track. Everything comes back the moment you land. Choose how far to turn things down and which effects to cut below (the engine keeps pulsing by default, since it's still revving). Works in Assetto Corsa and Forza, the games that report enough to know the car has left the ground; it does nothing elsewhere."/>
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Reduction:" Style="{StaticResource LabelText}"
+                                       ToolTip="How far to turn the chosen effects down while airborne. 100% = fully silent; lower values just dial them back."/>
+                            <Slider     Grid.Column="1" x:Name="AirborneReductionSlider" Minimum="0" Maximum="1.0" SmallChange="0.05" LargeChange="0.1"
+                                        TickFrequency="0.1" ValueChanged="AirborneReductionSlider_ValueChanged" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" x:Name="AirborneReductionText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="100%"/>
+                        </Grid>
+                        <TextBlock Text="Duck these while airborne:" Style="{StaticResource LabelText}" Margin="0,0,0,6"/>
+                        <WrapPanel Orientation="Horizontal">
+                            <CheckBox x:Name="AirborneDuckEngineCheck"      Content="Engine pulse"   Width="150" Margin="0,0,0,6" Checked="AirborneToggle_Changed" Unchecked="AirborneToggle_Changed"/>
+                            <CheckBox x:Name="AirborneDuckAudioCheck"       Content="Captured audio" Width="150" Margin="0,0,0,6" Checked="AirborneToggle_Changed" Unchecked="AirborneToggle_Changed"/>
+                            <CheckBox x:Name="AirborneDuckRoadBumpsCheck"   Content="Road bumps"     Width="150" Margin="0,0,0,6" Checked="AirborneToggle_Changed" Unchecked="AirborneToggle_Changed"/>
+                            <CheckBox x:Name="AirborneDuckTractionCheck"    Content="Traction loss"  Width="150" Margin="0,0,0,6" Checked="AirborneToggle_Changed" Unchecked="AirborneToggle_Changed"/>
+                            <CheckBox x:Name="AirborneDuckRevLimiterCheck"  Content="Rev limiter"    Width="150" Margin="0,0,0,6" Checked="AirborneToggle_Changed" Unchecked="AirborneToggle_Changed"/>
+                            <CheckBox x:Name="AirborneDuckGearShiftCheck"   Content="Gear shift"     Width="150" Margin="0,0,0,6" Checked="AirborneToggle_Changed" Unchecked="AirborneToggle_Changed"/>
+                            <CheckBox x:Name="AirborneDuckAbsCheck"         Content="ABS"            Width="150" Margin="0,0,0,6" Checked="AirborneToggle_Changed" Unchecked="AirborneToggle_Changed"/>
+                            <CheckBox x:Name="AirborneDuckPitLimiterCheck"  Content="Pit limiter"    Width="150" Margin="0,0,0,6" Checked="AirborneToggle_Changed" Unchecked="AirborneToggle_Changed"/>
+                            <CheckBox x:Name="AirborneDuckDrsCheck"         Content="DRS"            Width="150" Margin="0,0,0,6" Checked="AirborneToggle_Changed" Unchecked="AirborneToggle_Changed"/>
+                            <CheckBox x:Name="AirborneDuckCollisionCheck"   Content="Collision"      Width="150" Margin="0,0,0,6" Checked="AirborneToggle_Changed" Unchecked="AirborneToggle_Changed"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </Expander>
+
             </StackPanel> <!-- /TelemetryEffectsPanel -->
 
             <!-- Rev/shift LEDs (iRacing + MAIRA). MAIRA users lose the wheel's
@@ -1478,11 +1828,13 @@
                 </Expander.Header>
                 <StackPanel Margin="0,8,0,0">
                     <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,4" FontSize="11"
-                               Text="• MS Store / Game Pass build: Windows network isolation blocks UDP loopback by default. Run CheckNetIsolation.exe LoopbackExempt -a -n=&quot;Microsoft.624F8B84B80_8wekyb3d8bbwe&quot; (or use Fiddler's loopback exemption tool), or set Forza's DATA OUT IP ADDRESS to your LAN IP instead of 127.0.0.1."/>
+                               Text="Most setups receive fine on 127.0.0.1. If you're getting zero packets, work through these:"/>
                     <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,4" FontSize="11"
-                               Text="• Steam build: known Playground bug. Forza sends to the gateway IP, not 127.0.0.1. Fix is to set Forza's DATA OUT IP ADDRESS to your machine's LAN IP (e.g. 192.168.x.x) and bind here to 0.0.0.0."/>
+                               Text="• Confirm Forza's DATA OUT is ON, and its IP and PORT match this plugin (IP 127.0.0.1, PORT = the Port field above)."/>
                     <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,4" FontSize="11"
                                Text="• Port collision with SimHub or another tool? Pick a different port here, then update Forza's DATA OUT IP PORT to match."/>
+                    <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,4" FontSize="11"
+                               Text="• Still nothing on 127.0.0.1: set Forza's DATA OUT IP ADDRESS to your PC's LAN IP (e.g. 192.168.x.x) instead, and leave the bind address here at 0.0.0.0. This gets around localhost quirks on some installs."/>
                     <TextBlock Style="{StaticResource HelpText}" FontSize="11"
                                Text="• Firewall: Windows Defender may prompt the first time the listener opens. Allow it on private/domain networks."/>
                 </StackPanel>
@@ -1605,31 +1957,16 @@
                  last effect's 4px bottom margin. -->
             <Border Style="{StaticResource SectionHeaderBorder}" Margin="0,28,0,12"><TextBlock Text="Presets" Style="{StaticResource SectionHeaderText}"/></Border>
             <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
-                Text="A preset is a named snapshot of your master tuning + every per-car override. Live tuning auto-saves to disk, but never changes the named preset on its own (the '★ unsaved' indicator next to the active preset means tuning has drifted from the saved snapshot). Click Save preset to commit, Save as… for a new name."/>
-            <Grid Margin="0,0,0,6">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <ComboBox Grid.Column="0" x:Name="PresetCombo" SelectionChanged="PresetCombo_Changed" VerticalAlignment="Center"
-                          ToolTip="Pick a preset to apply it immediately. Confirms first if you have unsaved tuning."/>
-                <Button   Grid.Column="1" x:Name="SavePresetButton" Content="Save preset"
-                          Style="{StaticResource SaveAllPresetButton}" Click="SavePreset_Click"
-                          ToolTip="Overwrite the active preset with your current tuning. Glows amber when changes are unsaved."/>
-            </Grid>
+                Text="A preset is a named snapshot of your master tuning + every per-car override. Live tuning auto-saves to disk, but never changes the named preset on its own. When tuning drifts from the saved snapshot, a '★ Save all' button appears in the header next to the game preset (and/or the car preset); click it to commit every changed section at once, choosing to save to the game default, this car, or both. Use Save as… below for a new name."/>
             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                 <Button x:Name="ManagePresetsButton" Content="Manage presets…" Height="28" Padding="14,0,14,0" Margin="0,0,8,0" Click="ManagePresetsButton_Click"
-                        ToolTip="Open the full library: rename, duplicate, export, or re-bind defaults for any game preset, car preset, or custom engine. Works even when no game or car is loaded."/>
+                        ToolTip="Open the full library: rename, duplicate, export, delete, or re-bind defaults for any game preset, car preset, or custom engine. Works even when no game or car is loaded."/>
                 <Button x:Name="SetDefaultButton" Content="Set as default for this game" Height="28" Padding="14,0,14,0" Click="SetDefault_Click"
-                        ToolTip="When this game launches, auto-load the selected preset."/>
+                        ToolTip="When this game launches, auto-load the active preset."/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                 <Button x:Name="SaveAsPresetButton" Content="Save as new…" Style="{StaticResource LinkButton}" Margin="0,0,18,0" Click="SaveAsPreset_Click"
                         ToolTip="Save current tuning under a new preset name (doesn't overwrite the active one)."/>
-                <Button x:Name="DeletePresetButton" Content="Delete" Style="{StaticResource LinkButton}" Margin="0,0,18,0" Click="DeletePreset_Click"
-                        ToolTip="Delete the selected preset from the library."/>
-                <Button x:Name="ClearDefaultButton" Content="Clear default" Style="{StaticResource LinkButton}" Click="ClearDefault_Click"
-                        ToolTip="Remove the auto-load binding for this game."/>
             </StackPanel>
             <!-- Backup & sync. Two smart buttons: Export opens the pack
                  picker (preselects the current car, hides built-ins);
@@ -1693,6 +2030,19 @@
             </Button>
             <TextBlock Text="ko-fi.com/mhytee" FontSize="11" Opacity="0.5" Margin="0,0,0,8"/>
 
+            <!-- Spread the word. Always available (unlike the one-and-done
+                 banner up top). Word of mouth is the only thing that gets
+                 this in front of people, so it's a first-class action here,
+                 not buried. Same dialog the banner opens. -->
+            <Border Style="{StaticResource SectionHeaderBorder}" Margin="0,16,0,0"><TextBlock Text="Spread the word" Style="{StaticResource SectionHeaderText}"/></Border>
+            <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
+                Text="The first user-made mod that adds Logitech Trueforce to games that don't support it natively. Almost nobody knows it exists. Sharing it is the single biggest thing you can do to help, and it's free."/>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                <Button x:Name="SharePanelButton" Content="Share TF4ALL…" Width="160" Height="28" Margin="0,0,8,0"
+                        Click="SharePanelButton_Click"
+                        ToolTip="Post on X or Facebook, copy a ready-to-paste post, or open the project page."/>
+            </StackPanel>
+
             <!-- Report-issue + repo link: separate from cylinder reporting; this
                  is for everything else (bugs, feature requests, weird behavior). -->
             <Border Style="{StaticResource SectionHeaderBorder}" Margin="0,16,0,0"><TextBlock Text="Feedback" Style="{StaticResource SectionHeaderText}"/></Border>
@@ -1746,6 +2096,20 @@
                                   Margin="0,0,0,2" Checked="FfbSkipPassthrough_Changed" Unchecked="FfbSkipPassthrough_Changed"/>
                         <TextBlock Style="{StaticResource HelpText}" Margin="22,0,0,12"
                                    Text="Enable for games with native Trueforce support (e.g. AC Rally, iRacing). Plugin effects still play, but the wheel's force comes from the game's own FFB path instead of being mirrored from our capture. Avoids fighting with the game's own writes to the wheel."/>
+
+                        <!-- Experimental FFB detection. Off by default so the
+                             proven capture path is unchanged for everyone; opt
+                             in if a game that should have force feedback gives
+                             none. Widens how the tap recognizes the wheel's FFB
+                             on the bus (HID++ report 0x12 + faster index
+                             resolve; helps e.g. the RS50 in Forza, issue #8).
+                             Synced with the copy on the main page and the FFBX
+                             access code. -->
+                        <CheckBox x:Name="ExperimentalFfbCheck" Content="Enable experimental FFB detection"
+                                  Margin="0,4,0,2" Checked="ExperimentalFfbDetection_Changed" Unchecked="ExperimentalFfbDetection_Changed"
+                                  ToolTip="Off by default. Turn this on if a game that should have force feedback is giving you none. It widens how the plugin finds your wheel's force feedback on the USB bus (helps some wheels, such as the RS50 in Forza). After enabling, load the game and drive for a few seconds. Turn it back off if it causes any trouble."/>
+                        <TextBlock Style="{StaticResource HelpText}" Margin="22,0,0,12"
+                                   Text="Try this if you are not getting force feedback in a game that should have it. Load the game and drive for a few seconds after turning it on. Leave it off if your force feedback already works."/>
                     </StackPanel>
                 </Expander>
 
@@ -1877,6 +2241,8 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Wheel:" Style="{StaticResource LabelText}"/>
                         <TextBlock Grid.Row="0" Grid.Column="1" x:Name="WheelText" Text="(checking...)"/>
@@ -1928,6 +2294,23 @@
                                   Content="Log raw USB FFB packets to usb-trace.pcap (for support)"
                                   Checked="LogUsbBytes_Changed" Unchecked="LogUsbBytes_Changed"
                                   ToolTip="Off by default. When on, captures every USB OUT transfer to your wheel (any endpoint, any transfer type) as a pcap file alongside SimHub's logs. Open in Wireshark with USBPcap. Use only when support asks for it: the file grows several KB/sec during active FFB. Capped at 50 MB; toggle off and on to reset."/>
+
+                        <!-- Self-test: one click that aggregates every health
+                             signal into a pass/fail checklist and fires a
+                             short buzz so the user can confirm the wheel
+                             physically responds. Non-destructive, reads live
+                             state; doesn't reopen a healthy device. -->
+                        <Button Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="2"
+                                x:Name="SelfTestButton"
+                                Content="Run self-test"
+                                HorizontalAlignment="Left" Margin="0,14,0,0"
+                                Padding="10,3" Click="SelfTest_Click"
+                                ToolTip="Checks USBPcap, G HUB, wheel, stream, FFB pass-through and telemetry, then sends a short test buzz so you can confirm the wheel responds."/>
+                        <TextBlock Grid.Row="7" Grid.Column="0" Grid.ColumnSpan="2"
+                                   x:Name="SelfTestResultText"
+                                   Visibility="Collapsed"
+                                   Margin="0,8,0,0" TextWrapping="Wrap"
+                                   FontFamily="Consolas" FontSize="12"/>
                     </Grid>
                 </Expander>
 

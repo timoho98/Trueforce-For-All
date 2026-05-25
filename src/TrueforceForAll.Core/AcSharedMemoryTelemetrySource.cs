@@ -41,6 +41,10 @@ namespace TrueforceForAll.Core
         private const int OFF_GAS             = 4;     // float, 0..1
         private const int OFF_GEAR            = 16;    // int, 0=R 1=N 2..N=fwd
         private const int OFF_RPMS            = 20;    // int
+        // steerAngle: normalized steering input, ~[-1, 1] (0 = centered).
+        // Feeds the stationary-spring FFB floor; AC is the only source that
+        // currently surfaces steering, see TelemetryFrame.SteeringAngle.
+        private const int OFF_STEER_ANGLE     = 24;    // float, normalized
         private const int OFF_SPEED_KMH       = 28;    // float
         private const int OFF_ACC_G_X         = 44;    // float, lateral, g
         private const int OFF_ACC_G_Y         = 48;    // float, vertical, g
@@ -52,6 +56,14 @@ namespace TrueforceForAll.Core
         private const int OFF_WHEEL_SLIP_FR   = 60;
         private const int OFF_WHEEL_SLIP_RL   = 64;
         private const int OFF_WHEEL_SLIP_RR   = 68;
+        // wheelLoad[4], float[4] immediately after wheelSlip. Vertical tyre
+        // load in Newtons; ~0 on every wheel means no tyre is touching the
+        // ground (airborne). A grounded car always carries hundreds-plus N per
+        // wheel, so the airborne threshold is absolute and car-independent.
+        private const int OFF_WHEEL_LOAD_FL   = 72;
+        private const int OFF_WHEEL_LOAD_FR   = 76;
+        private const int OFF_WHEEL_LOAD_RL   = 80;
+        private const int OFF_WHEEL_LOAD_RR   = 84;
         // pitLimiterOn (int) tracks the LIMITER BUTTON state, not pit-lane
         // geometry. Reading this directly bypasses SimHub's mapping, which
         // surfaces "in pit lane" as PitLimiterOn for AC and produces false
@@ -89,6 +101,19 @@ namespace TrueforceForAll.Core
         // instead of AC's actual update rate. -1 sentinel ensures the first
         // observed packet (whatever its id) always emits.
         private int _lastPacketId = -1;
+
+        // Airborne detection (wheelLoad). Some AC builds leave wheelLoad
+        // unpopulated (stuck at 0); if we treated that as "airborne" we'd
+        // suppress slip for the whole session. _seenWheelLoad gates the
+        // detector: it only arms once we've observed a clearly-grounded load,
+        // proving the field is live. Failsafe to current behavior otherwise.
+        // _prevAirborne is for one-shot edge logging.
+        private bool _seenWheelLoad;
+        private bool _prevAirborne;
+        // A grounded wheel carries far more than this; arms the detector.
+        private const float GroundedLoadN = 100.0f;
+        // All four below this = no tyre touching = airborne.
+        private const float AirborneLoadN = 1.0f;
 
         public Action<string> Logger { get; set; }
 
@@ -132,6 +157,10 @@ namespace TrueforceForAll.Core
             // frame if the new AC session's packetId happens to match the
             // last one we observed.
             _lastPacketId = -1;
+            // New session may be a different car / track; re-arm the airborne
+            // detector from scratch.
+            _seenWheelLoad = false;
+            _prevAirborne  = false;
             Interlocked.Exchange(ref _running, 0);
         }
 
@@ -262,6 +291,7 @@ namespace TrueforceForAll.Core
             float gas      = _physicsView.ReadSingle(OFF_GAS);
             int   gear     = _physicsView.ReadInt32 (OFF_GEAR);
             int   rpms     = _physicsView.ReadInt32 (OFF_RPMS);
+            float steer    = _physicsView.ReadSingle(OFF_STEER_ANGLE);
             float speedKmh = _physicsView.ReadSingle(OFF_SPEED_KMH);
             float accGX    = _physicsView.ReadSingle(OFF_ACC_G_X);
             float accGY    = _physicsView.ReadSingle(OFF_ACC_G_Y);
@@ -270,6 +300,10 @@ namespace TrueforceForAll.Core
             float wsFR     = _physicsView.ReadSingle(OFF_WHEEL_SLIP_FR);
             float wsRL     = _physicsView.ReadSingle(OFF_WHEEL_SLIP_RL);
             float wsRR     = _physicsView.ReadSingle(OFF_WHEEL_SLIP_RR);
+            float wlFL     = _physicsView.ReadSingle(OFF_WHEEL_LOAD_FL);
+            float wlFR     = _physicsView.ReadSingle(OFF_WHEEL_LOAD_FR);
+            float wlRL     = _physicsView.ReadSingle(OFF_WHEEL_LOAD_RL);
+            float wlRR     = _physicsView.ReadSingle(OFF_WHEEL_LOAD_RR);
             int   pitLimit = _physicsView.ReadInt32 (OFF_PIT_LIMITER_ON);
             float yawRadS  = _physicsView.ReadSingle(OFF_LOCAL_ANG_VEL_Y);
 
@@ -284,6 +318,25 @@ namespace TrueforceForAll.Core
                 Math.Max(Math.Abs(wsFL), Math.Abs(wsFR)),
                 Math.Max(Math.Abs(wsRL), Math.Abs(wsRR)));
 
+            // Airborne detection. The free-spinning, unloaded tyres of a car
+            // in the air make wheelSlip[] spike, which TractionLossEffect would
+            // read as a hard slide and buzz. When every wheel's vertical load
+            // is ~0 the car is off the ground; we surface that as
+            // TelemetryFrame.Airborne and let AirborneEffect duck the configured
+            // voices. Gated on having seen a real grounded load first, so a
+            // build that leaves wheelLoad at 0 reports airborne=false forever
+            // instead of going permanently "airborne".
+            float maxLoad = Math.Max(
+                Math.Max(Math.Abs(wlFL), Math.Abs(wlFR)),
+                Math.Max(Math.Abs(wlRL), Math.Abs(wlRR)));
+            if (maxLoad > GroundedLoadN) _seenWheelLoad = true;
+            bool airborne = _seenWheelLoad && maxLoad < AirborneLoadN;
+            if (airborne != _prevAirborne)
+            {
+                Log(airborne ? "AC: airborne (wheel loads ~0)." : "AC: grounded.");
+                _prevAirborne = airborne;
+            }
+
             return new TelemetryFrame
             {
                 Rpms       = rpms,
@@ -294,9 +347,11 @@ namespace TrueforceForAll.Core
                 AccelerationHeave = accGY * G,
                 AccelerationSurge = accGZ * G,
                 YawRateDegPerSec  = yawRadS * RadToDeg,
+                SteeringAngle     = steer,
 
                 Gear      = GearString(gear),
                 WheelSlip = maxSlip,
+                Airborne  = airborne,
                 // pitLimiterOn read directly from AC's physics page so the
                 // PitLimiterEffect sees the actual button state instead of
                 // the SimHub overlay's pit-lane-geometry mapping.

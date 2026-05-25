@@ -57,6 +57,12 @@ namespace TrueforceForAll.Core
         private volatile bool _streamRunning;
         private volatile bool _shuttingDown;
         private volatile bool _paused;
+        // Set true by StreamTick when a packet Write throws (wheel unplugged,
+        // G HUB grabbed the HID, USB stall). Distinguishes an involuntary
+        // stream death from a clean StopStream(): both set _shuttingDown, but
+        // only a fault sets this. Cleared by StartStream(). The plugin's
+        // recovery watchdog polls StreamFaulted to know a re-attach is due.
+        private volatile bool _streamFaulted;
         // Set false by StopAcceptingSamples() to release blocked PushFloats /
         // PushInt16 callers ahead of full shutdown, lets the host drain the
         // producer without also halting the stream thread (which still needs
@@ -64,6 +70,15 @@ namespace TrueforceForAll.Core
         private volatile bool _acceptingSamples = true;
 
         private byte _seq;
+
+        // Monotonic count of stream packets actually written to the wheel. The
+        // FFB tap's liveness watchdog reads this as a heartbeat: while we're
+        // streaming (not paused), it advances at ~1 kHz, so if our capture sees
+        // nothing while this is climbing, the capture is broken. Interlocked
+        // because it's read from the tap's watchdog thread (and SimHub is
+        // 32-bit, so a plain long read/write isn't atomic).
+        private long _packetsSent;
+        public long PacketsSent => System.Threading.Interlocked.Read(ref _packetsSent);
 
         // 13-slot rolling window of u16 offset-binary samples (newest at index Window-1).
         private readonly ushort[] _window = new ushort[Window];
@@ -287,6 +302,23 @@ namespace TrueforceForAll.Core
             _lastCurrent = 0x8000;
         }
 
+        /// <summary>True when the stream loop died because a packet write
+        /// threw (wheel unplugged, HID grabbed, USB stall), as opposed to a
+        /// clean StopStream(). The plugin's recovery watchdog polls this to
+        /// trigger a transparent re-attach.</summary>
+        public bool StreamFaulted => _streamFaulted;
+
+        /// <summary>Test hook (FAULT access code): simulate an involuntary
+        /// stream death (unplug / HID grab / USB stall) so the plugin's
+        /// recovery watchdog re-attaches, without physically unplugging.
+        /// Sets the same flags the real write-failure path sets, so the
+        /// StreamLoop tears down and StreamFaulted reports true.</summary>
+        public void DebugForceStreamFault()
+        {
+            _streamFaulted = true;
+            _shuttingDown  = true;
+        }
+
         public void StartStream()
         {
             lock (_streamLock)
@@ -294,6 +326,7 @@ namespace TrueforceForAll.Core
                 if (_streamRunning) return;
                 _streamRunning = true;
                 _shuttingDown = false;
+                _streamFaulted = false;
                 _paused = false;
                 _streamThread = new Thread(StreamLoop)
                 {
@@ -513,7 +546,7 @@ namespace TrueforceForAll.Core
                 Buffer.BlockCopy(InitData.Packets[templateIdx], 0, _packetBuf, 0, PacketLen);
                 _packetBuf[InitData.SeqOffset] = _seq++;
                 try { _stream.Write(_packetBuf); }
-                catch { _shuttingDown = true; return; }
+                catch { _streamFaulted = true; _shuttingDown = true; return; }
                 _paused = (cmd == 0x04);
                 return;
             }
@@ -746,10 +779,14 @@ namespace TrueforceForAll.Core
             try
             {
                 _stream.Write(_packetBuf);
+                System.Threading.Interlocked.Increment(ref _packetsSent);
             }
             catch
             {
-                // On a write failure (device unplugged etc.) tear down the loop.
+                // On a write failure (device unplugged etc.) tear down the
+                // loop and flag it as a fault so the plugin's watchdog can
+                // tell this apart from a clean StopStream() and re-attach.
+                _streamFaulted = true;
                 _shuttingDown = true;
             }
         }

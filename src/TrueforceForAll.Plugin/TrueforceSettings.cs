@@ -91,8 +91,34 @@ namespace TrueforceForAll.Plugin
         // converts AC's 7ms-staircase FFB target into a ramp by IIR low-pass
         // (0 ms = no smoothing).
         public float FfbScale                 { get; set; } = 0.80f;
+        // Sign of the FFB target sent to the motor. Defaults true (inverted),
+        // which is correct on every wheel we've tested in the common games,
+        // but NOT universal: RaceRoom (and possibly other games/wheels) report
+        // the opposite convention, so the user-facing "Invert FFB sign" toggle
+        // stays. Uncheck it when forces feel reversed.
         public bool  FfbInvertSign            { get; set; } = true;
         public float FfbSmoothTimeConstantMs  { get; set; } = 0.0f;
+
+        // Stationary-spring "parking force". The plugin passes the game's own
+        // FFB straight to the motor; a parked car generates ~no self-aligning
+        // torque so the wheel feels limp. This adds a centering force that
+        // (1) fades to zero by CutoffKmh and (2) only fills the deficit up to
+        // a desired magnitude, so it never opposes the game's FFB and
+        // disengages the instant the game provides its own centering. Needs
+        // steering angle, populated only by sources that read it natively
+        // (Assetto Corsa today); a no-op everywhere else. Global, not
+        // per-game: it's a wheel-comfort preference, harmless where it can't
+        // engage. Default off (opt-in comfort feature). Invert flips the
+        // centering direction, the steer->FFB sign is wheel/protocol
+        // dependent; confirmed on hardware that the centering force must be
+        // inverted, so that's now unconditional (no toggle).
+        public bool   StationarySpringEnabled   { get; set; } = false;
+        // 1.0 = full felt scale at full lock when parked (the value the user
+        // tuned to and liked); slider allows up to 2.0 for headroom, though
+        // past ~1/FfbScale the ±full-scale clamp / motor ceiling caps it
+        // (you can't exceed the wheel's max torque).
+        public double StationarySpringStrength  { get; set; } = 1.00;
+        public double StationarySpringCutoffKmh { get; set; } = 12.0;  // spring fully gone at/above this speed
 
         // FFB spike taming: tames AC's over-the-top curb / collision FFB so
         // it lands as a firm shove instead of a wheel-yanking jolt. Two
@@ -139,6 +165,13 @@ namespace TrueforceForAll.Plugin
         // the override to take effect.
         public string ManualUsbPcapInterface     { get; set; } = "";
         public int    ManualUsbPcapDeviceAddress { get; set; } = 0;
+        // Identity (VID/PID) of the device the user pinned. Lets the FFB tap's
+        // self-heal re-locate the SAME device after a USB re-enumeration (new
+        // address) without ever switching to a different device. 0 = unknown
+        // (a pin saved before this existed); in that case the tap leaves the
+        // pin untouched rather than guessing.
+        public int    ManualUsbPcapVid           { get; set; } = 0;
+        public int    ManualUsbPcapPid           { get; set; } = 0;
 
         // Opt-in raw USB packet logging. When true, the FFB tap writes every
         // Set_Report observed on the wheel's USB address to a usb-trace.bin
@@ -147,6 +180,22 @@ namespace TrueforceForAll.Plugin
         // FFB) and because users should make an explicit choice about
         // including USB bus traffic in exported logs.
         public bool   LogUsbBytesEnabled         { get; set; } = false;
+
+        // Opt-in experimental FFB-capture path (toggled by the FFBX access
+        // code). Enables in-progress capture work that isn't yet proven on
+        // hardware across the wheel range: HID++ very-long report 0x12
+        // extraction + 0x11/0x12 resolver summing + a lower index-resolve
+        // floor (issue #8, RS50 on FH6), and any future self-learning capture
+        // heuristics. Off = shipped behaviour, so existing users are untouched
+        // until a tester confirms a given wheel/game. Global, not per-preset:
+        // it's a capture-system behaviour, not a tuning.
+        public bool   ExperimentalFfbCapture     { get; set; } = false;
+
+        // Latches once the user acts on (or dismisses) the one-time banner that
+        // appears when experimental FFB detection was load-bearing in getting
+        // their wheel working, asking them to file a compatibility report. Keeps
+        // the prompt from re-nagging every session.
+        public bool   ExperimentalSuccessReportDismissed { get; set; } = false;
 
         public float FfbPeakSoftLimitLsb      { get; set; } = 2061.90f;
 
@@ -168,6 +217,13 @@ namespace TrueforceForAll.Plugin
         public PitLimiterSettings   PitLimiter   { get; set; } = new PitLimiterSettings();
         public DrsSettings          Drs          { get; set; } = new DrsSettings();
         public CollisionSettings    Collision    { get; set; } = new CollisionSettings();
+        public RevLimiterSettings   RevLimiter   { get; set; } = new RevLimiterSettings();
+
+        // Airborne ducking coordinator. Global, not per-car/per-preset: it's a
+        // wheel-comfort behaviour (suppress phantom output while the car is in
+        // the air), same machine-level rationale as Sidechain ducking's living
+        // outside the per-car override set. See AirborneEffect / AirborneSettings.
+        public AirborneSettings     Airborne     { get; set; } = new AirborneSettings();
 
         // Per-machine performance tuning. Lives outside GameSettingsSnapshot
         // because ring sizes are a property of the machine (CPU, scheduler
@@ -210,6 +266,20 @@ namespace TrueforceForAll.Plugin
         // updates this to the running build.
         public string LastSeenVersion { get; set; }
 
+        // ---- One-and-done "spread the word" prompt (see ShouldShowShareCta) ----
+
+        // Cumulative seconds the plugin was actively driving the wheel with a
+        // game running. Drives the word-of-mouth banner: it only surfaces
+        // after the user has had real, working seat time, so it never fires
+        // mid-troubleshooting. Flushed periodically and on shutdown (not every
+        // frame), so treat it as an approximate odometer, not an exact clock.
+        public double ActiveStreamingSeconds { get; set; } = 0.0;
+
+        // Set true the first time the user dismisses or acts on the
+        // word-of-mouth banner. Permanent: the prompt is one-and-done so it
+        // never nags a user who already saw it.
+        public bool ShareCtaDismissed { get; set; } = false;
+
         // Persisted sort preferences for the Manage Presets modal, one per
         // tab. Key matches a column's binding path (e.g. "Name",
         // "BuiltinLabel"); empty/null = natural order. Hydrated when the
@@ -231,6 +301,19 @@ namespace TrueforceForAll.Plugin
         // preset name in Presets. When a game change is detected, if the
         // game has a default assigned, that preset auto-loads.
         public Dictionary<string, string> GameDefaults { get; set; } = new Dictionary<string, string>();
+
+        // Games we've observed reporting a usable redline (sane CarSettings_-
+        // RedLineRPM). Learned once per game and persisted so the rev-limiter
+        // UI is stable: the engage-% row hides for redline games even before
+        // telemetry flows next session. Positive-only (a game is added when a
+        // sane redline is first seen; never removed). Forza never qualifies
+        // (its redline reads out of range), so it keeps the engage-% control.
+        public HashSet<string> GamesWithRedline { get; set; } = new HashSet<string>();
+
+        // Set true once the GamesWithRedline set has been cleared for re-learning
+        // under the realRedline rule (builds before that split faked a redline
+        // from MaxRpm and over-learned every game). One-time migration in Init.
+        public bool GamesWithRedlineRevalidated { get; set; } = false;
 
         // Per-car active preset assignment. Maps CarId to a preset name in
         // the on-disk car-preset library (TrueforceCars/). When a car is
@@ -327,6 +410,10 @@ namespace TrueforceForAll.Plugin
         public PitLimiterSettings   PitLimiter   { get; set; }
         public DrsSettings          Drs          { get; set; }
         public CollisionSettings    Collision    { get; set; }
+        public RevLimiterSettings   RevLimiter   { get; set; }
+        // Airborne ducking travels with the preset (built-in presets seed it);
+        // null in presets saved before it existed, handled on apply.
+        public AirborneSettings     Airborne     { get; set; }
 
         public Dictionary<string, CarOverride> CarOverrides { get; set; }
     }
@@ -683,6 +770,63 @@ namespace TrueforceForAll.Plugin
         public Waveform Waveform { get; set; } = Waveform.Square;
     }
 
+    public sealed class RevLimiterSettings
+    {
+        // On by default (project owner's call, 2026-05-24): the rev-limiter
+        // buzz is a useful shift cue most drivers want, so it ships enabled
+        // rather than following the usual new-effect-disabled default.
+        public bool  Enabled    { get; set; } = true;
+        public float Gain       { get; set; } = 0.10f;
+        public float Freq       { get; set; } = 90.0f;
+        public float PulseFreq  { get; set; } = 20.0f;
+        public float DutyCycle  { get; set; } = 0.5f;
+        public float ActiveAmp  { get; set; } = 0.35f;
+        public float Threshold  { get; set; } = 0.97f;   // fraction of MaxRpm
+
+        // RPM offset applied on the real-redline path only (ignored on the
+        // percentage path). Negative = fire before the redline, positive =
+        // after, 0 = right at it. Lets redline-reporting games (AC, iRacing)
+        // tune an early/late shift cue without a percentage.
+        public float RedlineOffsetRpm { get; set; } = 0.0f;
+
+        // Engage-point override. Auto = trust the game (fire at redline if it
+        // reports a sane one, else at Threshold% of MaxRpm). Percentage / Redline
+        // are the manual escape hatch when auto-detection misreads and the buzz
+        // stops firing. Defaults to Auto so existing presets are unchanged.
+        [JsonConverter(typeof(StringEnumConverter))]
+        public RevLimiterEngageMode EngageMode { get; set; } = RevLimiterEngageMode.Auto;
+
+        [JsonConverter(typeof(StringEnumConverter))]
+        public Waveform Waveform { get; set; } = Waveform.Square;
+    }
+
+    /// <summary>Settings for the airborne-ducking coordinator (see
+    /// AirborneEffect). Enabled by default: it's a calming behaviour (reduces
+    /// phantom slip / engine / road output while the car is off the ground),
+    /// not a new haptic voice, so shipping it on keeps the wheel feeling
+    /// correct over jumps without the user having to discover it. Reduction is
+    /// how hard to pull the chosen voices down (1 = silence); the per-voice
+    /// flags pick which voices participate.</summary>
+    public sealed class AirborneSettings
+    {
+        public bool  Enabled          { get; set; } = true;
+        public float Reduction        { get; set; } = 1.0f;
+        // Engine pulse defaults to NOT ducked: the engine keeps revving in the
+        // air, so leaving its pulse playing reads as "still driving, just
+        // weightless" rather than the engine cutting out. Reduction is about
+        // killing the road / grip vibrations, not the engine.
+        public bool  DuckEngine        { get; set; } = false;
+        public bool  DuckAudio         { get; set; } = true;
+        public bool  DuckRoadBumps     { get; set; } = true;
+        public bool  DuckTractionLoss  { get; set; } = true;
+        public bool  DuckRevLimiter    { get; set; } = true;
+        public bool  DuckGearShift     { get; set; } = false;
+        public bool  DuckAbs           { get; set; } = false;
+        public bool  DuckPitLimiter    { get; set; } = false;
+        public bool  DuckDrs           { get; set; } = false;
+        public bool  DuckCollision     { get; set; } = false;
+    }
+
     /// <summary>Standalone preset file. Wraps a GameSettingsSnapshot with a
     /// user-chosen name so it can be imported into any user's library and
     /// applied to any game. Format used by "Export preset" and shared between
@@ -781,11 +925,13 @@ namespace TrueforceForAll.Plugin
         public PitLimiterSettings   PitLimiter   { get; set; }
         public DrsSettings          Drs          { get; set; }
         public CollisionSettings    Collision    { get; set; }
+        public RevLimiterSettings   RevLimiter   { get; set; }
         public AudioCaptureSettings AudioCapture { get; set; }
 
         public bool IsEmpty =>
             EnginePulse == null && RoadBumps == null && TractionLoss == null &&
             GearShift   == null && AbsClick  == null && AudioCapture == null &&
-            PitLimiter  == null && Drs       == null && Collision    == null;
+            PitLimiter  == null && Drs       == null && Collision    == null &&
+            RevLimiter  == null;
     }
 }

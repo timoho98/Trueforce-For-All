@@ -33,26 +33,132 @@ namespace TrueforceForAll.Core
             (0xC272, "Logitech G PRO Racing Wheel (Xbox/PC)"),
             (0xC268, "Logitech G PRO Racing Wheel (PS/PC)"),
             (0xC276, "Logitech RS50"),
-            // G923 PS/PC is hardware-confirmed (ACC + FH5 captures, 2026-05-17):
-            // Trueforce ep3 protocol identical to G PRO; non-Trueforce FFB on
-            // ep01 report 0x11/0x08. Xbox/PC PIDs (C26D primary, C26E firmware
-            // variant) share the HID++ family per the Linux lg4ff driver but
-            // are NOT hardware-tested; flagged Unverified below.
+            // G923 is hardware-confirmed on both transports. PS/PC (C266) from
+            // ACC + FH5 captures (2026-05-17): Trueforce ep3 protocol identical
+            // to G PRO, non-Trueforce FFB on ep01 report 0x11/0x08. Xbox/PC
+            // (C26D primary, C26E firmware variant) confirmed working by owners:
+            // its FFB is HID++ feature 0x0b on the ep1 interrupt endpoint.
             (0xC266, "Logitech G923 (PS/PC)"),
             (0xC26D, "Logitech G923 (Xbox/PC)"),
             (0xC26E, "Logitech G923 (Xbox/PC)"),
         };
 
         // PIDs that resolve + stream by inference but aren't hardware-proven.
-        // Logitech's Xbox wheel variants have historically diverged from
-        // their PS siblings in init/handshake (cf. G920 vs G29), so we ship
-        // these but ask the user to report whether FFB pass-through works.
-        private static readonly HashSet<ushort> UnverifiedPids = new HashSet<ushort>
-        {
-            0xC26D, 0xC26E,
-        };
+        // Logitech's Xbox wheel variants have historically diverged from their
+        // PS siblings in init/handshake (cf. G920 vs G29), so when we add a new
+        // wheel on inference alone we list it here and ask the user to report
+        // whether FFB pass-through works. Empty today: every supported PID is
+        // owner-confirmed. The G923 Xbox PIDs (C26D/C26E) were here until users
+        // verified them.
+        private static readonly HashSet<ushort> UnverifiedPids = new HashSet<ushort>();
 
         public static bool IsUnverified(ushort pid) => UnverifiedPids.Contains(pid);
+
+        // True when (vid,pid) is one of our supported Trueforce wheels. Used to
+        // tell a "USBPcap can't see the FFB" problem apart from "the user pinned
+        // a device that isn't even a wheel" so we give the right guidance.
+        public static bool IsSupportedWheel(ushort vid, ushort pid)
+        {
+            if (vid != LogitechVid) return false;
+            foreach (var (p, _) in SupportedPids) if (p == pid) return true;
+            return false;
+        }
+
+        /// <summary>A Logitech HID device present on the bus that looks like a
+        /// racing wheel (by product name) but whose PID isn't one we support.
+        /// The usual cause is the wheel being switched to PlayStation/Xbox
+        /// console mode instead of PC mode, which makes it enumerate under a
+        /// different PID (or not as our Trueforce interface). Surfaced by the
+        /// self-test so "wheel not detected" can suggest the PC-mode switch.</summary>
+        public sealed class UnsupportedWheel
+        {
+            public ushort Pid;
+            public string Name;
+        }
+
+        /// <summary>Enumerate Logitech-VID HID devices whose product name looks
+        /// like a wheel but whose PID isn't supported (likely console mode).
+        /// Best-effort and conservative: matches on wheel-ish name substrings
+        /// so unrelated Logitech gear (mice, keyboards, headsets) isn't
+        /// mistaken for a wheel. Empty list = nothing wheel-like in an
+        /// unsupported mode. Note: a wheel in Xbox/PS mode may instead present
+        /// as an XInput / console controller under a non-Logitech VID, in
+        /// which case it won't appear here at all (the caller still hints to
+        /// check PC mode).</summary>
+        public static List<UnsupportedWheel> FindUnsupportedWheelLike()
+        {
+            var found = new List<UnsupportedWheel>();
+            var supported = new HashSet<ushort>();
+            foreach (var (pid, _) in SupportedPids) supported.Add(pid);
+
+            try
+            {
+                foreach (var dev in DeviceList.Local.GetHidDevices(LogitechVid))
+                {
+                    ushort pid;
+                    try { pid = (ushort)dev.ProductID; }
+                    catch { continue; }
+                    if (supported.Contains(pid)) continue;
+
+                    string name;
+                    try { name = dev.GetProductName() ?? string.Empty; }
+                    catch { name = string.Empty; }
+                    if (!LooksLikeWheel(name)) continue;
+
+                    bool dup = false;
+                    foreach (var f in found) if (f.Pid == pid) { dup = true; break; }
+                    if (dup) continue;
+
+                    found.Add(new UnsupportedWheel
+                    {
+                        Pid  = pid,
+                        Name = string.IsNullOrEmpty(name) ? "(unknown)" : name,
+                    });
+                }
+            }
+            catch { }
+
+            return found;
+        }
+
+        /// <summary>Supported wheels (right VID+PID) that ARE present on the
+        /// bus but whose Trueforce haptic HID interface (MI_02 / vendor output
+        /// endpoint) we couldn't find. The wheel is recognized, yet the
+        /// endpoint we stream to is missing: G HUB may be holding it, a driver
+        /// may not have fully attached, or the device enumerated only
+        /// partially. This is the "wheel there but no HID endpoint" case,
+        /// distinct from console mode (wrong PID) and from a clean
+        /// not-plugged-in. Empty = no such half-enumerated wheel.</summary>
+        public static List<WheelMatch> FindSupportedWithoutTrueforceInterface()
+        {
+            var results = new List<WheelMatch>();
+            var list = DeviceList.Local;
+            foreach (var (pid, model) in SupportedPids)
+            {
+                bool anyDevice = false, anyTrueforce = false;
+                foreach (var dev in list.GetHidDevices(LogitechVid, pid))
+                {
+                    anyDevice = true;
+                    if (IsTrueforceInterface(dev)) { anyTrueforce = true; break; }
+                }
+                if (anyDevice && !anyTrueforce)
+                    results.Add(new WheelMatch
+                    {
+                        Vid = LogitechVid, Pid = pid, Model = model,
+                        Unverified = IsUnverified(pid),
+                    });
+            }
+            return results;
+        }
+
+        private static bool LooksLikeWheel(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            string n = name.ToLowerInvariant();
+            return n.Contains("wheel") || n.Contains("racing") || n.Contains("trueforce")
+                || n.Contains("g923")  || n.Contains("g pro")  || n.Contains("g920")
+                || n.Contains("g29")   || n.Contains("rs50");
+        }
 
         // Trueforce HID descriptor on interface 2: usage page 0xFFFD, usage 0xFD01,
         // 64-byte output reports (1 report ID byte + 63 data).
