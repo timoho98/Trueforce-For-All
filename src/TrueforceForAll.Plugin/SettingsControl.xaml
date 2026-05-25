@@ -247,19 +247,20 @@
              unsaved tuning; each saves every changed section at once to its
              own target (game default vs this car). -->
         <Style x:Key="HeaderSaveAllButton" TargetType="Button">
-            <Setter Property="Height" Value="24"/>
+            <Setter Property="Height" Value="26"/>
             <Setter Property="Margin" Value="8,0,0,0"/>
-            <Setter Property="Padding" Value="10,0"/>
+            <Setter Property="Padding" Value="14,2"/>
             <Setter Property="Visibility" Value="Collapsed"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Foreground" Value="#1A1A1A"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="FontSize" Value="11"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="#C8860B" CornerRadius="8" SnapsToDevicePixels="True">
+                        <Border x:Name="Bd" Background="#C8860B" CornerRadius="8" SnapsToDevicePixels="True"
+                                Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -498,6 +499,21 @@
                             <Button x:Name="HeaderGameSaveAllBtn" Content="★ Save all"
                                     Style="{StaticResource HeaderSaveAllButton}" Click="HeaderGameSaveAll_Click"
                                     ToolTip="You have unsaved tuning. Save every changed section at once. Opens a chooser to save to the game default, this car, or both."/>
+                            <!-- Conditional: only shown when the active preset is
+                                 not already this game's auto-load default (see
+                                 UpdateSetDefaultButton). Replaces the old bottom
+                                 'Set as default for this game' button. -->
+                            <Button x:Name="HeaderSetDefaultBtn" Content="Set as default" Visibility="Collapsed"
+                                    Height="24" Padding="10,0" Margin="8,0,0,0" FontSize="11" VerticalAlignment="Center"
+                                    Click="HeaderSetDefault_Click"
+                                    ToolTip="Auto-load this preset whenever this game launches. Shown only when the active preset isn't already this game's default."/>
+                            <!-- Conditional: shown alongside ★ Save all (i.e.
+                                 when there's unsaved tuning), see
+                                 UpdateGlobalDirtyFromEffects. -->
+                            <Button x:Name="HeaderSaveAsNewBtn" Content="Save as new…" Visibility="Collapsed"
+                                    Style="{StaticResource LinkButton}" Margin="8,0,0,0" VerticalAlignment="Center"
+                                    Click="SaveAsPreset_Click"
+                                    ToolTip="Save current tuning under a new preset name (doesn't overwrite the active one)."/>
                         </StackPanel>
                         <TextBlock Grid.Row="3" Grid.Column="0" Text="Car preset" FontSize="12" Opacity="0.6" Margin="0,3,0,0" VerticalAlignment="Center"/>
                         <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Margin="0,3,0,0">
@@ -509,25 +525,46 @@
                             <Button x:Name="HeaderCarSaveAllBtn" Content="★ Save all"
                                     Style="{StaticResource HeaderSaveAllButton}" Click="HeaderCarSaveAll_Click"
                                     ToolTip="You have unsaved tuning for this car. Save every changed section at once. Opens a chooser that leads with this car (or the game default, or both)."/>
+                            <!-- Conditional: shown alongside the car ★ Save all
+                                 (i.e. when this car has unsaved tuning), see
+                                 UpdateGlobalDirtyFromEffects. -->
+                            <Button x:Name="HeaderCarSaveAsNewBtn" Content="Save as new…" Visibility="Collapsed"
+                                    Style="{StaticResource LinkButton}" Margin="8,0,0,0" VerticalAlignment="Center"
+                                    Click="CarSaveAsNew_Click"
+                                    ToolTip="Save this car's current tuning as a new car preset (doesn't overwrite the active one)."/>
                         </StackPanel>
                     </Grid>
 
-                    <!-- Status pill: single colored badge that says "is it
-                         working?" plus an optional gold "Enhanced N Hz" hype
-                         badge when high-fidelity per-game telemetry is in use. -->
-                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                        <Border x:Name="StatusPill" CornerRadius="10" Padding="10,3" Background="#3D8B40">
-                            <StackPanel Orientation="Horizontal">
-                                <Ellipse x:Name="StatusPillDot" Width="8" Height="8" Fill="#A5D6A7" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                <TextBlock x:Name="StatusPillText" Text="Idle" Foreground="White" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Border>
-                        <Border x:Name="EnhancedBadge" CornerRadius="10" Padding="10,3" Background="#FFB300"
-                                Margin="6,0,0,0" Visibility="Collapsed"
-                                ToolTip="Per-game enhanced telemetry source. Higher rate and more physics signals than the standard SimHub data pipe.">
-                            <TextBlock x:Name="EnhancedBadgeText" Text="✨ Enhanced" Foreground="#1A1A1A" FontSize="12" FontWeight="Bold" VerticalAlignment="Center"/>
-                        </Border>
-                    </StackPanel>
+                    <!-- Status pill row: status badge (+ optional gold "Enhanced
+                         N Hz" hype badge) on the left; Manage presets… shares the
+                         line on the right to save a row of vertical space. -->
+                    <Grid Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Border x:Name="StatusPill" CornerRadius="10" Padding="10,3" Background="#3D8B40">
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse x:Name="StatusPillDot" Width="8" Height="8" Fill="#A5D6A7" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBlock x:Name="StatusPillText" Text="Idle" Foreground="White" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                            <Border x:Name="EnhancedBadge" CornerRadius="10" Padding="10,3" Background="#FFB300"
+                                    Margin="6,0,0,0" Visibility="Collapsed"
+                                    ToolTip="Per-game enhanced telemetry source. Higher rate and more physics signals than the standard SimHub data pipe.">
+                                <TextBlock x:Name="EnhancedBadgeText" Text="✨ Enhanced" Foreground="#1A1A1A" FontSize="12" FontWeight="Bold" VerticalAlignment="Center"/>
+                            </Border>
+                        </StackPanel>
+                        <!-- Full preset library entry point. Shares the status
+                             row to keep all preset handling unified in the card
+                             (pick + save inline above) without spending an extra
+                             line; the old standalone Presets section was removed. -->
+                        <Button x:Name="ManagePresetsButton" Grid.Column="1" Content="Manage presets…"
+                                VerticalAlignment="Center" Height="26" Padding="12,0"
+                                Click="ManagePresetsButton_Click"
+                                ToolTip="Open the full library: rename, duplicate, export, delete, or re-bind defaults for any game preset, car preset, or custom engine. Works even when no game or car is loaded."/>
+                    </Grid>
 
                     <!-- Logitech G HUB warning banner. G HUB claims the wheel's
                          HID interface; while it's running we can't talk to the
@@ -655,17 +692,6 @@
                            Text="This game ships native Trueforce. Enable to let the game drive the wheel directly while our effects play on top. Disable only if you prefer to mirror the game's FFB through our capture (rarely needed)."/>
             </StackPanel>
 
-            <!-- Experimental FFB detection, surfaced on the main page so a user
-                 with no force feedback sees it immediately. Synced with the
-                 copy in Advanced > FFB pass-through and the FFBX access code.
-                 Outside FfbPassthroughControls so it stays enabled regardless
-                 of the skip-pass-through state. -->
-            <CheckBox x:Name="ExperimentalFfbMainCheck" Content="Enable experimental FFB detection"
-                      Margin="0,0,0,2" Checked="ExperimentalFfbDetectionMain_Changed" Unchecked="ExperimentalFfbDetectionMain_Changed"
-                      ToolTip="Off by default. Turn this on if a game that should have force feedback is giving you none. It widens how the plugin finds your wheel's force feedback on the USB bus (helps some wheels, such as the RS50 in Forza). After enabling, load the game and drive for a few seconds. Turn it back off if it causes any trouble."/>
-            <TextBlock Style="{StaticResource HelpText}" Margin="22,0,0,12"
-                       Text="Try this if you are not getting force feedback in a game that should have it."/>
-
             <!-- FFB pass-through controls. Greyed when SkipFfbPassthrough is on. -->
             <StackPanel x:Name="FfbPassthroughControls">
                 <Grid Margin="0,0,0,4">
@@ -699,19 +725,22 @@
                 <!-- Stationary spring: synthesizes a parked-car centering
                      force the game itself doesn't send (a stationary tire has
                      ~0 self-aligning torque). Deficit-fill + speed-fade, so it
-                     can't fight the game's FFB. Works in games that report
-                     steering position (Assetto Corsa, Forza Horizon); a no-op
-                     where steering isn't available, and always off for iRacing
-                     (MAIRA already weights it). Forza's steering is coarse so
-                     the consumer smooths it. -->
+                     can't fight the game's FFB. Uses the game's reported
+                     steering whenever it provides one (AC / Forza), and falls
+                     back to the wheel's physical position (WheelSteeringReader)
+                     for any game that doesn't report steering via telemetry, so
+                     it works in any game; always off for iRacing (MAIRA already
+                     weights it). Forza's steering is coarse so the consumer
+                     smooths it. -->
                 <Grid Margin="0,8,0,4">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                     <CheckBox Grid.Column="1" x:Name="StationarySpringCheck"
                               Content="Stationary spring (adds parked-car wheel weight)"
                               VerticalAlignment="Center"
                               Checked="StationarySpring_Changed" Unchecked="StationarySpring_Changed"
-                              ToolTip="A parked car sends almost no force feedback, so the wheel feels limp. This adds a centering force that fades out as you start moving and never fights the game's own FFB. Works in games that report steering (Assetto Corsa, Forza Horizon); ignored for iRacing (MAIRA already weights the wheel)."/>
+                              ToolTip="A parked car sends almost no force feedback, so the wheel feels limp. This adds a centering weight that fades out as you start moving and never fights the game's own FFB. It works in any game, and is ignored for iRacing (MAIRA already weights the wheel)."/>
                 </Grid>
+                <StackPanel x:Name="StationarySpringSliders">
                 <Grid Margin="0,0,0,4">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0" Text="Spring strength:" Style="{StaticResource LabelText}"
@@ -730,10 +759,22 @@
                                 TickFrequency="2" ValueChanged="StationarySpringCutoffSlider_ValueChanged" VerticalAlignment="Center"/>
                     <TextBlock Grid.Column="2" x:Name="StationarySpringCutoffText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="12"/>
                 </Grid>
-                <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,4"
-                           Text="Works in games that report steering position (Assetto Corsa, Forza Horizon). Silently does nothing where steering isn't available, and is always disabled for iRacing."/>
+                </StackPanel>
 
             </StackPanel>
+
+            <!-- Experimental FFB detection. Surfaced on the main page so a user
+                 with no force feedback can find it, but kept at the bottom of
+                 the Master section so it isn't crammed between the primary
+                 tuning controls. Synced with the copy in Advanced > FFB
+                 pass-through and the FFBX access code. Outside
+                 FfbPassthroughControls so it stays enabled regardless of the
+                 skip-pass-through state. -->
+            <CheckBox x:Name="ExperimentalFfbMainCheck" Content="Enable experimental FFB detection"
+                      Margin="0,8,0,2" Checked="ExperimentalFfbDetectionMain_Changed" Unchecked="ExperimentalFfbDetectionMain_Changed"
+                      ToolTip="Off by default. Turn this on if a game that should have force feedback is giving you none. It widens how the plugin finds your wheel's force feedback on the USB bus (helps some wheels, such as the RS50 in Forza). After enabling, load the game and drive for a few seconds. Turn it back off if it causes any trouble."/>
+            <TextBlock Style="{StaticResource HelpText}" Margin="22,0,0,12"
+                       Text="Try this if you are not getting force feedback in a game that should have it."/>
 
             <!-- (The old "Active car" Save/Delete box was removed: per-car
                  tuning now saves via each effect's ★/Save popover ("For this
@@ -743,8 +784,10 @@
             <!-- FFB spike taming: comfort filter for over-the-top curb /
                  collision FFB. Pulled out into its own top-level section
                  (was nested inside Master's FFB controls) since it's a
-                 distinct safety / comfort feature, not just FFB tuning. -->
-            <Border Style="{StaticResource SectionHeaderBorder}">
+                 distinct safety / comfort feature, not just FFB tuning.
+                 Extra top margin so the header isn't crammed against the
+                 stationary-spring controls in the Master section above. -->
+            <Border Style="{StaticResource SectionHeaderBorder}" Margin="0,16,0,12">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -1651,6 +1694,8 @@
                             <Border x:Name="AirborneNewBadge" Style="{StaticResource NewEffectBadge}">
                                 <TextBlock Text="NEW" Foreground="White" FontSize="10" FontWeight="Bold"/>
                             </Border>
+                            <Button x:Name="AirborneRevertBtn" Content="↶" Tag="Airborne" Style="{StaticResource EffectRevertButton}" Click="EffectRevert_Click"/>
+                            <Button x:Name="AirborneSaveBtn"   Content="Save…" Tag="Airborne" Style="{StaticResource EffectSaveButton}" Click="EffectSave_Click"/>
                         </StackPanel>
                     </Expander.Header>
                     <StackPanel Margin="0,8,0,0">
@@ -1949,30 +1994,20 @@
             <!-- Diagnostics moved into the Advanced Settings modal. See
                  AdvancedSettingsHost near the bottom. -->
 
-            <!-- Presets. The preset library, default-binding, and per-game
-                 defaults. The active preset dropdown + ★ Save preset button
-                 at the very top of the panel handles the day-to-day cases.
-                 Inline top margin: when Forza/F1 sections are hidden (most
-                 users), this header would otherwise sit flush against the
-                 last effect's 4px bottom margin. -->
-            <Border Style="{StaticResource SectionHeaderBorder}" Margin="0,28,0,12"><TextBlock Text="Presets" Style="{StaticResource SectionHeaderText}"/></Border>
-            <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
-                Text="A preset is a named snapshot of your master tuning + every per-car override. Live tuning auto-saves to disk, but never changes the named preset on its own. When tuning drifts from the saved snapshot, a '★ Save all' button appears in the header next to the game preset (and/or the car preset); click it to commit every changed section at once, choosing to save to the game default, this car, or both. Use Save as… below for a new name."/>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                <Button x:Name="ManagePresetsButton" Content="Manage presets…" Height="28" Padding="14,0,14,0" Margin="0,0,8,0" Click="ManagePresetsButton_Click"
-                        ToolTip="Open the full library: rename, duplicate, export, delete, or re-bind defaults for any game preset, car preset, or custom engine. Works even when no game or car is loaded."/>
-                <Button x:Name="SetDefaultButton" Content="Set as default for this game" Height="28" Padding="14,0,14,0" Click="SetDefault_Click"
-                        ToolTip="When this game launches, auto-load the active preset."/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                <Button x:Name="SaveAsPresetButton" Content="Save as new…" Style="{StaticResource LinkButton}" Margin="0,0,18,0" Click="SaveAsPreset_Click"
-                        ToolTip="Save current tuning under a new preset name (doesn't overwrite the active one)."/>
-            </StackPanel>
+            <!-- The standalone "Presets" section was removed: preset handling is
+                 now unified in the context card up top (pick + ★ Save all +
+                 conditional Set-as-default + Save as new inline with the game
+                 preset dropdown; Manage presets… at the bottom of that card). -->
+
             <!-- Backup & sync. Two smart buttons: Export opens the pack
                  picker (preselects the current car, hides built-ins);
                  Import auto-detects the file kind (preset, car preset,
                  pack, or full settings backup). -->
-            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Backup &amp; sync" Style="{StaticResource SectionHeaderText}"/></Border>
+            <!-- Top margin: when the Forza/F1 sections above are hidden (most
+                 users), this is the first section after the effects list and
+                 would otherwise sit flush against the last effect's 4px margin
+                 (this margin formerly lived on the removed Presets header). -->
+            <Border Style="{StaticResource SectionHeaderBorder}" Margin="0,28,0,12"><TextBlock Text="Backup &amp; sync" Style="{StaticResource SectionHeaderText}"/></Border>
             <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8"
                        Text="Share presets and car tunings with other users. Export bundles your picks into a single file; Import auto-detects whatever file you point it at."/>
             <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
@@ -2036,11 +2071,11 @@
                  not buried. Same dialog the banner opens. -->
             <Border Style="{StaticResource SectionHeaderBorder}" Margin="0,16,0,0"><TextBlock Text="Spread the word" Style="{StaticResource SectionHeaderText}"/></Border>
             <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
-                Text="The first user-made mod that adds Logitech Trueforce to games that don't support it natively. Almost nobody knows it exists. Sharing it is the single biggest thing you can do to help, and it's free."/>
+                Text="Almost nobody knows this plugin exists; sharing is the best way to help get the word out."/>
             <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
                 <Button x:Name="SharePanelButton" Content="Share TF4ALL…" Width="160" Height="28" Margin="0,0,8,0"
                         Click="SharePanelButton_Click"
-                        ToolTip="Post on X or Facebook, copy a ready-to-paste post, or open the project page."/>
+                        ToolTip="Post on X, Reddit, or Facebook, or open the Nexus Mods / GitHub page."/>
             </StackPanel>
 
             <!-- Report-issue + repo link: separate from cylinder reporting; this

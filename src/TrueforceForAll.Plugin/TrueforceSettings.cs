@@ -106,18 +106,22 @@ namespace TrueforceForAll.Plugin
         // a desired magnitude, so it never opposes the game's FFB and
         // disengages the instant the game provides its own centering. Needs
         // steering angle, populated only by sources that read it natively
-        // (Assetto Corsa today); a no-op everywhere else. Global, not
-        // per-game: it's a wheel-comfort preference, harmless where it can't
-        // engage. Default off (opt-in comfort feature). Invert flips the
-        // centering direction, the steer->FFB sign is wheel/protocol
-        // dependent; confirmed on hardware that the centering force must be
-        // inverted, so that's now unconditional (no toggle).
-        public bool   StationarySpringEnabled   { get; set; } = false;
-        // 1.0 = full felt scale at full lock when parked (the value the user
-        // tuned to and liked); slider allows up to 2.0 for headroom, though
-        // past ~1/FfbScale the ±full-scale clamp / motor ceiling caps it
-        // (you can't exceed the wheel's max torque).
-        public double StationarySpringStrength  { get; set; } = 1.00;
+        // (Assetto Corsa and the Forza Horizon games); a no-op everywhere
+        // else. Global, not per-game: it's a wheel-comfort preference,
+        // harmless where it can't engage. Default ON (2026-05-24): since it
+        // only engages where steering is reported (AC + Forza) and is hard-
+        // gated off for iRacing, default-on effectively means "on for AC and
+        // Forza" and a no-op for everything else. Invert flips the centering
+        // direction, the steer->FFB sign is wheel/protocol dependent;
+        // confirmed on hardware that the centering force must be inverted, so
+        // that's now unconditional (no toggle).
+        public bool   StationarySpringEnabled   { get; set; } = true;
+        // 1.0 = full felt scale at full lock when parked; slider allows up to
+        // 2.0 for headroom, though past ~1/FfbScale the ±full-scale clamp /
+        // motor ceiling caps it (you can't exceed the wheel's max torque).
+        // Default 0.5 (owner's preferred general feel once the spring is driven
+        // by the wheel's physical steering position).
+        public double StationarySpringStrength  { get; set; } = 0.5;
         public double StationarySpringCutoffKmh { get; set; } = 12.0;  // spring fully gone at/above this speed
 
         // FFB spike taming: tames AC's over-the-top curb / collision FFB so

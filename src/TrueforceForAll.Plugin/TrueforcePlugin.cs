@@ -76,6 +76,11 @@ namespace TrueforceForAll.Plugin
         private AudioCaptureSource _audio;
         private HelperHost _helperHost;
         private UsbPcapFfbTap _ffbTap;
+        // Reads the wheel's physical steering off its HID controller interface,
+        // so the stationary spring has a position to work with even when the
+        // game reports none (Forza pause / pre-race countdown). See
+        // WheelSteeringReader and ApplyStationarySpring.
+        private WheelSteeringReader _steeringReader;
         private MairaIpcSource _mairaIpc;
 
         // Snapshot of the HID-side wheel match (Vid/Pid/Model) we found in Init.
@@ -848,15 +853,42 @@ namespace TrueforceForAll.Plugin
             if (string.Equals(_activeGame, "IRacing", StringComparison.Ordinal))
                 return gameTarget;
 
-            long age = Stopwatch.GetTimestamp()
-                     - System.Threading.Interlocked.Read(ref _lastSteerTicks);
-            if (age > SteerMaxAgeTicks) return gameTarget;   // steering stale / source doesn't report it
+            // Steering source. While the game is reporting steering, use ITS
+            // value: it shares the game's own FFB reference frame, so the spring
+            // and the game's forces agree and the feel stays smooth (AC reports
+            // a high-rate steering angle whenever the sim is running, stationary
+            // or moving, engine on or off). Switch to the wheel's PHYSICAL
+            // position ONLY when the game has genuinely stopped reporting it:
+            //   - game steering stale (sim paused / telemetry stopped), or
+            //   - an authoritative-session source says we're paused even though
+            //     frames keep coming (Forza zeros steering through the pre-race
+            //     countdown / pause).
+            // In those states there's no live game FFB to fight, so the physical
+            // wheel position is safe. Using physical WHILE driving made it fight
+            // the game's own FFB near center (different reference frames) -> jerky.
+            long now = Stopwatch.GetTimestamp();
+            long gameAge = now - System.Threading.Interlocked.Read(ref _lastSteerTicks);
+            var src2 = _telemetrySource;
+            bool authoritativePaused = (src2?.HasAuthoritativeSessionState ?? false)
+                                       && !(src2?.IsSessionActive ?? true);
+            bool gameStale = gameAge > SteerMaxAgeTicks;
+            var sr = _steeringReader;
+            bool physFresh = sr != null && sr.LastUpdateTicks != 0
+                             && (now - sr.LastUpdateTicks) <= SteerMaxAgeTicks;
+            float steerRaw;
+            if (!gameStale && !authoritativePaused)
+                steerRaw = _lastSteerNorm;          // game is tracking the wheel: use it (smooth)
+            else if (physFresh)
+                steerRaw = sr.SteerNorm;            // paused / countdown: physical position
+            else if (!gameStale)
+                steerRaw = _lastSteerNorm;          // no physical reader; fall back to game value
+            else
+                return gameTarget;                  // no steering at all
 
             float cutoff = (float)s.StationarySpringCutoffKmh;
             float speed  = _lastSpeedKmh;
             if (cutoff <= 0f || speed >= cutoff) return gameTarget;
 
-            float steerRaw = _lastSteerNorm;
             if (steerRaw >  1f) steerRaw =  1f;
             else if (steerRaw < -1f) steerRaw = -1f;
 
@@ -905,9 +937,10 @@ namespace TrueforceForAll.Plugin
             float dir = (steer > 0f) ? 1f : -1f;
 
             int g = gameTarget.Value;
-            // Only the game force already pushing the SAME way as our
-            // centering counts toward the floor. Top it up to desiredMag,
-            // never beyond, never against.
+            // Deficit-fill: only the game force already pushing the SAME way as
+            // our centering counts toward the floor. Top it up to desiredMag,
+            // never beyond, never against, so the spring can't fight the game's
+            // own FFB and self-disengages once the game centers.
             float have = (Math.Sign((float)g) == Math.Sign(dir)) ? Math.Abs((float)g) : 0f;
             float add  = desiredMag - have;
             if (add <= 0f) return gameTarget;                // game already centers enough
@@ -1306,6 +1339,22 @@ namespace TrueforceForAll.Plugin
                 _ffbTap.SetOverrideIdentity((ushort)(Settings?.ManualUsbPcapVid ?? 0), (ushort)(Settings?.ManualUsbPcapPid ?? 0));
                 WireFfbTapCallbacks(_ffbTap);
                 ApplyUsbBytesLoggingSetting();
+
+                // Physical steering reader for the stationary spring (works when
+                // the game reports no steering, e.g. a Forza countdown / pause).
+                try
+                {
+                    _steeringReader = new WheelSteeringReader(match.Vid, match.Pid)
+                    {
+                        Logger = msg => SimHub.Logging.Current.Info($"[Trueforce] {msg}"),
+                    };
+                    _steeringReader.Start();
+                }
+                catch (Exception ex)
+                {
+                    SimHub.Logging.Current.Warn($"[Trueforce] Steering reader failed to start: {ex.Message}");
+                    _steeringReader = null;
+                }
                 _device.FfbTargetProvider = () =>
                 {
                     // Prefer MAIRA shared-memory FFB when it's live (its toggle
@@ -1337,7 +1386,22 @@ namespace TrueforceForAll.Plugin
                     var src = _telemetrySource;
                     if (src != null && !src.IsSessionActive
                         && (src.HasAuthoritativeSessionState || src.MeasuredHz <= 0))
-                        return ApplyStationarySpringIfActive((short?)0);
+                    {
+                        // Paused / menu / pre-race countdown. Don't force the
+                        // wheel to zero: games like Forza keep sending a gentle
+                        // centering FFB in menus and through the 3-2-1, and
+                        // zeroing it leaves the wheel dead. Pass the game's FFB
+                        // through, but with a SHORT freshness window: the tap
+                        // only re-timestamps on a freshly captured report, so a
+                        // force frozen by a real mid-race pause (game stops
+                        // sending) goes stale within this window and the wheel
+                        // releases (the #13 anti-yank), while live menu/countdown
+                        // centering stays fresh and passes. The stationary spring
+                        // still layers on top.
+                        const int PausedFfbMaxAgeMs = 300;
+                        short? freshPaused = _ffbTap?.TryGetFreshFfbTarget(PausedFfbMaxAgeMs);
+                        return ApplyStationarySpringIfActive(freshPaused ?? (short?)0);
+                    }
 
                     // SkipFfbPassthrough: return Some(0) so the device sends
                     // active packets (audio plays) with cur = 0x8000. The
@@ -4119,26 +4183,37 @@ namespace TrueforceForAll.Plugin
             if (Settings?.CarOverrides == null || string.IsNullOrEmpty(_activeCarId)) return false;
             Settings.CarOverrides.TryGetValue(_activeCarId, out var live);
             _lastPersistedCarOverrides.TryGetValue(_activeCarId, out var saved);
-            return !CarOverrideEquals(live, saved);
-        }
 
-        // Deep equality on a CarOverride. Both null = equal; one null +
-        // other empty = equal (an empty override is the same as no override
-        // for save / dirty purposes); otherwise per-section pairwise via
-        // the existing Eq helpers, treating null sub-sections as equal only
-        // when both sides are null.
-        private static bool CarOverrideEquals(CarOverride a, CarOverride b)
-        {
-            bool aEmpty = a == null || a.IsEmpty;
-            bool bEmpty = b == null || b.IsEmpty;
-            if (aEmpty && bEmpty) return true;
-            if (aEmpty || bEmpty) return false;
-            return Eq(a.EnginePulse,  b.EnginePulse)
-                && Eq(a.RoadBumps,    b.RoadBumps)
-                && Eq(a.TractionLoss, b.TractionLoss)
-                && Eq(a.GearShift,    b.GearShift)
-                && Eq(a.AbsClick,     b.AbsClick)
-                && Eq(a.AudioCapture, b.AudioCapture);
+            bool liveEmpty  = live  == null || live.IsEmpty;
+            bool savedEmpty = saved == null || saved.IsEmpty;
+            if (liveEmpty && savedEmpty) return false;   // nothing on either side
+
+            // Compare EFFECTIVE per-section values: a section absent from an
+            // override means "follow the game default", so effective = the
+            // override's section if present, else the active preset's section
+            // (snap). This mirrors EffectEquals and is what lets a change-then-
+            // revert clear the dirty state: a draft override whose values equal
+            // the game default reads clean against a car with no saved override,
+            // instead of sticking dirty forever just because EnsureSectionDraft
+            // materialized an override. (The old CarOverrideEquals compared
+            // live-vs-saved directly, so a default-valued draft stayed dirty,
+            // and it ignored PitLimiter/Drs/Collision/RevLimiter entirely.)
+            GameSettingsSnapshot snap = null;
+            if (!string.IsNullOrEmpty(_activePresetName) && Settings.Presets != null)
+                Settings.Presets.TryGetValue(_activePresetName, out snap);
+
+            if (!Eq(live?.EnginePulse  ?? snap?.EnginePulse,  saved?.EnginePulse  ?? snap?.EnginePulse))  return true;
+            if (!Eq(live?.RoadBumps    ?? snap?.RoadBumps,    saved?.RoadBumps    ?? snap?.RoadBumps))    return true;
+            if (!Eq(live?.TractionLoss ?? snap?.TractionLoss, saved?.TractionLoss ?? snap?.TractionLoss)) return true;
+            if (!Eq(live?.GearShift    ?? snap?.GearShift,    saved?.GearShift    ?? snap?.GearShift))    return true;
+            if (!Eq(live?.AbsClick     ?? snap?.AbsClick,     saved?.AbsClick     ?? snap?.AbsClick))     return true;
+            if (!Eq(live?.PitLimiter   ?? snap?.PitLimiter,   saved?.PitLimiter   ?? snap?.PitLimiter))   return true;
+            if (!Eq(live?.Drs          ?? snap?.Drs,          saved?.Drs          ?? snap?.Drs))          return true;
+            if (!Eq(live?.Collision    ?? snap?.Collision,    saved?.Collision    ?? snap?.Collision))    return true;
+            if (!Eq(live?.AudioCapture ?? snap?.AudioCapture, saved?.AudioCapture ?? snap?.AudioCapture)) return true;
+            if (!Eq(live?.RevLimiter   ?? snap?.RevLimiter ?? new RevLimiterSettings(),
+                    saved?.RevLimiter  ?? snap?.RevLimiter ?? new RevLimiterSettings())) return true;
+            return false;
         }
 
         /// <summary>Snapshot a section's current values into the per-car
@@ -4389,6 +4464,7 @@ namespace TrueforceForAll.Plugin
                 {
                     case SectionKind.Master:         return !MasterEquals(snap);
                     case SectionKind.Ducking:        return !DuckingEquals(snap);
+                    case SectionKind.Airborne:       return !AirborneEquals(snap);
                     case SectionKind.SpikeReduction: return !SpikeReductionEquals(snap);
                     case SectionKind.Audio:    return !EffectEquals(snap, EffectField.Audio);
                     case SectionKind.Engine:   return !EffectEquals(snap, EffectField.Engine);
@@ -4447,6 +4523,7 @@ namespace TrueforceForAll.Plugin
             // a game preset they have no anchor.
             if (kind == SectionKind.Master
                 || kind == SectionKind.Ducking
+                || kind == SectionKind.Airborne
                 || kind == SectionKind.SpikeReduction) return false;
             if (string.IsNullOrEmpty(_activeCarId) || Settings.CarOverrides == null) return false;
             if (!Settings.CarOverrides.TryGetValue(_activeCarId, out var liveCo) || liveCo == null) return false;
@@ -4490,6 +4567,28 @@ namespace TrueforceForAll.Plugin
                 && EqI (Settings.DuckReleaseMs, snap.DuckReleaseMs);
         }
 
+        // Airborne ducking is a global (non-per-car) section. A preset saved
+        // before this effect existed has no Airborne block (snap.Airborne ==
+        // null); treat that as "no opinion" and compare against the shipped
+        // default so the section reads clean until the user actually changes it.
+        private bool AirborneEquals(GameSettingsSnapshot snap)
+        {
+            var a = Settings.Airborne ?? new AirborneSettings();
+            var b = snap.Airborne     ?? new AirborneSettings();
+            return a.Enabled          == b.Enabled
+                && EqF2(a.Reduction, b.Reduction)
+                && a.DuckEngine       == b.DuckEngine
+                && a.DuckAudio        == b.DuckAudio
+                && a.DuckRoadBumps    == b.DuckRoadBumps
+                && a.DuckTractionLoss == b.DuckTractionLoss
+                && a.DuckRevLimiter   == b.DuckRevLimiter
+                && a.DuckGearShift    == b.DuckGearShift
+                && a.DuckAbs          == b.DuckAbs
+                && a.DuckPitLimiter   == b.DuckPitLimiter
+                && a.DuckDrs          == b.DuckDrs
+                && a.DuckCollision    == b.DuckCollision;
+        }
+
         // Tolerances match the UI's display precision so that two values
         // displayed as the same string (e.g. "0.07", "60", "0.0") count as
         // equal, which is what users expect when they drag a slider away
@@ -4526,35 +4625,41 @@ namespace TrueforceForAll.Plugin
             }
             switch (f)
             {
+                // For a car-overridden section the saved baseline is the saved
+                // override if one exists, ELSE the game default (snap): a car
+                // with no saved override "follows the game default", so a draft
+                // override whose values match the default must read clean. (This
+                // is what lets toggling an effect off then back on clear the
+                // dirty state when the car had no prior override.)
                 case EffectField.Audio:
-                    if (liveCo?.AudioCapture != null) return Eq(liveCo.AudioCapture, savedCo?.AudioCapture);
+                    if (liveCo?.AudioCapture != null) return Eq(liveCo.AudioCapture, savedCo?.AudioCapture ?? snap.AudioCapture);
                     return Eq(Settings.AudioCapture, snap.AudioCapture);
                 case EffectField.Engine:
-                    if (liveCo?.EnginePulse  != null) return Eq(liveCo.EnginePulse,  savedCo?.EnginePulse);
+                    if (liveCo?.EnginePulse  != null) return Eq(liveCo.EnginePulse,  savedCo?.EnginePulse  ?? snap.EnginePulse);
                     return Eq(Settings.EnginePulse,  snap.EnginePulse);
                 case EffectField.Bumps:
-                    if (liveCo?.RoadBumps    != null) return Eq(liveCo.RoadBumps,    savedCo?.RoadBumps);
+                    if (liveCo?.RoadBumps    != null) return Eq(liveCo.RoadBumps,    savedCo?.RoadBumps    ?? snap.RoadBumps);
                     return Eq(Settings.RoadBumps,    snap.RoadBumps);
                 case EffectField.Traction:
-                    if (liveCo?.TractionLoss != null) return Eq(liveCo.TractionLoss, savedCo?.TractionLoss);
+                    if (liveCo?.TractionLoss != null) return Eq(liveCo.TractionLoss, savedCo?.TractionLoss ?? snap.TractionLoss);
                     return Eq(Settings.TractionLoss, snap.TractionLoss);
                 case EffectField.Shift:
-                    if (liveCo?.GearShift    != null) return Eq(liveCo.GearShift,    savedCo?.GearShift);
+                    if (liveCo?.GearShift    != null) return Eq(liveCo.GearShift,    savedCo?.GearShift    ?? snap.GearShift);
                     return Eq(Settings.GearShift,    snap.GearShift);
                 case EffectField.Abs:
-                    if (liveCo?.AbsClick     != null) return Eq(liveCo.AbsClick,     savedCo?.AbsClick);
+                    if (liveCo?.AbsClick     != null) return Eq(liveCo.AbsClick,     savedCo?.AbsClick     ?? snap.AbsClick);
                     return Eq(Settings.AbsClick,     snap.AbsClick);
                 case EffectField.PitLimiter:
-                    if (liveCo?.PitLimiter   != null) return Eq(liveCo.PitLimiter,   savedCo?.PitLimiter);
+                    if (liveCo?.PitLimiter   != null) return Eq(liveCo.PitLimiter,   savedCo?.PitLimiter   ?? snap.PitLimiter);
                     return Eq(Settings.PitLimiter,   snap.PitLimiter);
                 case EffectField.Drs:
-                    if (liveCo?.Drs          != null) return Eq(liveCo.Drs,          savedCo?.Drs);
+                    if (liveCo?.Drs          != null) return Eq(liveCo.Drs,          savedCo?.Drs          ?? snap.Drs);
                     return Eq(Settings.Drs,          snap.Drs);
                 case EffectField.Collision:
-                    if (liveCo?.Collision    != null) return Eq(liveCo.Collision,    savedCo?.Collision);
+                    if (liveCo?.Collision    != null) return Eq(liveCo.Collision,    savedCo?.Collision    ?? snap.Collision);
                     return Eq(Settings.Collision,    snap.Collision);
                 case EffectField.RevLimiter:
-                    if (liveCo?.RevLimiter   != null) return Eq(liveCo.RevLimiter,   savedCo?.RevLimiter);
+                    if (liveCo?.RevLimiter   != null) return Eq(liveCo.RevLimiter,   savedCo?.RevLimiter   ?? snap.RevLimiter ?? new RevLimiterSettings());
                     // A preset saved before this effect existed has no
                     // RevLimiter section (snap.RevLimiter == null). Treat that
                     // as "no opinion" and compare against the shipped default,
@@ -4696,7 +4801,7 @@ namespace TrueforceForAll.Plugin
         /// Mirrors the per-section "Save…" / "Revert" buttons in the UI:
         /// Master and Ducking are global-only; the rest have a per-car
         /// override component that revert respects.</summary>
-        public enum SectionKind { Master, Ducking, Audio, Engine, Bumps, Traction, Shift, Abs, SpikeReduction, PitLimiter, Drs, Collision, RevLimiter }
+        public enum SectionKind { Master, Ducking, Audio, Engine, Bumps, Traction, Shift, Abs, SpikeReduction, PitLimiter, Drs, Collision, RevLimiter, Airborne }
 
         /// <summary>Revert one section to the active preset's saved snapshot.
         /// Scope-aware: if the snapshot has a per-car override for the
@@ -4743,6 +4848,13 @@ namespace TrueforceForAll.Plugin
                     Settings.DuckDepth     = snap.DuckDepth;
                     Settings.DuckAttackMs  = snap.DuckAttackMs;
                     Settings.DuckReleaseMs = snap.DuckReleaseMs;
+                    return true;
+
+                case SectionKind.Airborne:
+                    // Global section. Restore from the preset's saved block, or
+                    // the shipped default when the preset predates the effect.
+                    Settings.Airborne = Clone(snap.Airborne ?? new AirborneSettings());
+                    ApplyAirborneSettings();
                     return true;
 
                 case SectionKind.Engine:
@@ -4994,6 +5106,9 @@ namespace TrueforceForAll.Plugin
                     snap.DuckDepth     = Settings.DuckDepth;
                     snap.DuckAttackMs  = Settings.DuckAttackMs;
                     snap.DuckReleaseMs = Settings.DuckReleaseMs;
+                    break;
+                case SectionKind.Airborne:
+                    snap.Airborne = Clone(Settings.Airborne);
                     break;
                 case SectionKind.Engine:     snap.EnginePulse  = Clone(Settings.EnginePulse);     break;
                 case SectionKind.Bumps:      snap.RoadBumps    = Clone(Settings.RoadBumps);       break;
@@ -6510,6 +6625,8 @@ namespace TrueforceForAll.Plugin
             _mairaIpc = null;
             try { _ffbTap?.Dispose(); } catch { }
             _ffbTap = null;
+            try { _steeringReader?.Dispose(); } catch { }
+            _steeringReader = null;
             try { _device?.Dispose(); } catch { }
             _device = null;
         }
@@ -6680,6 +6797,8 @@ namespace TrueforceForAll.Plugin
         {
             try { _ffbTap?.Dispose(); } catch { }
             _ffbTap = null;
+            try { _steeringReader?.Dispose(); } catch { }
+            _steeringReader = null;
         }
 
         // Dispose the current FFB tap and spawn a fresh one. Used after the
@@ -6693,6 +6812,8 @@ namespace TrueforceForAll.Plugin
 
             try { _ffbTap?.Dispose(); } catch { }
             _ffbTap = null;
+            try { _steeringReader?.Dispose(); } catch { }
+            _steeringReader = null;
 
             var (ifaceOverride, devOverride) = ResolveUsbPcapOverride();
             _ffbTap = new UsbPcapFfbTap(ifaceOverride, devOverride, Settings?.UsbPcapCmdPathOverride)

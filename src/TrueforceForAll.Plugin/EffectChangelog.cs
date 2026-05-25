@@ -92,7 +92,7 @@ namespace TrueforceForAll.Plugin
                     new ChangelogEntry {
                         Group = "New features",
                         Headline = "Stationary spring (parked-car centering)",
-                        Description = "A gentle centering force so a stopped or crawling car has weight instead of going limp, fading out with speed and never fighting the game's own force feedback. Best in Assetto Corsa, also works in Forza Horizon; a universal version is planned. Off by default, ignored in iRacing.",
+                        Description = "A gentle centering force so a stopped or crawling car has weight instead of going limp, fading out with speed and never fighting the game's own force feedback. On by default and works in any game (it reads the game's steering where available and the wheel's own position otherwise); ignored for iRacing, where MAIRA already weights the wheel.",
                     },
                     new ChangelogEntry {
                         Group = "New features",
@@ -112,7 +112,7 @@ namespace TrueforceForAll.Plugin
                     new ChangelogEntry {
                         Group = "Improvements",
                         Headline = "Reworked preset layout",
-                        Description = "Two pickers now sit at the top of the panel, one for the game preset and one for the current car's, so switching is one click and it's clear which layer you're changing. Saving, defaults, and the full library live in the Presets section below.",
+                        Description = "The game preset and current-car preset pickers sit together at the top of the panel, so switching is one click and it's clear which layer you're changing. Set as default, Save as new, and Save all appear right next to the relevant picker only when they apply, and the full library lives behind Manage presets in the same card. The old separate Presets section is gone.",
                     },
                     new ChangelogEntry {
                         Group = "Improvements",

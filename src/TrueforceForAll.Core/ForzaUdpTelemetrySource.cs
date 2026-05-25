@@ -423,7 +423,12 @@ namespace TrueforceForAll.Core
                     SpeedKmh   = 0,
                     Gear       = "N",
                     NumCylinders = numCyl > 0 ? numCyl : (int?)null,
-                    // Surface signals zeroed; effects silence.
+                    // Surface / grip signals zeroed; effects silence. Steering is
+                    // intentionally NOT reported here: when IsRaceOn=0 Forza zeros
+                    // the steering value anyway, and the stationary spring detects
+                    // this paused state (authoritative IsRaceOn) and switches to
+                    // the wheel's physical position instead, so leaving it null is
+                    // correct and avoids feeding the spring a misleading 0.
                 };
             }
 

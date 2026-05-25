@@ -3,7 +3,8 @@
 // engines (Settings.CustomEngines). Reachable without a game or car loaded
 // so users can prune / rename / export / re-bind their library at any
 // time. The host SettingsControl opens this and refreshes its own
-// dropdowns once it closes, see the Manage… button in the Presets section.
+// dropdowns once it closes, see the Manage presets… button in the header
+// context card.
 //
 // Phase 1 scope (this file): metadata actions only, rename, duplicate,
 // delete, export, and game-default binding. Editing a preset's effect

@@ -53,32 +53,32 @@ namespace TrueforceForAll.Plugin
         private const string Fh6_Car_2267 = @"{
   ""Type"": ""trueforce-car-preset"", ""Version"": 2, ""GameName"": ""FH6"",
   ""CarId"": ""Car_2267"", ""PresetName"": ""Car_2267 (default)"", ""IsBuiltin"": true,
-  ""Override"": { ""RevLimiter"": { ""Enabled"": true, ""Gain"": 0.07189044, ""Freq"": 53.79011, ""PulseFreq"": 18.1786652, ""DutyCycle"": 0.5, ""ActiveAmp"": 0.35, ""Threshold"": 0.930675447, ""Waveform"": ""Square"" } }
+  ""Override"": { ""RevLimiter"": { ""Enabled"": true, ""Gain"": 0.11, ""Freq"": 53.79011, ""PulseFreq"": 18.1786652, ""DutyCycle"": 0.5, ""ActiveAmp"": 0.35, ""Threshold"": 0.930675447, ""Waveform"": ""Square"" } }
 }";
         private const string Fh6_Car_378 = @"{
   ""Type"": ""trueforce-car-preset"", ""Version"": 2, ""GameName"": ""FH6"",
   ""CarId"": ""Car_378"", ""PresetName"": ""Car_378 (default)"", ""IsBuiltin"": true,
-  ""Override"": { ""RevLimiter"": { ""Enabled"": true, ""Gain"": 0.07189044, ""Freq"": 53.79011, ""PulseFreq"": 18.1786652, ""DutyCycle"": 0.5, ""ActiveAmp"": 0.35, ""Threshold"": 0.8634156, ""Waveform"": ""Square"" } }
+  ""Override"": { ""RevLimiter"": { ""Enabled"": true, ""Gain"": 0.11, ""Freq"": 53.79011, ""PulseFreq"": 18.1786652, ""DutyCycle"": 0.5, ""ActiveAmp"": 0.35, ""Threshold"": 0.8634156, ""Waveform"": ""Square"" } }
 }";
         private const string Fh6_Car_4222 = @"{
   ""Type"": ""trueforce-car-preset"", ""Version"": 2, ""GameName"": ""FH6"",
   ""CarId"": ""Car_4222"", ""PresetName"": ""Car_4222 (default)"", ""IsBuiltin"": true,
-  ""Override"": { ""RevLimiter"": { ""Enabled"": true, ""Gain"": 0.07189044, ""Freq"": 53.79011, ""PulseFreq"": 18.1786652, ""DutyCycle"": 0.5, ""ActiveAmp"": 0.35, ""Threshold"": 0.868041933, ""Waveform"": ""Square"" } }
+  ""Override"": { ""RevLimiter"": { ""Enabled"": true, ""Gain"": 0.11, ""Freq"": 53.79011, ""PulseFreq"": 18.1786652, ""DutyCycle"": 0.5, ""ActiveAmp"": 0.35, ""Threshold"": 0.868041933, ""Waveform"": ""Square"" } }
 }";
         private const string Fh6_Forza_4268 = @"{
   ""Type"": ""trueforce-car-preset"", ""Version"": 2, ""GameName"": ""FH6"",
   ""CarId"": ""Forza_4268"", ""PresetName"": ""Forza_4268 (default)"", ""IsBuiltin"": true,
-  ""Override"": { ""RevLimiter"": { ""Enabled"": true, ""Gain"": 0.07189044, ""Freq"": 53.79011, ""PulseFreq"": 18.1786652, ""DutyCycle"": 0.5, ""ActiveAmp"": 0.35, ""Threshold"": 0.670533061, ""Waveform"": ""Square"" } }
+  ""Override"": { ""RevLimiter"": { ""Enabled"": true, ""Gain"": 0.11, ""Freq"": 53.79011, ""PulseFreq"": 18.1786652, ""DutyCycle"": 0.5, ""ActiveAmp"": 0.35, ""Threshold"": 0.670533061, ""Waveform"": ""Square"" } }
 }";
         private const string Fh6_Forza_455 = @"{
   ""Type"": ""trueforce-car-preset"", ""Version"": 2, ""GameName"": ""FH6"",
   ""CarId"": ""Forza_455"", ""PresetName"": ""Forza_455 (default)"", ""IsBuiltin"": true,
-  ""Override"": { ""RevLimiter"": { ""Enabled"": true, ""Gain"": 0.07189044, ""Freq"": 53.79011, ""PulseFreq"": 18.1786652, ""DutyCycle"": 0.5, ""ActiveAmp"": 0.35, ""Threshold"": 0.927935839, ""Waveform"": ""Square"" } }
+  ""Override"": { ""RevLimiter"": { ""Enabled"": true, ""Gain"": 0.11, ""Freq"": 53.79011, ""PulseFreq"": 18.1786652, ""DutyCycle"": 0.5, ""ActiveAmp"": 0.35, ""Threshold"": 0.927935839, ""Waveform"": ""Square"" } }
 }";
         private const string Fh6_Forza_513 = @"{
   ""Type"": ""trueforce-car-preset"", ""Version"": 2, ""GameName"": ""FH6"",
   ""CarId"": ""Forza_513"", ""PresetName"": ""Forza_513 (default)"", ""IsBuiltin"": true,
-  ""Override"": { ""RevLimiter"": { ""Enabled"": true, ""Gain"": 0.07189044, ""Freq"": 53.79011, ""PulseFreq"": 18.1786652, ""DutyCycle"": 0.5, ""ActiveAmp"": 0.35, ""Threshold"": 0.7462359, ""Waveform"": ""Square"" } }
+  ""Override"": { ""RevLimiter"": { ""Enabled"": true, ""Gain"": 0.11, ""Freq"": 53.79011, ""PulseFreq"": 18.1786652, ""DutyCycle"": 0.5, ""ActiveAmp"": 0.35, ""Threshold"": 0.7462359, ""Waveform"": ""Square"" } }
 }";
 
         // ---- Snapshots ----

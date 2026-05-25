@@ -268,6 +268,15 @@ namespace TrueforceForAll.Core
         private int _lastReal0x11Tms;             // Environment.TickCount of last real 0x11 force
         private const int Real0x11FloorLsb = 64;  // |force| over this counts as "real" (RS50's 0x11 is +/-3)
         private const int Real0x11HoldMs   = 1000;
+        // Latch: once 0x11 has EVER carried real force this capture, the wheel
+        // is confirmed to put its FFB on the expected path (e.g. G PRO), so we
+        // stop falling back to 0x12 entirely, even when 0x11 goes quiet (held
+        // wheel at a standstill). Without this, the 1s _lastReal0x11Tms window
+        // lapses at standstill and the 0x12 fallback re-engages and reads
+        // garbage on a 0x11 wheel -> jerky FFB (G PRO + AC, 2026-05-25). The
+        // RS50's 0x11 is only +/-3 noise so it never trips the latch and still
+        // uses 0x12.
+        private bool _sawReal0x11;
         // Sustained-0x12 gate. Real driving force on 0x12 streams continuously
         // (hundreds/sec), but at game open / pause the wheel sends occasional
         // lone HID++ management messages on 0x12 (effect setup, autocenter)
@@ -312,6 +321,7 @@ namespace TrueforceForAll.Core
             _firstReportId          = -1;
             _firstFeatIdx           = -1;
             _lastReal0x11Tms        = 0;
+            _sawReal0x11            = false;
             _consec0x12             = 0;
             _last0x12Tms            = 0;
         }
@@ -1102,7 +1112,10 @@ namespace TrueforceForAll.Core
                         FfbSamplesCaptured++;
                         _ffbIndexConfirmed = true;   // real FFB flowed on this index; lock the resolver
                         if (Math.Abs((int)ffbTarget) > Real0x11FloorLsb)
+                        {
                             _lastReal0x11Tms = Environment.TickCount;   // interrupt 0x11 carrying real force
+                            _sawReal0x11 = true;                        // confirm: 0x11 wheel, stop the 0x12 fallback
+                        }
                         NoteExtraction("interrupt-out", 0x11, iFeat, "hidpp-int16be@10");
                     }
                 }
@@ -1160,12 +1173,13 @@ namespace TrueforceForAll.Core
                     bool accept = true;
                     if (is0x12)
                     {
-                        // 0x12 is a fallback: drop it while 0x11 is the live
-                        // force channel, so 0x11-real wheels (G PRO) aren't
-                        // clobbered by 0x12 traffic.
+                        // 0x12 is a fallback: drop it once the wheel has proven
+                        // it uses 0x11 (latched, never un-latches this capture),
+                        // or while 0x11 is currently the live force channel, so
+                        // 0x11-real wheels (G PRO) are never clobbered by 0x12.
                         bool real0x11Recent = _lastReal0x11Tms != 0
                             && unchecked(Environment.TickCount - _lastReal0x11Tms) < Real0x11HoldMs;
-                        if (real0x11Recent)
+                        if (_sawReal0x11 || real0x11Recent)
                         {
                             accept = false;
                         }
@@ -1185,6 +1199,7 @@ namespace TrueforceForAll.Core
                     else if (Math.Abs((int)ffbTarget) > Real0x11FloorLsb)
                     {
                         _lastReal0x11Tms = Environment.TickCount;   // 0x11 is carrying real force
+                        _sawReal0x11 = true;                        // confirm: this wheel uses 0x11, stop the 0x12 fallback
                     }
 
                     if (accept)

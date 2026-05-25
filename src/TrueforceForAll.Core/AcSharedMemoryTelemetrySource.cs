@@ -329,7 +329,11 @@ namespace TrueforceForAll.Core
             float maxLoad = Math.Max(
                 Math.Max(Math.Abs(wlFL), Math.Abs(wlFR)),
                 Math.Max(Math.Abs(wlRL), Math.Abs(wlRR)));
-            if (maxLoad > GroundedLoadN) _seenWheelLoad = true;
+            // Arm airborne detection only once a real grounded load is seen, so
+            // a build that leaves wheelLoad at ~0 reports airborne=false forever
+            // instead of going permanently "airborne".
+            if (maxLoad > GroundedLoadN && !_seenWheelLoad)
+                _seenWheelLoad = true;
             bool airborne = _seenWheelLoad && maxLoad < AirborneLoadN;
             if (airborne != _prevAirborne)
             {

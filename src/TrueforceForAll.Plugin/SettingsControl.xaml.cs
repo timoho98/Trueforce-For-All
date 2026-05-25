@@ -54,8 +54,8 @@ namespace TrueforceForAll.Plugin
         // Values mirror TrueforcePlugin.SectionKind so we can pass through.
         // Numeric values mirror TrueforcePlugin.SectionKind so we can pass
         // through with a cast.
-        private enum EffectKind { Master = 0, Ducking = 1, Audio = 2, Engine = 3, Bumps = 4, Traction = 5, Shift = 6, Abs = 7, SpikeReduction = 8, PitLimiter = 9, Drs = 10, Collision = 11, RevLimiter = 12 }
-        private readonly bool[] _effectDirty = new bool[13];
+        private enum EffectKind { Master = 0, Ducking = 1, Audio = 2, Engine = 3, Bumps = 4, Traction = 5, Shift = 6, Abs = 7, SpikeReduction = 8, PitLimiter = 9, Drs = 10, Collision = 11, RevLimiter = 12, Airborne = 13 }
+        private readonly bool[] _effectDirty = new bool[14];
         private System.Windows.Controls.Button GetEffectSaveBtn(EffectKind which)
         {
             switch (which)
@@ -73,6 +73,7 @@ namespace TrueforceForAll.Plugin
                 case EffectKind.Drs:            return DrsSaveBtn;
                 case EffectKind.Collision:      return CollisionSaveBtn;
                 case EffectKind.RevLimiter:     return RevLimiterSaveBtn;
+                case EffectKind.Airborne:       return AirborneSaveBtn;
             }
             return null;
         }
@@ -93,6 +94,7 @@ namespace TrueforceForAll.Plugin
                 case EffectKind.Drs:            return DrsRevertBtn;
                 case EffectKind.Collision:      return CollisionRevertBtn;
                 case EffectKind.RevLimiter:     return RevLimiterRevertBtn;
+                case EffectKind.Airborne:       return AirborneRevertBtn;
             }
             return null;
         }
@@ -113,13 +115,15 @@ namespace TrueforceForAll.Plugin
                 case EffectKind.Drs:            return "DRS";
                 case EffectKind.Collision:      return "Collision";
                 case EffectKind.RevLimiter:     return "Rev limiter";
+                case EffectKind.Airborne:       return "Airborne ducking";
             }
             return "section";
         }
         // Master + Ducking + SpikeReduction are global-only. The save popover
         // hides the per-car option for these (no override concept).
         private static bool SectionHasCarScope(EffectKind w)
-            => w != EffectKind.Master && w != EffectKind.Ducking && w != EffectKind.SpikeReduction;
+            => w != EffectKind.Master && w != EffectKind.Ducking && w != EffectKind.SpikeReduction
+               && w != EffectKind.Airborne;
 
         // Sections whose EDIT handlers route through the per-car DRAFT model
         // (edits land in the car's in-memory override; explicit Save with
@@ -192,6 +196,10 @@ namespace TrueforceForAll.Plugin
                 StationarySpringStrengthText.Text    = StationarySpringStrengthSlider.Value.ToString("F2");
                 StationarySpringCutoffSlider.Value   = _plugin.Settings?.StationarySpringCutoffKmh ?? 12.0;
                 StationarySpringCutoffText.Text      = ((int)StationarySpringCutoffSlider.Value).ToString();
+                // Strength / fade-out sliders only matter when the spring is on.
+                if (StationarySpringSliders != null)
+                    StationarySpringSliders.Visibility =
+                        (StationarySpringCheck.IsChecked == true) ? Visibility.Visible : Visibility.Collapsed;
                 bool skipFfb = _plugin.Settings?.SkipFfbPassthrough ?? false;
                 FfbSkipPassthroughCheck.IsChecked         = skipFfb;
                 FfbSkipPassthroughPromotedCheck.IsChecked = skipFfb;
@@ -1476,9 +1484,9 @@ namespace TrueforceForAll.Plugin
         //
         // All web-intent targets pass only the URL, never prefilled body
         // text. Auto-filled marketing copy reads as spam to the user's
-        // followers and turns people off. The "Copy a ready-to-paste post"
-        // button is the explicit opt-in for users who want the longer
-        // blurb to paste into Discord / forums / wherever.
+        // followers and turns people off. (A "Copy a ready-to-paste post"
+        // button was considered as an opt-in for the longer blurb, but
+        // intentionally dropped: the bare link-outs are the whole surface.)
         //
         // Reddit: the maintainer's own Reddit account is banned (see the
         // README note), but third parties posting on the project's behalf
@@ -1530,10 +1538,9 @@ namespace TrueforceForAll.Plugin
             });
             root.Children.Add(new TextBlock
             {
-                Text = "This is the first user-made mod that adds Logitech "
-                     + "Trueforce to games that don't support it natively. "
-                     + "Almost nobody knows it exists. A post, a clip, or a "
-                     + "link is the only way that changes.",
+                Text = "Almost nobody knows this plugin exists. A YouTube video, "
+                     + "a Reddit post, or a link to a friend is the best way to "
+                     + "help get the word out.",
                 FontSize = 12,
                 Opacity = 0.75,
                 TextWrapping = TextWrapping.Wrap,
@@ -1709,6 +1716,13 @@ namespace TrueforceForAll.Plugin
                 HeaderGameSaveAllBtn.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
             if (HeaderCarSaveAllBtn != null)
                 HeaderCarSaveAllBtn.Visibility = carDirty ? Visibility.Visible : Visibility.Collapsed;
+
+            // "Save as new…" mirrors its Save-all neighbour: it only makes sense
+            // when there's unsaved tuning to capture under a new name.
+            if (HeaderSaveAsNewBtn != null)
+                HeaderSaveAsNewBtn.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
+            if (HeaderCarSaveAsNewBtn != null)
+                HeaderCarSaveAsNewBtn.Visibility = carDirty ? Visibility.Visible : Visibility.Collapsed;
         }
 
         // Both header "Save all" buttons open the same target chooser (save to
@@ -2155,8 +2169,11 @@ namespace TrueforceForAll.Plugin
         private void StationarySpring_Changed(object sender, RoutedEventArgs e)
         {
             if (_suppressEvents || _plugin == null) return;
-            _plugin.SetStationarySpringEnabled(StationarySpringCheck.IsChecked == true);
+            bool on = StationarySpringCheck.IsChecked == true;
+            _plugin.SetStationarySpringEnabled(on);
             _plugin.PersistSettings();
+            if (StationarySpringSliders != null)
+                StationarySpringSliders.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
         }
         private void StationarySpringStrengthSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
@@ -3864,14 +3881,16 @@ namespace TrueforceForAll.Plugin
             Apply(EffectKind.RevLimiter);
         }
 
-        // ---------- Airborne ducking (global, persists immediately) ----------
+        // ---------- Airborne ducking (global section; uses the dirty/save flow
+        // like the other effects, so changes surface a Save button + feed the
+        // ★ Save all pill instead of persisting silently) ----------
 
         private void AirborneEnabled_Changed(object sender, RoutedEventArgs e)
         {
             if (_suppressEvents || _plugin?.Settings == null) return;
             _plugin.Settings.Airborne.Enabled = AirborneEnabledCheck.IsChecked == true;
             _plugin.ApplyAirborneSettings();
-            _plugin.PersistSettings();
+            MarkEffectDirty(EffectKind.Airborne);
         }
         private void AirborneReductionSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
@@ -3880,7 +3899,7 @@ namespace TrueforceForAll.Plugin
             AirborneReductionText.Text = ((int)Math.Round(v * 100)).ToString() + "%";
             _plugin.Settings.Airborne.Reduction = v;
             _plugin.ApplyAirborneSettings();
-            _plugin.PersistSettings();
+            MarkEffectDirty(EffectKind.Airborne);
         }
         // One handler for every per-effect toggle: read all the checkboxes back
         // into Settings, re-apply, persist. Cheaper to write than ten near-
@@ -3900,7 +3919,7 @@ namespace TrueforceForAll.Plugin
             a.DuckDrs          = AirborneDuckDrsCheck.IsChecked       == true;
             a.DuckCollision    = AirborneDuckCollisionCheck.IsChecked == true;
             _plugin.ApplyAirborneSettings();
-            _plugin.PersistSettings();
+            MarkEffectDirty(EffectKind.Airborne);
         }
 
         // ---------- DRS ----------
@@ -4686,91 +4705,6 @@ namespace TrueforceForAll.Plugin
             }
         }
 
-        // Result of the save-scope modal: either Cancel, "save just the
-        // section the user clicked," or "save every dirty section." The
-        // modal only appears when there's actually a choice to make
-        // (i.e. more than one section is dirty AND the save target is an
-        // overwrite path -- forks always capture whole state).
-        private enum SaveScope { Cancel, JustThis, SaveAll }
-
-        // Detect dirty sections other than the targeted one and, if any,
-        // ask the user whether they want to save just the targeted section
-        // or all dirty sections. Returns SaveScope.JustThis without
-        // prompting when only the targeted section is dirty -- the modal
-        // would have no choices to offer.
-        private SaveScope PromptSaveScope(EffectKind targetSection, string saveTargetLabel)
-        {
-            var others = new List<EffectKind>();
-            for (int i = 0; i < _effectDirty.Length; i++)
-            {
-                if (i == (int)targetSection) continue;
-                if (_effectDirty[i]) others.Add((EffectKind)i);
-            }
-            if (others.Count == 0) return SaveScope.JustThis;
-
-            string othersLabel = string.Join(", ", others.ConvertAll(EffectLabel));
-            string targetLabel = EffectLabel(targetSection);
-            int totalDirty = others.Count + 1;
-
-            var win = new Window
-            {
-                Title = "Save scope",
-                Width = 480,
-                Height = 230,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                ResizeMode    = ResizeMode.NoResize,
-                ShowInTaskbar = false,
-                Owner = Window.GetWindow(this),
-            };
-            if (win.Owner == null) win.WindowStartupLocation = WindowStartupLocation.CenterScreen;
-            ApplyDarkTheme(win);
-
-            var sp = new StackPanel { Margin = new Thickness(14) };
-            sp.Children.Add(new TextBlock
-            {
-                Text = $"You also have unsaved changes in: {othersLabel}.",
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 0, 0, 6),
-            });
-            sp.Children.Add(new TextBlock
-            {
-                Text = $"What should we save to {saveTargetLabel}?",
-                FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(0, 0, 0, 10),
-            });
-
-            var result = SaveScope.Cancel;
-            var justBtn = new Button
-            {
-                Content = $"Save just {targetLabel}",
-                Height = 32, Margin = new Thickness(0, 0, 0, 6),
-                ToolTip = "Writes only the section you clicked Save next to. Other sections stay dirty until you save them individually.",
-            };
-            var allBtn = new Button
-            {
-                Content = $"Save all {totalDirty} dirty sections",
-                Height = 32, Margin = new Thickness(0, 0, 0, 6),
-                ToolTip = "Writes every section that currently has unsaved changes.",
-            };
-            sp.Children.Add(justBtn);
-            sp.Children.Add(allBtn);
-
-            var btnRow = new StackPanel
-            {
-                Orientation = System.Windows.Controls.Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right,
-            };
-            var cancel = new Button { Content = "Cancel", Width = 80, IsCancel = true };
-            btnRow.Children.Add(cancel);
-            sp.Children.Add(btnRow);
-
-            win.Content = sp;
-            justBtn.Click += (s, a) => { result = SaveScope.JustThis; win.DialogResult = true; };
-            allBtn.Click  += (s, a) => { result = SaveScope.SaveAll;  win.DialogResult = true; };
-            win.ShowDialog();
-            return result;
-        }
-
         /// <summary>Per-effect Save popover. Two adaptive choices:
         ///   • "For [car]": toggles the override on (snapshotting current
         ///     section values into the per-car override) when not already
@@ -4981,35 +4915,18 @@ namespace TrueforceForAll.Plugin
                     return;
                 }
 
-                // Overwrite path: ask whether to save just this section or
-                // all dirty sections. PromptSaveScope returns JustThis
-                // immediately when only the targeted section is dirty.
-                var scope = PromptSaveScope((EffectKind)(int)which, $"preset '{activeP}'");
-                if (scope == SaveScope.Cancel) { win.DialogResult = true; return; }
-
+                // Per-section Save: save ONLY this section. The ★ Save all
+                // button up top is what commits every dirty section, so we
+                // don't prompt about other dirty sections here (that was
+                // redundant with Save all). Patch only the targeted section
+                // into the in-memory snapshot + write GeneralSettings; other
+                // sections keep their saved values and their dirty bits remain.
                 _plugin.PromoteSectionToGlobal((TrueforcePlugin.SectionKind)(int)which);
-                if (scope == SaveScope.JustThis)
-                {
-                    // Patch only the targeted section into the in-memory
-                    // snapshot + write GeneralSettings. Other sections in
-                    // the preset stay at their previously-saved values, so
-                    // their dirty bits remain set after refresh.
-                    _plugin.SaveSectionToActivePreset((TrueforcePlugin.SectionKind)(int)which);
-                    ClearEffectDirty(which);
-                    if (!string.IsNullOrEmpty(_plugin.ActiveGame) && !string.IsNullOrEmpty(_plugin.ActivePresetName))
-                        _plugin.SetDefaultPresetForActiveGame(_plugin.ActivePresetName);   // save-to-game-defaults binds
-                    RefreshFromPlugin();
-                }
-                else
-                {
-                    // Save-all: whole-state snapshot. Lift every dirty
-                    // override up to global first so user's active values
-                    // (override or global) all land in the new preset.
-                    for (int i = 0; i < _effectDirty.Length; i++)
-                        if (_effectDirty[i] && i != (int)which)
-                            _plugin.PromoteSectionToGlobal((TrueforcePlugin.SectionKind)i);
-                    UpdateActivePresetFromUi();
-                }
+                _plugin.SaveSectionToActivePreset((TrueforcePlugin.SectionKind)(int)which);
+                ClearEffectDirty(which);
+                if (!string.IsNullOrEmpty(_plugin.ActiveGame) && !string.IsNullOrEmpty(_plugin.ActivePresetName))
+                    _plugin.SetDefaultPresetForActiveGame(_plugin.ActivePresetName);   // save-to-game-defaults binds
+                RefreshFromPlugin();
                 win.DialogResult = true;
             };
 
@@ -5049,34 +4966,14 @@ namespace TrueforceForAll.Plugin
             }
             else
             {
-                // Overwrite existing user car preset: ask whether to write
-                // just this section or every dirty section.
-                var scope = PromptSaveScope(which, $"car preset '{activeName}'");
-                if (scope == SaveScope.Cancel) return;
-
+                // Overwrite existing user car preset: save ONLY this section.
+                // The ★ Save all button handles every dirty section, so no
+                // scope prompt here. Patch just the targeted section into the
+                // on-disk override; other sections keep their saved values and
+                // their dirty bits persist after RecomputeAllEffectDirty.
                 _plugin.SnapshotSectionToCarOverride((TrueforcePlugin.SectionKind)(int)which);
-                bool ok;
-                if (scope == SaveScope.JustThis)
-                {
-                    // Patched save: read the on-disk override (cached as
-                    // _lastPersistedCarOverrides), patch in only the
-                    // targeted section, write back. Other sections in the
-                    // file keep their previously-saved values; their dirty
-                    // bits persist after RecomputeAllEffectDirty.
-                    ok = _plugin.SaveSectionToActiveCarOverride(
-                        (TrueforcePlugin.SectionKind)(int)which);
-                }
-                else
-                {
-                    // Save-all: snapshot every dirty section into the
-                    // override (so sections still living in global also
-                    // land in the car preset file), then persist the whole
-                    // override.
-                    for (int i = 0; i < _effectDirty.Length; i++)
-                        if (_effectDirty[i] && i != (int)which)
-                            _plugin.SnapshotSectionToCarOverride((TrueforcePlugin.SectionKind)i);
-                    ok = _plugin.PersistActiveCarOverride();
-                }
+                bool ok = _plugin.SaveSectionToActiveCarOverride(
+                    (TrueforcePlugin.SectionKind)(int)which);
                 if (!ok)
                 {
                     MessageBox.Show("Save failed (see SimHub log for details).", "Trueforce");
@@ -5146,17 +5043,28 @@ namespace TrueforceForAll.Plugin
 
             UpdateHeaderPresetDisplay();
 
-            // The active-preset dropdown moved into the header pickers. This
-            // section now only drives button enablement; the pickers themselves
-            // are rebuilt by RefreshGamePresetPicker / RefreshCarPresetPicker
-            // (called from UpdateHeaderPresetDisplay above).
-            bool hasActive     = !string.IsNullOrEmpty(activeP);
-            bool gameDetected  = !string.IsNullOrEmpty(game);
+            // The active-preset dropdown + its inline buttons live in the header
+            // context card. The pickers are rebuilt by RefreshGamePresetPicker /
+            // RefreshCarPresetPicker (via UpdateHeaderPresetDisplay above); here
+            // we just refresh the conditional "Set as default" button.
+            UpdateSetDefaultButton();
+        }
 
-            // Save is always available now: if active preset is built-in or
-            // missing, ForkAndSaveAsGamePreset takes over.
-            SaveAsPresetButton.IsEnabled  = true;
-            SetDefaultButton.IsEnabled    = hasActive && gameDetected;
+        /// <summary>Show the inline "Set as default" button (next to the game
+        /// preset dropdown) only when a game is loaded AND the active preset is
+        /// not already that game's auto-load default. Picking a preset applies
+        /// it without binding it as the default, so this is the one remaining
+        /// affordance to make the binding; it self-hides once bound.</summary>
+        private void UpdateSetDefaultButton()
+        {
+            if (HeaderSetDefaultBtn == null || _plugin == null) return;
+            string activeP = _plugin.ActivePresetName;
+            bool gameDetected = !string.IsNullOrEmpty(_plugin.ActiveGame);
+            bool hasActive    = !string.IsNullOrEmpty(activeP);
+            bool isDefault    = hasActive
+                && string.Equals(activeP, _plugin.DefaultPresetForActiveGame, StringComparison.Ordinal);
+            HeaderSetDefaultBtn.Visibility = (gameDetected && hasActive && !isDefault)
+                ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private string SelectedPresetName => _plugin?.ActivePresetName;
@@ -5408,10 +5316,34 @@ namespace TrueforceForAll.Plugin
             RefreshFromPlugin();
         }
 
+        // Car-side "Save as new…": save the active car's current tuning under a
+        // new car-preset name (never overwrites the active one). Shown only when
+        // this car has unsaved tuning (mirrors the car ★ Save all button).
+        private void CarSaveAsNew_Click(object sender, RoutedEventArgs e)
+        {
+            if (_plugin == null || string.IsNullOrEmpty(_plugin.ActiveCarId)) return;
+            string carId      = _plugin.ActiveCarId;
+            string activeName = _plugin.GetActiveCarPresetName(carId);
+            string suggestion = string.IsNullOrEmpty(activeName) ? carId : StripDefaultSuffix(activeName);
+            string newName = PromptForCarPresetName(
+                title: "Save as new car preset",
+                body:  $"Save the current tuning as a new user preset for '{carId}':",
+                initial: suggestion,
+                existing: _plugin.GetCarPresets(carId));
+            if (string.IsNullOrEmpty(newName)) return;   // cancelled
+            _plugin.SaveActiveCarPresetAs(newName);
+            ClearDirty();
+            RefreshFromPlugin();
+            MaybePromptToSubmitEngineData(carId);
+        }
+
         // Per-preset Delete and Clear-default live in the Manage Presets dialog
         // now; the inline buttons were removed in the unified-picker refactor.
 
-        private void SetDefault_Click(object sender, RoutedEventArgs e)
+        // Inline "Set as default" next to the game preset dropdown. Binds the
+        // active preset as this game's auto-load default; the button then
+        // self-hides (active == default) via UpdateSetDefaultButton.
+        private void HeaderSetDefault_Click(object sender, RoutedEventArgs e)
         {
             string name = SelectedPresetName;
             if (_plugin == null || string.IsNullOrEmpty(name) || string.IsNullOrEmpty(_plugin.ActiveGame)) return;
