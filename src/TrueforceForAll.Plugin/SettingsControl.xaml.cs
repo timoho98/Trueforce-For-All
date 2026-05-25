@@ -4151,6 +4151,7 @@ namespace TrueforceForAll.Plugin
             "SPRING         Desk test of the stationary spring (motor pushes one way, then the other).\n" +
             "REV            Rev limiter buzz from a synthetic redline (tests the RPM trigger + hold).\n" +
             "WHATSNEW       Re-show the 'What's new' banner and all NEW effect badges.\n" +
+            "PREVIEW        Render the release-notes markdown on your clipboard exactly as the in-app 'What's new' will (copy the GitHub notes first, then type PREVIEW).\n" +
             "UPDATE         Simulate an available update (banner + update dialog).\n" +
             "FAULT          Force a stream fault to test auto-reconnect.\n" +
             "NOFFB          Simulate the FFB tap capturing no game force feedback while driving (tests the whole-bus retry + 'try another USB port' notice). Toggle.\n" +
@@ -4272,6 +4273,29 @@ namespace TrueforceForAll.Plugin
                 AccessCodeBox.Text = string.Empty;
                 if (AccessCodeStatus != null)
                     AccessCodeStatus.Text = "Changelog state reset: the 'What's new' banner and all NEW effect badges are showing again (banner lists full history).";
+                return;
+            }
+
+            // Dev/test: preview the EXACT in-app render of release-notes
+            // markdown from the clipboard. Since the plugin can't fetch an
+            // unpublished draft from GitHub, copy the draft's markdown body,
+            // type PREVIEW, and see it rendered through the same code path the
+            // live What's-new uses.
+            if (code.Equals("PREVIEW", StringComparison.OrdinalIgnoreCase))
+            {
+                AccessCodeBox.Text = string.Empty;
+                string md = null;
+                try { if (System.Windows.Clipboard.ContainsText()) md = System.Windows.Clipboard.GetText(); }
+                catch { }
+                if (string.IsNullOrWhiteSpace(md))
+                {
+                    if (AccessCodeStatus != null)
+                        AccessCodeStatus.Text = "Clipboard has no text. Copy the release-notes markdown first, then type PREVIEW.";
+                    return;
+                }
+                ShowNotesPreview(md);
+                if (AccessCodeStatus != null)
+                    AccessCodeStatus.Text = "Previewed the clipboard markdown as the in-app What's new would render it.";
                 return;
             }
 
@@ -6536,6 +6560,62 @@ namespace TrueforceForAll.Plugin
                 RefreshChangelogBanner();
             };
 
+            win.ShowDialog();
+        }
+
+        // Dev/test: render arbitrary release-notes markdown through the exact
+        // production path (RenderReleaseNotes) so the GitHub notes can be
+        // previewed before publishing (the plugin can't fetch an unpublished
+        // draft). Driven by the PREVIEW access code from clipboard text.
+        private void ShowNotesPreview(string markdown)
+        {
+            var win = new Window
+            {
+                Title = "What's new (notes preview)",
+                Width = 600,
+                Height = 480,
+                ResizeMode = ResizeMode.NoResize,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ShowInTaskbar = false,
+                Owner = Window.GetWindow(this),
+            };
+            if (win.Owner == null) win.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            ApplyDarkTheme(win);
+
+            var root = new DockPanel { Margin = new Thickness(16) };
+            var header = new TextBlock
+            {
+                Text = "What's new (preview of the GitHub notes render)",
+                FontSize = 16,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 12),
+            };
+            DockPanel.SetDock(header, Dock.Top);
+            root.Children.Add(header);
+
+            var footer = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 12, 0, 0),
+            };
+            DockPanel.SetDock(footer, Dock.Bottom);
+            var close = new System.Windows.Controls.Button { Content = "Close", Width = 100, Height = 28, IsDefault = true, IsCancel = true };
+            close.Click += (_, __) => win.Close();
+            footer.Children.Add(close);
+            root.Children.Add(footer);
+
+            var scroll = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                BorderThickness = new Thickness(1),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44)),
+                Padding = new Thickness(12),
+                Content = RenderReleaseNotes(markdown),
+            };
+            root.Children.Add(scroll);
+
+            win.Content = root;
             win.ShowDialog();
         }
 
