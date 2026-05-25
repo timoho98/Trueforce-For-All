@@ -592,7 +592,7 @@
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="⚠" FontSize="14" Foreground="White" VerticalAlignment="Center" Margin="0,0,8,0"/>
                             <TextBlock Foreground="White" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"
-                                       Text="SimHub is not running as administrator. This is required for reliable force feedback (the USB capture that mirrors the game's FFB can fail without it). Easiest fix: turn on 'Run as administrator' in SimHub's own Settings, then restart SimHub."/>
+                                       Text="SimHub is not running as administrator. This is required for reliable force feedback (the USB capture that mirrors the game's FFB can fail without it). Easiest fix: turn on 'Run as administrator' in SimHub's Settings, then restart SimHub."/>
                         </StackPanel>
                     </Border>
 

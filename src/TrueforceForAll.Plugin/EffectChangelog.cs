@@ -137,7 +137,7 @@ namespace TrueforceForAll.Plugin
                     new ChangelogEntry {
                         Group = "Bug fixes",
                         Headline = "Repeated admin prompts when SimHub isn't admin",
-                        Description = "Force-feedback pass-through needs administrator rights. When SimHub wasn't running as admin, the plugin kept retrying and spamming the user to grant admin permissions. It now detects this up front, skips the attempt entirely, and clearly tells you to turn on SimHub's own Run as administrator setting and restart the program.",
+                        Description = "Force-feedback pass-through needs administrator rights. When SimHub wasn't running as admin, the plugin kept retrying and spamming the user to grant admin permissions. It now detects this up front, skips the attempt entirely, and clearly tells you to turn on SimHub's Run as administrator setting and restart the program.",
                     },
                     new ChangelogEntry {
                         Group = "Thanks",
