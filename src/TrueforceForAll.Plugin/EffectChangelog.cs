@@ -132,7 +132,12 @@ namespace TrueforceForAll.Plugin
                     new ChangelogEntry {
                         Group = "Bug fixes",
                         Headline = "In-game force feedback dropping out",
-                        Description = "If the force-feedback capture loses track of your wheel (a USB re-enumeration, say), it now re-finds it and restarts on its own, so 'effects work but no in-game force feedback' recovers without a plugin reload.",
+                        Description = "If the force-feedback capture loses track of your wheel (a USB re-enumeration, say), it now re-finds it and restarts on its own, so 'effects work but no in-game force feedback' recovers without a plugin reload. A manually-picked wheel is re-located by its identity if it moves to a different USB port, instead of staying stuck on the old slot.",
+                    },
+                    new ChangelogEntry {
+                        Group = "Bug fixes",
+                        Headline = "Forza: per-car settings work without forwarding telemetry to SimHub",
+                        Description = "In the Forza Horizon games, the plugin could only tell which car you were in (to apply per-car tuning) when telemetry was also forwarded to SimHub or a Forza profile was selected there; otherwise no car was detected. It now reads the car directly from Forza's own telemetry, so per-car settings apply on their own.",
                     },
                     new ChangelogEntry {
                         Group = "Bug fixes",
