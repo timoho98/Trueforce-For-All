@@ -577,7 +577,7 @@
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="⚠" FontSize="14" Foreground="White" VerticalAlignment="Center" Margin="0,0,8,0"/>
                             <TextBlock Foreground="White" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"
-                                       Text="Logitech G HUB is running. Close it, then reload the Trueforce plugin from SimHub's Plugins page (G HUB claims the wheel and blocks Trueforce)."/>
+                                       Text="Logitech G HUB is running. Close it, then restart SimHub (G HUB claims the wheel and blocks Trueforce)."/>
                         </StackPanel>
                     </Border>
 

@@ -604,7 +604,7 @@ namespace TrueforceForAll.Plugin
                 //    detected" because G HUB is the actual cause; surfacing the
                 //    real fix saves the user a debugging detour.
                 if (_isGHubRunning)
-                    return "Logitech G HUB is running. It claims the wheel and blocks Trueforce. Close G HUB, then reload this plugin from SimHub's Plugins page.";
+                    return "Logitech G HUB is running. It claims the wheel and blocks Trueforce. Close G HUB, then restart SimHub.";
 
                 // 4. Wheel device state. WheelStatus is set by the discovery
                 //    + open path; "Not detected" is the default.
@@ -2055,7 +2055,7 @@ namespace TrueforceForAll.Plugin
                         _gHubLastLoggedState = running;
                         SimHub.Logging.Current.Info(
                             running
-                                ? "[Trueforce] Logitech G HUB detected. It claims the wheel's HID interface and blocks Trueforce. Close G HUB and reload the plugin."
+                                ? "[Trueforce] Logitech G HUB detected. It claims the wheel's HID interface and blocks Trueforce. Close G HUB and restart SimHub."
                                 : "[Trueforce] Logitech G HUB no longer detected. Wheel access should be available again.");
                     }
                     _isGHubRunning = running;
