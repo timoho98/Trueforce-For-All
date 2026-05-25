@@ -6339,10 +6339,17 @@ namespace TrueforceForAll.Plugin
         {
             if (_plugin == null) return;
 
-            var ghReleases = _plugin.GetGitHubReleasesForBanner();
+            // Prefer the bundled EffectChangelog: its richer rendering (gold
+            // section headers + dimmed two-tier entries) reads better than the
+            // flat GitHub-markdown render, so that's what users see. GitHub is
+            // only a fallback for when the local changelog has nothing pending
+            // (e.g. entries trimmed in some future build). Tradeoff: post-release
+            // edits to the GitHub release-page notes no longer change the in-app
+            // What's new; the bundled copy is canonical for this modal.
             var pending    = _plugin.GetPendingChangelog();
-            bool useGitHub = ghReleases != null && ghReleases.Count > 0;
-            bool useLocal  = !useGitHub && pending != null && pending.Count > 0;
+            var ghReleases = _plugin.GetGitHubReleasesForBanner();
+            bool useLocal  = pending != null && pending.Count > 0;
+            bool useGitHub = !useLocal && ghReleases != null && ghReleases.Count > 0;
             if (!useGitHub && !useLocal) return;
 
             var win = new Window
