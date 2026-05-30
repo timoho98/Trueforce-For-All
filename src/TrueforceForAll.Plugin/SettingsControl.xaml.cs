@@ -731,6 +731,18 @@ namespace TrueforceForAll.Plugin
                     if (RpmLedSection.Visibility != want) RpmLedSection.Visibility = want;
                 }
 
+                // Diagnostics "Pick device manually..." button. Hidden by
+                // default (auto-discovery + identity-based self-heal cover
+                // realistic failure modes); revealed by the MANUALPIN access
+                // code for power users who genuinely need to pin.
+                if (UsbPcapPickDeviceButton != null)
+                {
+                    var want = (_plugin.Settings?.ShowManualOverrideUi == true)
+                        ? System.Windows.Visibility.Visible
+                        : System.Windows.Visibility.Collapsed;
+                    if (UsbPcapPickDeviceButton.Visibility != want) UsbPcapPickDeviceButton.Visibility = want;
+                }
+
                 // Header update controls. When an update is available, the
                 // "Check for updates" link + transient status hide and a
                 // prominent "Update to vX.Y.Z" button takes their place inline
@@ -4159,6 +4171,7 @@ namespace TrueforceForAll.Plugin
             "NOFFB          Simulate the FFB tap capturing no game force feedback while driving (tests the whole-bus retry + 'try another USB port' notice). Toggle.\n" +
             "FFBX           Opt in to the experimental FFB-capture path (HID++ report 0x12 + faster index resolve; issue #8 RS50/FH6). Persists. Toggle.\n" +
             "FFBOK          Force the 'is your FFB working?' success banner on now, to test the Yes (report) and No (troubleshooter) paths.\n" +
+            "MANUALPIN      Reveal the Diagnostics 'Pick device manually...' control (hidden by default; auto-discovery + self-heal handle almost every case). Persists. Toggle.\n" +
             "MAIRA / TEST   Unlock the rim rev/shift-LED + MAIRA section (iRacing profile).";
 
         private void CommitAccessCode()
@@ -4378,6 +4391,30 @@ namespace TrueforceForAll.Plugin
                 AccessCodeBox.Text = string.Empty;
                 if (AccessCodeStatus != null)
                     AccessCodeStatus.Text = "Success banner forced on (test). Click 'Yes, it's working' to see the prefilled report, or 'No' for the troubleshooter. The x or either button clears it.";
+                return;
+            }
+
+            // Reveal (or hide) the Diagnostics "Pick device manually..."
+            // control. Off by default since auto-discovery + identity-based
+            // self-heal cover the realistic failure modes and a forgotten
+            // pin silently breaks FFB after the wheel changes USB address
+            // (issue #17). Power users with a real need (multi-wheel
+            // disambiguation, or a USBPcap interface mismatch they want to
+            // override) flip it on here; persists across restarts.
+            if (code.Equals("MANUALPIN", StringComparison.OrdinalIgnoreCase))
+            {
+                bool on = !(_plugin.Settings.ShowManualOverrideUi);
+                _plugin.Settings.ShowManualOverrideUi = on;
+                _plugin.PersistSettings();
+                AccessCodeBox.Text = string.Empty;
+                if (UsbPcapPickDeviceButton != null)
+                    UsbPcapPickDeviceButton.Visibility = on
+                        ? System.Windows.Visibility.Visible
+                        : System.Windows.Visibility.Collapsed;
+                if (AccessCodeStatus != null)
+                    AccessCodeStatus.Text = on
+                        ? "Manual device picker revealed in Diagnostics (persists). Type MANUALPIN again to hide it."
+                        : "Manual device picker hidden (persists).";
                 return;
             }
 
