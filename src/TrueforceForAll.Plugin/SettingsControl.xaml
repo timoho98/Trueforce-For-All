@@ -630,10 +630,18 @@
                                        VerticalAlignment="Center" Margin="0,0,8,0"/>
                             <TextBlock Grid.Column="1" Foreground="#222"
                                        FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"
-                                       Text="Your wheel is connected, but FFB pass-through can't find it on the USB bus, so your game's force feedback may feel wrong or be silenced. This is most often fixed by restarting your computer (USBPcap's capture driver only loads at boot, especially right after it was installed). If a reboot doesn't fix it, pick the wheel manually."/>
+                                       Text="Your wheel is connected, but FFB pass-through can't find it on the USB bus, so your game's force feedback may feel wrong or be silenced. This is most often fixed by restarting your computer (USBPcap's capture driver only loads at boot, especially right after it was installed). If a reboot doesn't fix it, please use the in-app Report an issue flow with a log attached."/>
+                            <!-- Manual-pick fallback is hidden by default
+                                 (forgotten pins silently broke FFB after a
+                                 replug; the report-an-issue path gives us the
+                                 data to fix the root cause instead). Power
+                                 users with multi-wheel disambiguation or a
+                                 specific USBPcap-interface mismatch can flip
+                                 it back on with MANUALPIN. -->
                             <Button Grid.Column="2" x:Name="FfbTapPickerBannerButton"
                                     Content="Pick device manually..."
                                     Width="170" Height="28" Margin="10,0,0,0"
+                                    Visibility="Collapsed"
                                     Click="UsbPcapPickDevice_Click"
                                     Background="#222" Foreground="#FFC107"
                                     BorderBrush="#222" BorderThickness="1"/>

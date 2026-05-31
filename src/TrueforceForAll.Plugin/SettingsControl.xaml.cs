@@ -731,16 +731,21 @@ namespace TrueforceForAll.Plugin
                     if (RpmLedSection.Visibility != want) RpmLedSection.Visibility = want;
                 }
 
-                // Diagnostics "Pick device manually..." button. Hidden by
+                // "Pick device manually..." buttons (Diagnostics + the
+                // contextual one in the FfbTapPicker banner). Hidden by
                 // default (auto-discovery + identity-based self-heal cover
                 // realistic failure modes); revealed by the MANUALPIN access
                 // code for power users who genuinely need to pin.
-                if (UsbPcapPickDeviceButton != null)
                 {
                     var want = (_plugin.Settings?.ShowManualOverrideUi == true)
                         ? System.Windows.Visibility.Visible
                         : System.Windows.Visibility.Collapsed;
-                    if (UsbPcapPickDeviceButton.Visibility != want) UsbPcapPickDeviceButton.Visibility = want;
+                    if (UsbPcapPickDeviceButton != null
+                        && UsbPcapPickDeviceButton.Visibility != want)
+                        UsbPcapPickDeviceButton.Visibility = want;
+                    if (FfbTapPickerBannerButton != null
+                        && FfbTapPickerBannerButton.Visibility != want)
+                        FfbTapPickerBannerButton.Visibility = want;
                 }
 
                 // Header update controls. When an update is available, the
@@ -4407,13 +4412,14 @@ namespace TrueforceForAll.Plugin
                 _plugin.Settings.ShowManualOverrideUi = on;
                 _plugin.PersistSettings();
                 AccessCodeBox.Text = string.Empty;
-                if (UsbPcapPickDeviceButton != null)
-                    UsbPcapPickDeviceButton.Visibility = on
-                        ? System.Windows.Visibility.Visible
-                        : System.Windows.Visibility.Collapsed;
+                var pickerVis = on
+                    ? System.Windows.Visibility.Visible
+                    : System.Windows.Visibility.Collapsed;
+                if (UsbPcapPickDeviceButton    != null) UsbPcapPickDeviceButton.Visibility    = pickerVis;
+                if (FfbTapPickerBannerButton   != null) FfbTapPickerBannerButton.Visibility   = pickerVis;
                 if (AccessCodeStatus != null)
                     AccessCodeStatus.Text = on
-                        ? "Manual device picker revealed in Diagnostics (persists). Type MANUALPIN again to hide it."
+                        ? "Manual device picker revealed (Diagnostics + the contextual banner). Persists. Type MANUALPIN again to hide it."
                         : "Manual device picker hidden (persists).";
                 return;
             }
