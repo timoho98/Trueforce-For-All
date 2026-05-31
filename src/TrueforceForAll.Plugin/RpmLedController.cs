@@ -1,8 +1,9 @@
 // Owns the WheelLedChannel and decides when/what to push to the rim LEDs.
 //
-// Scope is deliberately iRacing-only (see TrueforceSettings.RpmLedsEnabled):
-// iRacing's native rev lights ride its Trueforce SDK hook, so MAIRA users who
-// disable in-game Trueforce lose them. Other games either drive the LEDs
+// Supported sources: iRacing and Forza (UDP). iRacing's native rev lights ride
+// its Trueforce SDK hook, so MAIRA users who disable in-game Trueforce lose
+// them. Forza Horizon/Motorsport drives LEDs via the UDP telemetry source's
+// RpmPercent/RedlineReached fields. Other games either drive the LEDs
 // themselves or aren't in scope.
 //
 // The HID++ channel open is a probe (enumerate + getFeature with timeouts) so

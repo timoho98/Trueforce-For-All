@@ -156,6 +156,7 @@ namespace TrueforceForAll.Core
             try
             {
                 HidStream shortS = null, longS = null, veryS = null;
+                string longDevName = null;
                 foreach (var dev in collections)
                 {
                     int outLen = SafeOutLen(dev);
@@ -174,7 +175,7 @@ namespace TrueforceForAll.Core
                     opened.Add(s);
 
                     if (outLen == LenShort && shortS == null) { shortS = s; _devName = dev.GetFriendlyName(); }
-                    else if (outLen == LenLong && longS == null) longS = s;
+                    else if (outLen == LenLong && longS == null) { longS = s; longDevName = dev.GetFriendlyName(); }
                     else if (outLen == LenVeryLong && veryS == null) veryS = s;
                 }
 
@@ -186,6 +187,7 @@ namespace TrueforceForAll.Core
                         // collection carries all HID++ traffic; promote every
                         // SHORT write to a zero-padded LONG (0x11) packet.
                         _longOnly = true;
+                        _devName = longDevName;
                         _log($"[RPM-LED] no dedicated SHORT collection; using LONG-format HID++: {stem}");
                     }
                     else
@@ -441,7 +443,7 @@ namespace TrueforceForAll.Core
         }
         private void WriteLong(byte[] r)
         {
-            if (_long != null) _long.Write(r); else _short.Write(r);
+            if (_long != null) _long.Write(r); else _short?.Write(r);
         }
 
         public void Dispose()

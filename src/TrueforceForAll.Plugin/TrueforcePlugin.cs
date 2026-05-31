@@ -2251,7 +2251,7 @@ namespace TrueforceForAll.Plugin
             var src = _telemetrySource;
             if (src != null && src.IsEnhanced)
             {
-                frame.MaxRpm    = _lastSimHubMaxRpm;
+                if (frame.MaxRpm <= 0) frame.MaxRpm = _lastSimHubMaxRpm;
                 frame.AbsActive = _lastSimHubAbsActive;
                 // Redline RPM: only fill when the enhanced source didn't supply
                 // its own (none do today), so the rev limiter can threshold

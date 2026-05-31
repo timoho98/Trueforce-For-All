@@ -457,8 +457,9 @@ namespace TrueforceForAll.Core
             // ramp in cleanly once the car has settled.
 
             double ledLo      = maxRpm * LedMinRpmRatio;
-            double rpmPercent = (maxRpm > ledLo)
-                ? Math.Max(0.0, Math.Min(1.0, (curRpm - ledLo) / (maxRpm - ledLo)))
+            double ledRange   = maxRpm - ledLo;
+            double rpmPercent = (ledRange > 0.0)
+                ? Math.Max(0.0, Math.Min(1.0, (curRpm - ledLo) / ledRange))
                 : 0.0;
             bool redline = maxRpm > 0 && curRpm >= maxRpm * BlinkRpmRatio;
 
