@@ -206,12 +206,15 @@ namespace TrueforceForAll.Core
         // testers opt in via the FFBX access code. See ExperimentalCapture.
         private const byte FfbFeatureIndexSeed = 0x0e;
         // Min cumulative func-0x20 samples at a candidate index before the
-        // resolver switches off the seed. Default 200 (the shipped value).
-        // Experimental lowers it to 32 so short / menu-heavy sessions still
-        // latch the real index (Infinitum9's whole capture had only 26 func-2
-        // packets); the 4x-dominance rule + re-entrant re-evaluation +
-        // confirm-lock are the real guard against a stray settings-write burst.
-        private const long FfbIndexMinSamplesDefault      = 200;
+        // resolver switches off the seed. Lowered from 200 to 50: at 200 the
+        // G923 (seed 0x0e, real index 0x0b) accumulated 111 samples on 0x0b
+        // within 5 s but the floor wasn't met, causing an 8 s escalation +
+        // second full bus scan (~12 s wasted). 50 resolves within ~2 s of
+        // gameplay. The 4x-dominance rule + re-entrant re-evaluation +
+        // confirm-lock guard against a wrong early latch.
+        // Experimental lowers further to 32 for wheels with very few func-0x20
+        // packets in a session (Infinitum9's whole capture had only 26).
+        private const long FfbIndexMinSamplesDefault      = 50;
         private const long FfbIndexMinSamplesExperimental = 32;
         private long FfbIndexMinSamples =>
             ExperimentalCapture ? FfbIndexMinSamplesExperimental : FfbIndexMinSamplesDefault;
