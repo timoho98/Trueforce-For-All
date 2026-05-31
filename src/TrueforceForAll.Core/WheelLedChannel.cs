@@ -69,7 +69,9 @@ namespace TrueforceForAll.Core
         // One open stream per HID++ report size (see file header).
         private HidStream _short, _long, _veryLong;
         private string _devName;
-
+        // True when the device has no dedicated SHORT (0x10) collection;
+        // all HID++ writes go as LONG (0x11, 20 bytes). Set in TryGroup.
+        private bool _longOnly;
         private byte _idxRev;       // resolved feature index of page 0x807A
         private bool _ready;
         private volatile bool _armed;
@@ -130,6 +132,7 @@ namespace TrueforceForAll.Core
                     return false;
                 }
 
+                _longOnly = false;
                 foreach (var kv in groups)
                     if (TryGroup(kv.Key, kv.Value)) return true;
 
@@ -148,6 +151,7 @@ namespace TrueforceForAll.Core
 
         private bool TryGroup(string stem, List<HidDevice> collections)
         {
+            _longOnly = false;
             var opened = new List<HidStream>();
             try
             {
@@ -176,8 +180,19 @@ namespace TrueforceForAll.Core
 
                 if (shortS == null)
                 {
-                    _log($"[RPM-LED] group has no SHORT (7-byte) collection: {stem}");
-                    DisposeAll(opened); return false;
+                    if (longS != null)
+                    {
+                        // G923: no dedicated SHORT (0x10) collection. The LONG
+                        // collection carries all HID++ traffic; promote every
+                        // SHORT write to a zero-padded LONG (0x11) packet.
+                        _longOnly = true;
+                        _log($"[RPM-LED] no dedicated SHORT collection; using LONG-format HID++: {stem}");
+                    }
+                    else
+                    {
+                        _log($"[RPM-LED] group has no SHORT (7-byte) collection: {stem}");
+                        DisposeAll(opened); return false;
+                    }
                 }
                 if (longS == null && veryS == null)
                 {
@@ -219,16 +234,19 @@ namespace TrueforceForAll.Core
             try { return d.GetMaxOutputReportLength(); } catch { return -1; }
         }
 
-        /// <summary>HID++ root getFeature(pageId). Writes the SHORT request and
-        /// reads the reply off whichever collection carries it. Returns the
-        /// resolved feature index, or 0 if no usable reply.</summary>
+        /// <summary>HID++ root getFeature(pageId). Writes the request (SHORT or
+        /// LONG depending on what the device supports) and reads the reply off
+        /// whichever collection carries it. Returns the resolved feature index,
+        /// or 0 if no usable reply.</summary>
         private byte TryGetFeature(ushort pageId)
         {
-            var req = new byte[LenShort];
-            req[0] = RepShort; req[1] = DevWired; req[2] = RootIndex; req[3] = RootGetFn;
-            req[4] = (byte)(pageId >> 8); req[5] = (byte)(pageId & 0xFF); req[6] = 0x00;
+            var req    = new byte[_longOnly ? LenLong  : LenShort];
+            var stream = _longOnly ? _long    : _short;
+            req[0] = _longOnly ? RepLong : RepShort;
+            req[1] = DevWired; req[2] = RootIndex; req[3] = RootGetFn;
+            req[4] = (byte)(pageId >> 8); req[5] = (byte)(pageId & 0xFF);
+            try { stream.Write(req); }
 
-            try { _short.Write(req); }
             catch (Exception ex) { _log($"[RPM-LED] getFeature write failed: {ex.Message}"); return 0; }
 
             foreach (var s in new[] { _long, _veryLong, _short })
@@ -405,7 +423,22 @@ namespace TrueforceForAll.Core
 
         public void Clear() => TurnOff();
 
-        private void WriteShort(byte[] r) => _short.Write(r);
+        private void WriteShort(byte[] r)
+        {
+            if (_longOnly)
+            {
+                // Promote SHORT (0x10, 7 bytes) to LONG (0x11, 20 bytes):
+                // keep device/feature/fn/params, swap report ID, zero-pad.
+                var lr = new byte[LenLong];
+                lr[0] = RepLong;
+                Buffer.BlockCopy(r, 1, lr, 1, r.Length - 1);
+                _long.Write(lr);
+            }
+            else
+            {
+                _short.Write(r);
+            }
+        }
         private void WriteLong(byte[] r)
         {
             if (_long != null) _long.Write(r); else _short.Write(r);

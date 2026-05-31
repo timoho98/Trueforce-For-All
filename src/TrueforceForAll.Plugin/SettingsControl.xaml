@@ -1740,22 +1740,23 @@
 
             </StackPanel> <!-- /TelemetryEffectsPanel -->
 
-            <!-- Rev/shift LEDs (iRacing + MAIRA). MAIRA users lose the wheel's
-                 LEDs (iRacing's Trueforce being off takes them with it); these
-                 toggles plus MAIRA's matching toggle bring them back. Drives
-                 rim or base LEDs depending on the wheel. -->
+            <!-- Rev/shift LEDs. MAIRA users lose the wheel's LEDs (iRacing's
+                 Trueforce being off takes them with it); these toggles plus
+                 MAIRA's matching toggle bring them back. Drives rim or base
+                 LEDs depending on the wheel. Also works in Forza and other
+                 SimHub-supported games. -->
             <StackPanel x:Name="RpmLedSection" Visibility="Collapsed" Margin="0,20,0,0">
-            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Rev/shift LEDs (iRacing)" Style="{StaticResource SectionHeaderText}"/></Border>
+            <Border Style="{StaticResource SectionHeaderBorder}"><TextBlock Text="Rev/shift LEDs" Style="{StaticResource SectionHeaderText}"/></Border>
             <TextBlock Style="{StaticResource HelpText}" Margin="0,0,0,8" FontSize="12"
-                Text="Running MAIRA turns iRacing's Trueforce off, which also turns your wheel's LEDs off. With these toggles on (and MAIRA's matching toggle), TF4ALL drives the LEDs again from your RPM. Click Test to check they light up. If they do not work, use Feedback then Report an issue and attach your logs so I can take a look."/>
+                Text="Drives your wheel's rev/shift LEDs from RPM telemetry. Works in Forza and other games without MAIRA. In iRacing, MAIRA is needed because iRacing's own Trueforce takes the LEDs — enable both toggles below and MAIRA's matching toggle to bring them back. Click Test to verify hardware. If they do not light up, use Feedback → Report an issue and attach your logs."/>
             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                <CheckBox x:Name="RpmLedEnabledCheck" Content="Drive the wheel's LEDs in iRacing"
+                <CheckBox x:Name="RpmLedEnabledCheck" Content="Drive the wheel's LEDs"
                           VerticalAlignment="Center"
                           Checked="RpmLedEnabled_Changed" Unchecked="RpmLedEnabled_Changed"
-                          ToolTip="Only active in iRacing with MAIRA. No effect in other games."/>
+                          ToolTip="Enables LED control in all supported games. In iRacing, also requires MAIRA's matching toggle."/>
                 <Button Content="Test" Style="{StaticResource EffectTestButton}" Click="RpmLedTest_Click"/>
             </StackPanel>
-            <CheckBox x:Name="MairaPassthroughCheck" Content="Auto-link with MAIRA (recommended)"
+            <CheckBox x:Name="MairaPassthroughCheck" Content="Auto-link with MAIRA (recommended for iRacing)"
                       VerticalAlignment="Center" Margin="0,0,0,6"
                       Checked="MairaPassthrough_Changed" Unchecked="MairaPassthrough_Changed"
                       ToolTip="Leave on. When you turn on MAIRA's matching 'Pass FFB through TF4ALL' toggle, the two link up automatically and your LEDs come back. With MAIRA's toggle off, TF4ALL works exactly as before."/>
@@ -1767,8 +1768,33 @@
                 <TextBlock Grid.Column="0" Text="LED status:" Style="{StaticResource LabelText}"/>
                 <TextBlock Grid.Column="1" x:Name="RpmLedStatusText" Text="(idle)" FontSize="11" Opacity="0.85"/>
             </Grid>
+            <!-- LED onset / blink tuning -->
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="LED onset (Forza):" Style="{StaticResource LabelText}"
+                           ToolTip="Forza only. First LED lights at this fraction of max RPM. 0.65 = 65% of redline. Lower = LEDs come on earlier."/>
+                <Slider Grid.Column="1" x:Name="LedMinRpmRatioSlider" Minimum="0.50" Maximum="0.99" SmallChange="0.01" LargeChange="0.05"
+                        TickFrequency="0.05" ValueChanged="LedMinRpmRatioSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="LedMinRpmRatioText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0.87"/>
+            </Grid>
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Blink threshold (Forza):" Style="{StaticResource LabelText}"
+                           ToolTip="Forza only. All LEDs blink when RPM exceeds this fraction of max RPM. 0.98 = 98% of redline."/>
+                <Slider Grid.Column="1" x:Name="BlinkRpmRatioSlider" Minimum="0.80" Maximum="1.00" SmallChange="0.01" LargeChange="0.05"
+                        TickFrequency="0.05" ValueChanged="BlinkRpmRatioSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="BlinkRpmRatioText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="0.98"/>
+            </Grid>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Blink speed (Hz):" Style="{StaticResource LabelText}"
+                           ToolTip="How fast the LEDs flash at redline. 10 Hz = 10 blinks per second."/>
+                <Slider Grid.Column="1" x:Name="BlinkHzSlider" Minimum="2" Maximum="20" SmallChange="1" LargeChange="2"
+                        TickFrequency="1" ValueChanged="BlinkHzSlider_ValueChanged" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="BlinkHzText" VerticalAlignment="Center" HorizontalAlignment="Right" Text="10"/>
+            </Grid>
             <TextBlock Style="{StaticResource HelpText}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,4"
-                Text="Your LEDs and Trueforce haptics work together once MAIRA's 'Pass FFB through TF4ALL' toggle is on. Get MAIRA below."/>
+               Text="In iRacing: your LEDs and Trueforce haptics work together once MAIRA's 'Pass FFB through TF4ALL' toggle is on. Get MAIRA below."/>
             <TextBlock Margin="0,0,0,8" FontSize="12">
                 <Hyperlink Foreground="#FF4DA3FF" Click="GetMaira_Click">
                     <Run Text="Get MAIRA Refactored (recommended for iRacing)"/>

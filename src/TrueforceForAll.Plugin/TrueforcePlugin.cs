@@ -2340,11 +2340,15 @@ namespace TrueforceForAll.Plugin
                 // write stalls FFB ~1.5 s, so auto-suppress LEDs there. The
                 // setting can be on; it just can't fight FFB.
                 bool mairaLive = _mairaIpc != null && _mairaIpc.IsOpen;
+                bool isIRacing = string.Equals(_activeGame, "IRacing", StringComparison.Ordinal);
+                // iRacing without MAIRA puts PID on the HID++ pipe; LED writes stall
+                // FFB ~1.5 s there. All other games route FFB through USBPcap/ep3
+                // and never touch HID++ PID, so LEDs are safe unconditionally.
                 bool gate = (Settings?.RpmLedsEnabled ?? false)
-                            && string.Equals(_activeGame, "IRacing", StringComparison.Ordinal)
-                            && mairaLive;
+                    && (!isIRacing || mairaLive);
                 try
                 {
+                    _rpmLeds.BlinkHz = Settings?.RpmLeds?.BlinkHz ?? 10.0;
                     _rpmLeds.OnFrame(frame.RpmPercent, frame.Rpms, frame.MaxRpm,
                                      frame.RedlineReached, gate);
                 }
@@ -2626,12 +2630,25 @@ namespace TrueforceForAll.Plugin
             IsF1GameName(_activeGame)
             || (Settings?.F1?.AlwaysListen == true);
 
-        /// <summary>True when the rim rev-LED + MAIRA section should be
-        /// visible. iRacing-only: that is the sole game where the LEDs
-        /// (and the MAIRA passthrough that makes them safe) apply.</summary>
+        /// <summary>True when the rim rev-LED section should be visible.
+        /// Scoped to iRacing and Forza — the two games where LED control
+        /// is implemented and validated.</summary>
         public bool ShouldShowRpmLedSection =>
-            string.Equals(_activeGame, "IRacing", StringComparison.Ordinal);
+            string.Equals(_activeGame, "IRacing", StringComparison.Ordinal)
+            || IsForzaGameName(_activeGame);
 
+        /// <summary>Propagates the current RpmLeds settings to the active
+        /// telemetry sources without restarting them. BlinkHz is already
+        /// read per-frame; only ratio values need explicit push.</summary>
+        public void ApplyRpmLedSettings()
+        {
+            if (Settings?.RpmLeds == null) return;
+            if (_telemetrySource is ForzaUdpTelemetrySource fz2)
+            {
+                fz2.LedMinRpmRatio = Settings.RpmLeds.LedMinRpmRatio;
+                fz2.BlinkRpmRatio  = Settings.RpmLeds.BlinkRpmRatio;
+            }
+        }
         /// <summary>True when the active game's telemetry includes ABS
         /// pump activity. Forza's Data Out wire format (FH4/FH5/FH6) does
         /// not surface this, and neither does SimHub's universal reader
@@ -2786,7 +2803,9 @@ namespace TrueforceForAll.Plugin
                         var forwardTo = BuildForzaForwardEndpoint(Settings.Forza);
                         var fz = new ForzaUdpTelemetrySource(Settings.Forza.Port, bindIp, forwardTo)
                         {
-                            Logger = msg => SimHub.Logging.Current.Info($"[Trueforce] {msg}"),
+                            Logger         = msg => SimHub.Logging.Current.Info($"[Trueforce] {msg}"),
+                            LedMinRpmRatio = Settings.RpmLeds.LedMinRpmRatio,
+                            BlinkRpmRatio  = Settings.RpmLeds.BlinkRpmRatio,
                         };
                         fz.Start();
                         newSource = fz;

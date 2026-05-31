@@ -44,13 +44,11 @@ namespace TrueforceForAll.Plugin
         // and the no-MAIRA iRacing path never see it.
         public bool RpmLedsEnabled { get; set; } = true;
 
-        // Gate for the rim-LED / MAIRA-passthrough settings section. Hidden
-        // from the public UI until a tester types the access code (MAIRA or
-        // TEST) in the box at the bottom of the settings page. The MAIRA
-        // side is still in PR and unvalidated on RS50/G923, so this keeps
-        // the half-feature out of sight for normal users. Once true it
-        // stays unlocked for that install.
-        public bool RpmLedUnlocked { get; set; } = false;
+        // Previously gated by tester access code; feature is now validated on
+        // G923 works on FH6. Default true so the section is
+        // always visible. Field kept for JSON back-compat (old false values
+        // are ignored by the visibility check which no longer reads it).
+        public bool RpmLedUnlocked { get; set; } = true;
 
         // Per-game auto-remembered enable state. When the active game changes,
         // the plugin looks up this dict and applies the saved value (default
@@ -245,6 +243,7 @@ namespace TrueforceForAll.Plugin
         // the air), same machine-level rationale as Sidechain ducking's living
         // outside the per-car override set. See AirborneEffect / AirborneSettings.
         public AirborneSettings     Airborne     { get; set; } = new AirborneSettings();
+        public RpmLedSettings RpmLeds { get; set; } = new RpmLedSettings();
 
         // Per-machine performance tuning. Lives outside GameSettingsSnapshot
         // because ring sizes are a property of the machine (CPU, scheduler
@@ -773,6 +772,20 @@ namespace TrueforceForAll.Plugin
         // same in the UI.
         [JsonConverter(typeof(StringEnumConverter))]
         public Waveform SustainedWaveform { get; set; } = Waveform.Square;
+    }
+
+    public sealed class RpmLedSettings
+    {
+        /// <summary>Fraction of max RPM at which the first LED lights up (0.0–1.0).
+        /// 0.65 = first LED at 65% of redline, all 10 LEDs at 100%.</summary>
+        public double LedMinRpmRatio { get; set; } = 0.65;
+
+        /// <summary>Fraction of max RPM above which all LEDs flash (0.0–1.0).
+        /// Should be >= LedMinRpmRatio. 0.90 = blink starts at 90% of redline.</summary>
+        public double BlinkRpmRatio  { get; set; } = 0.90;
+
+        /// <summary>Blink frequency in Hz when at or above BlinkRpmRatio.</summary>
+        public double BlinkHz        { get; set; } = 10.0;
     }
 
     public sealed class CollisionSettings

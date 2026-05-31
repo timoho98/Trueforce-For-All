@@ -264,7 +264,7 @@ namespace TrueforceForAll.Plugin
 
                 CaptureExeOverrideBox.Text = _plugin.ActiveCaptureExeOverride ?? "";
 
-                // Rim rev/shift LEDs (iRacing)
+                // Rim rev/shift LEDs
                 if (AccessCodeStatus != null && _plugin.Settings?.RpmLedUnlocked == true)
                     AccessCodeStatus.Text = "Test features unlocked.";
                 if (RpmLedEnabledCheck != null)
@@ -274,6 +274,25 @@ namespace TrueforceForAll.Plugin
                 if (RpmLedStatusText != null)
                     RpmLedStatusText.Text = _plugin.RpmLedStatus;
 
+                var rpmLeds = _plugin.Settings?.RpmLeds;
+                if (rpmLeds != null)
+                {
+                    if (LedMinRpmRatioSlider != null)
+                    {
+                        LedMinRpmRatioSlider.Value = rpmLeds.LedMinRpmRatio;
+                        LedMinRpmRatioText.Text    = rpmLeds.LedMinRpmRatio.ToString("F2");
+                    }
+                    if (BlinkRpmRatioSlider != null)
+                    {
+                        BlinkRpmRatioSlider.Value = rpmLeds.BlinkRpmRatio;
+                        BlinkRpmRatioText.Text    = rpmLeds.BlinkRpmRatio.ToString("F2");
+                    }
+                    if (BlinkHzSlider != null)
+                    {
+                        BlinkHzSlider.Value = rpmLeds.BlinkHz;
+                        BlinkHzText.Text    = ((int)rpmLeds.BlinkHz).ToString();
+                    }
+                }
                 // Forza section
                 var fz = _plugin.Settings?.Forza;
                 if (fz != null)
@@ -713,19 +732,7 @@ namespace TrueforceForAll.Plugin
                 }
                 if (RpmLedSection != null)
                 {
-                    // Two gates, both required: (1) the tester unlocked it
-                    // with the access code (bottom of page) - the MAIRA
-                    // passthrough side is still in PR / unvalidated on
-                    // RS50/G923, so it stays out of the public UI until then;
-                    // and (2) the active SimHub game is iRacing
-                    // (ShouldShowRpmLedSection), since iRacing is the only game
-                    // these toggles apply to. Gate (2) is profile-level, not
-                    // run-state: _activeGame is data.GameName (the
-                    // SimHub-selected game), so it shows in the iRacing profile
-                    // whether or not iRacing is currently running, and stays
-                    // hidden in every other profile.
-                    var want = (_plugin.Settings?.RpmLedUnlocked == true
-                                && _plugin.ShouldShowRpmLedSection)
+                    var want = _plugin.ShouldShowRpmLedSection
                         ? System.Windows.Visibility.Visible
                         : System.Windows.Visibility.Collapsed;
                     if (RpmLedSection.Visibility != want) RpmLedSection.Visibility = want;
@@ -4442,7 +4449,7 @@ namespace TrueforceForAll.Plugin
             if (AccessCodeStatus != null)
                 AccessCodeStatus.Text = showNow
                     ? "Test features unlocked."
-                    : "Test features unlocked (shows in the iRacing profile).";
+                    : "Test features unlocked (shows in the iRacing or Forza profile).";
             if (RpmLedSection != null)
                 RpmLedSection.Visibility = showNow
                     ? System.Windows.Visibility.Visible
@@ -4489,6 +4496,36 @@ namespace TrueforceForAll.Plugin
                 else if (++idleTicks > 4) t.Stop();   // ~1s after test ends
             };
             t.Start();
+        }
+
+        private void LedMinRpmRatioSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin?.Settings?.RpmLeds == null) return;
+            double v = Math.Round(e.NewValue, 2);
+            LedMinRpmRatioText.Text = v.ToString("F2");
+            _plugin.Settings.RpmLeds.LedMinRpmRatio = v;
+            _plugin.ApplyRpmLedSettings();
+            _plugin.PersistSettings();
+        }
+
+        private void BlinkRpmRatioSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin?.Settings?.RpmLeds == null) return;
+            double v = Math.Round(e.NewValue, 2);
+            BlinkRpmRatioText.Text = v.ToString("F2");
+            _plugin.Settings.RpmLeds.BlinkRpmRatio = v;
+            _plugin.ApplyRpmLedSettings();
+            _plugin.PersistSettings();
+        }
+
+        private void BlinkHzSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressEvents || _plugin?.Settings?.RpmLeds == null) return;
+            double v = Math.Round(e.NewValue);
+            BlinkHzText.Text = ((int)v).ToString();
+            _plugin.Settings.RpmLeds.BlinkHz = v;
+            _plugin.ApplyRpmLedSettings();
+            _plugin.PersistSettings();
         }
 
         private void ForzaPort_LostFocus(object sender, RoutedEventArgs e) => CommitForzaPort();

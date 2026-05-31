@@ -129,6 +129,14 @@ namespace TrueforceForAll.Core
 
         public Action<string> Logger { get; set; }
 
+        /// <summary>Fraction of max RPM at which the first LED lights up.
+        /// Set from RpmLedSettings.LedMinRpmRatio by the plugin on source creation.</summary>
+        public double LedMinRpmRatio { get; set; } = 0.65;
+
+        /// <summary>Fraction of max RPM above which RedlineReached is set.
+        /// Set from RpmLedSettings.BlinkRpmRatio by the plugin on source creation.</summary>
+        public double BlinkRpmRatio  { get; set; } = 0.90;
+
         /// <summary>Most recent IsRaceOn flag, exposed so the UI can show
         /// "active / paused" state independent of MeasuredHz.</summary>
         public bool LastIsRaceOn { get; private set; }
@@ -447,6 +455,13 @@ namespace TrueforceForAll.Core
             // speed and gear pass through so the engine note and
             // auto-detection resume immediately; the surface/impact effects
             // ramp in cleanly once the car has settled.
+
+            double ledLo      = maxRpm * LedMinRpmRatio;
+            double rpmPercent = (maxRpm > ledLo)
+                ? Math.Max(0.0, Math.Min(1.0, (curRpm - ledLo) / (maxRpm - ledLo)))
+                : 0.0;
+            bool redline = maxRpm > 0 && curRpm >= maxRpm * BlinkRpmRatio;
+
             return new TelemetryFrame
             {
                 Rpms       = curRpm,
@@ -471,6 +486,9 @@ namespace TrueforceForAll.Core
                 SurfaceRumble = settling ? 0.0 : surfaceMax,
                 OnRumbleStrip = !settling && anyRumbleStrip,
                 NumCylinders  = numCyl > 0 ? numCyl : (int?)null,
+
+                RpmPercent    = rpmPercent,
+                RedlineReached = redline,
 
                 // AbsActive is left default: Forza's Data Out doesn't expose
                 // ABS pump activity; SimHub's reader can't either. Effect

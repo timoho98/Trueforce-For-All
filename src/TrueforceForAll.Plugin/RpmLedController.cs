@@ -78,6 +78,10 @@ namespace TrueforceForAll.Plugin
             Push(rpmPercent, redline, force: false);
         }
 
+        /// <summary>Blink frequency in Hz when redline is active.
+        /// Set from RpmLedSettings.BlinkHz by the plugin each frame.</summary>
+        public double BlinkHz { get; set; } = 10.0;
+
         private int _hystLevel = -1;
 
         private void Push(double pct, bool redline, bool force)
@@ -86,9 +90,8 @@ namespace TrueforceForAll.Plugin
             int target;
             if (redline)
             {
-                // Peak: blink the full bar (~2.7 Hz) like iRacing's shift
-                // blink, instead of holding it solid.
-                bool on = ((nowMs / 185L) & 1L) == 0L;
+                long halfPeriodMs = (long)Math.Max(1, 500.0 / BlinkHz);
+                bool on = ((nowMs / halfPeriodMs) & 1L) == 0L;
                 target = on ? WheelLedChannel.LedCount : 0;
             }
             else
